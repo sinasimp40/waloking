@@ -58,6 +58,7 @@ Preferred communication style: Simple, everyday language.
   - Queue: jobs exceeding concurrency wait until a slot opens
 - **Live registry** (`update-server/live.js`): Tracks all connected launcher/server instances per channel — shows online/offline + running version in admin panel; 25s heartbeat, 90s stale eviction
 - **Cleanup** (`update-server/cleanup.js`): After each build, removes old version directories under `releases/<channel>/` and `public/updates/<channel>/` keeping only the newest
+- **Install lock** (`update-server/install-lock.js`): Cross-process filesystem lock at `<projectRoot>/.ota-install.lock` guarding the npm-install pre-flight in `/api/admin/build`. Atomic via `fs.openSync(..., 'wx')`, with mtime-based stale recovery (10 min default), forensic metadata (pid+host+acquiredAt) and a 2-minute acquire timeout. Prevents two OTA server instances against the same project root from corrupting shared `node_modules` by running `npm install` concurrently. The handler double-checks `rootDepsInstalled()` after acquiring so a sibling that just finished installing is short-circuited.
 
 ### Companion Server (`server/`)
 - **Framework:** Express 4 with CORS, Multer for file uploads
@@ -82,6 +83,7 @@ Preferred communication style: Simple, everyday language.
 - `tests/test-server-rebrand.js` — same for server.exe including shortcut sweep
 - `tests/test-build-all-logo-isolation.js` — regression test for per-customer logo isolation
 - `update-server/test-job-runner.js` — smoke tests for job runner concurrency, cancel, queue, SSE replay
+- `update-server/test-install-lock.js` — cross-process filesystem-lock tests for the npm-install pre-flight (atomicity, idempotent release, timeout, stale reclaim, finally-release crash safety, real two-process race)
 
 ## External Dependencies
 

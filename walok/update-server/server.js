@@ -10,6 +10,7 @@ const dbApi = require('./db')
 const live = require('./live')
 const { cleanupAfterBuild, cleanupCancelledJob } = require('./cleanup')
 const jobRunner = require('./job-runner')
+const { acquireInstallLock } = require('./install-lock')
 
 const PORT = parseInt(process.env.OTA_PORT || '4231', 10)
 const HOST = process.env.OTA_HOST || '0.0.0.0'
@@ -750,19 +751,58 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
   // the request handler before any job is enqueued. On the typical operator
   // machine deps are already populated (rootDepsInstalled()===true) so this
   // is a noop; on a truly fresh tree it blocks the request once.
+  // The check-then-install pattern below is wrapped in a CROSS-PROCESS
+  // filesystem lock. Reasoning:
+  //
+  //   - Inside one Node process, the synchronous `spawnSync` already
+  //     serialises overlapping requests on the event loop.
+  //   - But if the operator runs TWO ota-update-server processes against
+  //     the same PROJECT_ROOT (primary + hot-spare during maintenance,
+  //     accidentally during a deploy), each process has its OWN event
+  //     loop — and both could spawnSync `npm install` against the SAME
+  //     shared node_modules at the same time. npm is not concurrency-safe
+  //     on a shared install target → corrupted tree.
+  //
+  //   - The lock is acquired ONLY when we actually need to install. If
+  //     deps are already populated, we never touch the lockfile, so
+  //     normal hot-path requests pay zero overhead.
+  //   - Double-check after acquire: if a sibling process just finished
+  //     an install and released the lock, we now see the deps and skip.
   if (!rootDepsInstalled() || (fs.existsSync(serverDir) && !serverDepsInstalled())) {
-    const installSteps = []
-    if (!rootDepsInstalled()) installSteps.push({ cwd: PROJECT_ROOT, label: 'root' })
-    if (fs.existsSync(serverDir) && !serverDepsInstalled()) installSteps.push({ cwd: serverDir, label: 'server' })
-    for (const s of installSteps) {
-      const r = require('child_process').spawnSync(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
-        cwd: s.cwd, shell: true, stdio: 'pipe', encoding: 'utf-8',
-      })
-      if (r.status !== 0) {
+    let lock
+    try {
+      lock = acquireInstallLock(PROJECT_ROOT, { maxWaitMs: 120000 })
+    } catch (e) {
+      if (e.code === 'EINSTALLLOCKED') {
         return res.status(503).json({
-          error: 'npm install failed for ' + s.label + ' deps (exit ' + r.status + '): ' + (r.stderr || r.stdout || '').slice(0, 800),
+          error: 'another OTA server instance is currently installing dependencies in this project root. Try again in a moment. Lock owner: ' + (e.owner || 'unknown'),
         })
       }
+      return res.status(503).json({ error: 'failed to acquire install lock: ' + e.message })
+    }
+    try {
+      const installSteps = []
+      // Re-check INSIDE the lock — a sibling process may have completed
+      // the install while we were waiting on acquire().
+      if (!rootDepsInstalled()) installSteps.push({ cwd: PROJECT_ROOT, label: 'root' })
+      if (fs.existsSync(serverDir) && !serverDepsInstalled()) installSteps.push({ cwd: serverDir, label: 'server' })
+      for (const s of installSteps) {
+        const r = require('child_process').spawnSync(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
+          cwd: s.cwd, shell: true, stdio: 'pipe', encoding: 'utf-8',
+        })
+        if (r.status !== 0) {
+          return res.status(503).json({
+            error: 'npm install failed for ' + s.label + ' deps (exit ' + r.status + '): ' + (r.stderr || r.stdout || '').slice(0, 800),
+          })
+        }
+      }
+    } finally {
+      // ALWAYS release — even if `npm install` crashed, an early return
+      // fired above, or something else threw. Without this finally a
+      // single bad install would brick all subsequent /api/admin/build
+      // requests on every OTA server until the operator manually deleted
+      // the lockfile (or 10 min stale-recovery kicked in).
+      lock.release()
     }
   }
 
