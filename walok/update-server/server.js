@@ -534,14 +534,18 @@ app.get('/api/admin/status', (req, res) => {
 
 // Read-only build identifier for the running update-server process. Lets the
 // operator confirm which copy of update-server/ is actually running, so
-// "is the SSE crash fix really deployed?" can be answered in seconds. Note:
-// this GET coexists with the existing POST /api/admin/version (which bumps
-// the PROJECT version, not the update-server version) — Express dispatches
-// by method, but consumers should prefer this endpoint's name to avoid
-// confusion.
-app.get('/api/admin/build-info', requireAdmin, (req, res) => {
+// "is the SSE crash fix really deployed?" can be answered in seconds.
+//
+// Note: this GET coexists with the POST /api/admin/version handler defined
+// later in this file (which bumps the PROJECT version, a different concept).
+// Express dispatches by method, so both can share the path. If you find this
+// confusing while reading the code, an equivalent alias is exposed at
+// GET /api/admin/build-info — same payload, same auth.
+function sendBuildStamp(req, res) {
   res.json(BUILD_STAMP)
-})
+}
+app.get('/api/admin/version', requireAdmin, sendBuildStamp)
+app.get('/api/admin/build-info', requireAdmin, sendBuildStamp)
 
 app.get('/api/admin/customers', requireAdmin, (req, res) => {
   if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found — cannot manage customers' })

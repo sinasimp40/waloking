@@ -33,8 +33,9 @@ short rev, but it works without git installed.
 Use this when troubleshooting "is my fix actually deployed?" After copying a
 new `update-server/` folder to your Windows machine and restarting `start.bat`,
 the `BUILD` hash should change. If it doesn't, you're still running the old
-code. The same data is also available at `GET /api/admin/build-info` (admin
-auth required) and inside `/api/admin/status`.
+code. The same data is also available at `GET /api/admin/version` (admin auth
+required; `GET /api/admin/build-info` is an equivalent alias) and inside
+`/api/admin/status`.
 
 ## How publishing works
 
