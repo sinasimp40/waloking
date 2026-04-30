@@ -69,13 +69,15 @@ function renderBuildStamp(stamp) {
   el.textContent = hash + ' · ' + builtAt + (node ? ' · node ' + node : '')
   el.title = JSON.stringify(stamp, null, 2) +
     '\n\nClick to copy this build stamp to the clipboard.'
-  el.onclick = () => {
+  el.onclick = async () => {
+    const prev = el.textContent
     try {
-      navigator.clipboard.writeText(JSON.stringify(stamp))
-      const prev = el.textContent
+      await navigator.clipboard.writeText(JSON.stringify(stamp))
       el.textContent = 'copied'
-      setTimeout(() => { el.textContent = prev }, 900)
-    } catch (_) {}
+    } catch (_) {
+      el.textContent = 'copy failed'
+    }
+    setTimeout(() => { el.textContent = prev }, 900)
   }
 }
 
