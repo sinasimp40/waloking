@@ -416,18 +416,67 @@ function ensureConsoleCard(jobId, label) {
     bannerExit: card.querySelector('.job-error-exit-text'),
     evt: null,
     finished: false,
+    // --- DOM batching state (see appendConsoleLine / flushConsoleQueue) ---
+    // SSE can deliver hundreds of log lines per animation frame during heavy
+    // build steps (npm install, packaging). Doing one DOM mutation per line
+    // freezes the tab. We queue lines and flush at most once per rAF, in a
+    // single DocumentFragment, with one autoscroll at the end.
+    queue: [],
+    flushScheduled: false,
+    totalAppended: 0,
+    // Hard ceiling so a runaway stream cannot OOM the tab. When exceeded we
+    // remove old <div> children from the head of `output`. 5000 lines is more
+    // than enough to debug and well below the point where the tab struggles.
+    MAX_LINES: 5000,
   }
   consoleCards.set(jobId, rec)
   updateClearFinishedButton()
   return rec
 }
 
-function appendConsoleLine(rec, text, cls) {
-  const line = document.createElement('div')
-  if (cls) line.className = 'line-' + cls
-  line.textContent = text
-  rec.output.appendChild(line)
+// Flush all queued lines for `rec` in a single DOM mutation. Called from
+// requestAnimationFrame (normal path) and synchronously from the terminal
+// `data.end` handler (so the user sees every line before the SUCCESS pill).
+function flushConsoleQueue(rec) {
+  rec.flushScheduled = false
+  if (!rec.queue.length) return
+  const frag = document.createDocumentFragment()
+  for (const item of rec.queue) {
+    const line = document.createElement('div')
+    if (item.cls) line.className = 'line-' + item.cls
+    line.textContent = item.text
+    frag.appendChild(line)
+  }
+  rec.queue.length = 0
+  rec.output.appendChild(frag)
+  rec.totalAppended = rec.output.childNodes.length
+  // Bound the DOM size. Removing from the head keeps the most-recent log
+  // visible (which is what the user is reading).
+  if (rec.totalAppended > rec.MAX_LINES) {
+    const drop = rec.totalAppended - rec.MAX_LINES
+    for (let i = 0; i < drop; i++) {
+      const first = rec.output.firstChild
+      if (!first) break
+      rec.output.removeChild(first)
+    }
+    // One sentinel so the user knows the head was elided.
+    if (!rec.output.firstChild || rec.output.firstChild.dataset.elision !== '1') {
+      const sentinel = document.createElement('div')
+      sentinel.className = 'line-cmd'
+      sentinel.dataset.elision = '1'
+      sentinel.textContent = '[… older lines elided to keep the page responsive …]'
+      rec.output.insertBefore(sentinel, rec.output.firstChild)
+    }
+  }
   rec.output.scrollTop = rec.output.scrollHeight
+}
+
+function appendConsoleLine(rec, text, cls) {
+  rec.queue.push({ text, cls })
+  if (!rec.flushScheduled) {
+    rec.flushScheduled = true
+    requestAnimationFrame(() => flushConsoleQueue(rec))
+  }
 }
 
 function setCardStatus(rec, text, cls) {
@@ -475,6 +524,11 @@ function streamJob(jobId, label) {
           rec.bannerExit.textContent = String(data.exitCode == null ? '?' : data.exitCode)
           rec.banner.classList.remove('hidden')
         }
+        // Force a synchronous flush so the user sees every queued line
+        // (including the just-appended === SUCCESS === / banner) BEFORE the
+        // EventSource closes. Without this the queue could still be sitting
+        // in a pending rAF when we tear the connection down.
+        flushConsoleQueue(rec)
         evt.close()
         rec.evt = null
         rec.finished = true

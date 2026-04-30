@@ -84,13 +84,41 @@ function copyDir(src, dest) {
 }
 
 function buildPayload(unpackedDir, outZipPath) {
-  const tar = require('child_process')
   log('Packing payload zip from: ' + path.relative(ROOT, unpackedDir))
+  const t0 = Date.now()
   if (process.platform === 'win32') {
-    execSync('powershell -Command "Compress-Archive -Path \\"' + unpackedDir + '\\\\*\\" -DestinationPath \\"' + outZipPath + '\\" -Force"', { stdio: 'inherit' })
+    // $ProgressPreference='SilentlyContinue' kills Compress-Archive's progress
+    // bar — that bar emits thousands of [oooo...] lines per zip via stdout,
+    // which (a) freezes the parent cmd.exe console and (b) saturates the SSE
+    // pipe to the admin UI so it appears stuck on RUNNING. With it silenced,
+    // the command emits ~0 lines.
+    // stdio:'pipe' (instead of 'inherit') means even an unexpected stderr
+    // burst is captured into a string rather than dumped to the parent
+    // terminal — we surface anything non-empty through log() one line at a
+    // time, so the rate-limit is bounded by the number of actual lines.
+    // -NoProfile skips loading $PROFILE (saves hundreds of ms per invocation
+    // on machines with PS profiles). -NonInteractive prevents any prompt from
+    // ever blocking the build. Together they make the call faster AND silent.
+    const cmd = 'powershell -NoProfile -NonInteractive -Command "$ProgressPreference=' + "'SilentlyContinue'" +
+      '; Compress-Archive -Path \\"' + unpackedDir + '\\\\*\\" -DestinationPath \\"' + outZipPath + '\\" -Force"'
+    try {
+      const out = execSync(cmd, { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8' })
+      if (out && out.trim()) for (const ln of out.split(/\r?\n/)) if (ln.trim()) log('  ' + ln)
+    } catch (e) {
+      if (e.stdout) for (const ln of String(e.stdout).split(/\r?\n/)) if (ln.trim()) log('  ' + ln)
+      if (e.stderr) for (const ln of String(e.stderr).split(/\r?\n/)) if (ln.trim()) err('  ' + ln)
+      throw e
+    }
   } else {
-    execSync('cd "' + unpackedDir + '" && zip -r "' + outZipPath + '" . -q', { stdio: 'inherit' })
+    try {
+      execSync('cd "' + unpackedDir + '" && zip -r "' + outZipPath + '" . -q', { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf-8' })
+    } catch (e) {
+      if (e.stderr) for (const ln of String(e.stderr).split(/\r?\n/)) if (ln.trim()) err('  ' + ln)
+      throw e
+    }
   }
+  const sz = fs.existsSync(outZipPath) ? fs.statSync(outZipPath).size : 0
+  log('Packed ' + (sz / 1024 / 1024).toFixed(2) + ' MiB in ' + (Date.now() - t0) + ' ms → ' + path.relative(ROOT, outZipPath))
 }
 
 function publishChannel(channel, version, multi) {
