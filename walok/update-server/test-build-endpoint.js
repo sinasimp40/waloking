@@ -159,6 +159,10 @@ function startServer() {
       OTA_ADMIN_PASSWORD: 'test-password-12345',
       OTA_PROJECT_ROOT: PROJ_DIR,
       OTA_DATA_DIR: DATA_DIR,
+      // Enables /api/admin/__test_inline_job (gated test-only hook used by
+      // the SSE coalescing assertion below). Mounting only when this env
+      // var is set keeps it absent from production servers.
+      OTA_TEST_MODE: '1',
       // PATH-prefix with our shim dir so the server's `npm install` resolves
       // to our fake. NPM_CMD on the server is plain 'npm' (or npm.cmd on
       // Windows) so a PATH prefix is sufficient.
@@ -294,12 +298,16 @@ async function run() {
 
   // --- THE CORE ASSERTION: exactly ONE npm install ran across both requests ---
   // For two overlapping POST /api/admin/build calls against a fresh tree,
-  // a healthy implementation must run npm install EXACTLY ONCE: spawnSync
-  // blocks the Node event loop while request #1's pre-flight runs, and by
-  // the time request #2's handler is scheduled the .bin sentinels exist
-  // and rootDepsInstalled() returns true. Anything other than 1 is the
-  // regression we are guarding against (2 = parallel installs racing
-  // node_modules; 0 = pre-flight bypassed entirely).
+  // a healthy implementation must run npm install EXACTLY ONCE: the
+  // install lock holds while request #1's pre-flight runs, and by the
+  // time request #2's handler acquires the lock + rechecks, the .bin
+  // sentinels exist and rootDepsInstalled() returns true. Anything other
+  // than 1 is the regression we are guarding against (2 = parallel
+  // installs racing node_modules; 0 = pre-flight bypassed entirely).
+  // Originally serialized via spawnSync; Task #16 switched to async
+  // spawn + async lock acquire so the event loop stays responsive — the
+  // serialization guarantee is now load-bearing on the post-acquire
+  // recheck, which the next test below also exercises.
   let observedEvents = []
   let observedIntervals = []
   try {
@@ -313,7 +321,7 @@ async function run() {
       'expected EXACTLY 1 npm-install invocation across both overlapping requests, got ' + observedIntervals.length +
       ' — this is the regression we are guarding against' + renderEvents(),
     )
-    ok('exactly 1 npm-install invocation observed across both overlapping requests (the install pre-flight serialized them via spawnSync)')
+    ok('exactly 1 npm-install invocation observed across both overlapping requests (install lock + post-acquire recheck serialize them)')
   } catch (e) { fail('parallel-install safety: exactly-one invocation', e) }
 
   // --- Defense-in-depth: even if a future refactor relaxes the
@@ -343,6 +351,120 @@ async function run() {
       }
     }
   } catch (e) { /* best-effort cleanup */ }
+
+  // --- Task #16: install pre-flight must NOT block the event loop ---
+  // Reset the project's deps sentinels so the next build request
+  // re-enters the install pre-flight (which calls our 600ms busy-wait
+  // shim). Then fire a build request AND an unrelated /api/admin/status
+  // probe in parallel: the probe must come back well before the build
+  // response, proving the handler yielded the event loop while the shim
+  // was busy. With the old spawnSync-based pre-flight the probe would
+  // queue behind the install and finish strictly AFTER the build.
+  try {
+    // Wipe .bin/* sentinels so rootDepsInstalled() flips back to false
+    // and the next /api/admin/build re-runs the install pre-flight.
+    const binDir = path.join(PROJ_DIR, 'node_modules', '.bin')
+    if (fs.existsSync(binDir)) {
+      for (const f of fs.readdirSync(binDir)) {
+        try { fs.unlinkSync(path.join(binDir, f)) } catch (_) {}
+      }
+    }
+    // Truncate the marker so we only see this round's events.
+    try { fs.writeFileSync(MARKER, '') } catch (_) {}
+
+    const tBuildStart = Date.now()
+    const buildPromise = httpReq('POST', '/api/admin/build', { all: true })
+    // Stagger the probe by ~100ms so it lands AFTER the build handler is
+    // already inside its async install await — that is the moment we
+    // need to prove the event loop is still free.
+    const probePromise = new Promise(r => setTimeout(r, 100))
+      .then(() => httpReq('GET', '/api/admin/status').then(res => ({ res, t: Date.now() })))
+    const [buildRes, probe] = await Promise.all([
+      buildPromise.then(res => ({ res, t: Date.now() })),
+      probePromise,
+    ])
+    const buildElapsed = buildRes.t - tBuildStart
+    const probeElapsed = probe.t - tBuildStart
+    assert.strictEqual(buildRes.res.status, 200, 'build #3 HTTP status (got ' + buildRes.res.status + ')')
+    assert.strictEqual(probe.res.status, 200, 'probe HTTP status (got ' + probe.res.status + ')')
+    assert.ok(buildElapsed >= 500,
+      'build response should take >= ~500ms (the 600ms shim) to prove install actually ran, got ' + buildElapsed + 'ms')
+    // The smoking-gun assertion: the unrelated probe came back BEFORE
+    // the build did. If spawnSync were still in use, the probe would
+    // queue behind the install and finish at >= buildElapsed.
+    assert.ok(probe.t < buildRes.t,
+      'probe finished AFTER build — install pre-flight blocked the event loop (probe=' + probeElapsed + 'ms, build=' + buildElapsed + 'ms)')
+    assert.ok(probeElapsed < 400,
+      'probe should respond promptly (< 400ms) while install runs in background, got ' + probeElapsed + 'ms — install is blocking the event loop')
+    ok('event loop stays responsive during install pre-flight (probe=' + probeElapsed + 'ms vs build=' + buildElapsed + 'ms)')
+
+    // Cancel any jobs this round enqueued so we don't leave them running.
+    try {
+      const j = await httpReq('GET', '/api/admin/jobs')
+      if (j.status === 200 && j.body && j.body.jobs) {
+        for (const jb of j.body.jobs) {
+          if (jb.status === 'running' || jb.status === 'queued') {
+            await httpReq('POST', '/api/admin/jobs/' + jb.id + '/cancel')
+          }
+        }
+      }
+    } catch (e) { /* best-effort */ }
+  } catch (e) { fail('event-loop responsiveness during install pre-flight', e) }
+
+  // --- Task #16: SSE stream coalesces high-rate output into batched writes ---
+  // The /api/admin/jobs/:id/stream handler buffers entries and flushes at
+  // ~OTA_SSE_COALESCE_MS (default 33ms) intervals into ONE res.write per
+  // flush. This test enqueues an inline job that produces a burst of log
+  // lines, opens an SSE stream, and counts how many distinct TCP chunks
+  // we receive. Without coalescing one chunk per line is typical
+  // (=== nlines events). With coalescing we expect << nlines chunks.
+  try {
+    const enqueueRes = await httpReq('POST', '/api/admin/__test_inline_job', {
+      lines: 200, label: 'sse-coalesce-test',
+    })
+    assert.strictEqual(enqueueRes.status, 200, 'inline-job enqueue HTTP status')
+    const jobId = enqueueRes.body && enqueueRes.body.jobId
+    assert.ok(jobId, 'inline-job enqueue should return jobId')
+
+    // Read the SSE stream raw and count discrete data chunks delivered to
+    // the socket (proxy for res.write calls).
+    const chunkCount = await new Promise((resolve, reject) => {
+      const opts = {
+        host: '127.0.0.1', port: SERVER_PORT,
+        path: '/api/admin/jobs/' + jobId + '/stream',
+        method: 'GET',
+        headers: { 'Accept': 'text/event-stream', 'Cookie': cookieHeader },
+      }
+      const req = http.request(opts, (res) => {
+        if (res.statusCode !== 200) return reject(new Error('SSE status ' + res.statusCode))
+        let chunks = 0
+        let endSeen = false
+        let buf = ''
+        res.on('data', d => {
+          chunks++
+          buf += d.toString()
+          if (buf.includes('"end":true')) endSeen = true
+        })
+        res.on('end', () => resolve({ chunks, endSeen, buf }))
+        res.on('error', reject)
+      })
+      req.on('error', reject)
+      req.end()
+      setTimeout(() => reject(new Error('SSE stream timeout')), 10000)
+    })
+    // Count actual log entries in the buffer to verify nothing was lost.
+    const lineMatches = (chunkCount.buf.match(/"line":/g) || []).length
+    assert.ok(chunkCount.endSeen, 'SSE stream should end with {end:true}')
+    assert.ok(lineMatches >= 200,
+      'SSE replay+stream should deliver all 200 lines, got ' + lineMatches)
+    // The smoking-gun assertion: we got far fewer TCP chunks than lines.
+    // Typical observed: 2-5 chunks for 200 lines (1 replay + a few flushes).
+    // We give a generous ceiling (50 chunks) so this isn't flaky on slow
+    // CI but still catches a regression to per-line writes (=200+ chunks).
+    assert.ok(chunkCount.chunks <= 50,
+      'SSE stream should coalesce ~200 lines into <=50 TCP chunks (got ' + chunkCount.chunks + ' — coalescing regressed)')
+    ok('SSE stream coalesces ' + lineMatches + ' lines into ' + chunkCount.chunks + ' TCP chunks')
+  } catch (e) { fail('SSE coalescing', e) }
 
   await stopServer()
 

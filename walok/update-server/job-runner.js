@@ -24,12 +24,33 @@
 //     next build.
 
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
 
 const IS_WIN = process.platform === 'win32'
 const MAX_CONCURRENT_BUILDS = Math.max(1, parseInt(process.env.OTA_MAX_BUILDS || '2', 10))
+
+// OTA_BUILD_PRIORITY: 'belowNormal' (default) | 'normal' | 'idle'.
+// Lowering child-process scheduling priority is the single biggest win for
+// terminal/desktop responsiveness during BUILD ALL on under-spec operator
+// machines: two parallel electron-builder runs saturate every core, and at
+// 'normal' priority the OS round-robins them with the operator's cmd.exe
+// and browser, producing visible input lag. At BELOW_NORMAL the kernel
+// preempts builds whenever the foreground asks for CPU. Builds end up
+// taking the same wall-clock time on an idle machine (they get all the
+// CPU anyway) but stay out of the way when the operator interacts. The
+// nice value is inherited by descendants on POSIX and on Windows
+// BELOW_NORMAL_PRIORITY_CLASS propagates to spawned children.
+const PRIORITY_BUDGET = (() => {
+  const want = String(process.env.OTA_BUILD_PRIORITY || 'belowNormal').toLowerCase()
+  const c = (os.constants && os.constants.priority) || {}
+  if (want === 'normal') return null
+  if (want === 'idle') return c.PRIORITY_LOW != null ? c.PRIORITY_LOW : 19
+  // default — belowNormal
+  return c.PRIORITY_BELOW_NORMAL != null ? c.PRIORITY_BELOW_NORMAL : 10
+})()
 
 // ============ utilities ============
 
@@ -116,18 +137,28 @@ function symlinkDir(src, dest) {
 // Create a per-job workspace at <projectRoot>/.build-jobs/<jobId>/.
 // The workspace is a self-contained copy of the source tree with shared
 // node_modules junctions. Returns the absolute path to the workspace root.
-function createJobWorkspace(jobId, projectRoot) {
+//
+// Async (Task #16): the per-entry copyFileTreeSync calls used to run
+// back-to-back synchronously, blocking the event loop for hundreds of ms
+// per job. With BUILD ALL fanning out N jobs that delay stacked and the
+// admin SSE stream visibly stuttered every time a new job started.
+// Yielding the event loop between top-level entries (heavy dirs like
+// `electron/`, `src/`, `server/`) keeps the loop free for other handlers
+// + SSE flushes; total wall-clock cost is unchanged because the copy
+// itself is unavoidable I/O.
+async function createJobWorkspace(jobId, projectRoot) {
   const wsRoot = path.join(projectRoot, '.build-jobs', jobId)
   fs.mkdirSync(wsRoot, { recursive: true })
-  // Copy top-level source dirs and files (skipping the heavy/regenerated ones).
   for (const ent of fs.readdirSync(projectRoot)) {
     if (shouldSkipForWorkspace(ent)) continue
     const src = path.join(projectRoot, ent)
     const dest = path.join(wsRoot, ent)
     copyFileTreeSync(src, dest)
+    // Yield to the event loop between top-level entries so other handlers
+    // (SSE flushes, queue snapshots, even a concurrent build's runner
+    // that just opened a slot) can interleave with this clone.
+    await new Promise(r => setImmediate(r))
   }
-  // Junction node_modules so the workspace can resolve modules without
-  // duplicating ~600MB on disk per job.
   symlinkDir(path.join(projectRoot, 'node_modules'), path.join(wsRoot, 'node_modules'))
   symlinkDir(path.join(projectRoot, 'server', 'node_modules'), path.join(wsRoot, 'server', 'node_modules'))
   return wsRoot
@@ -352,6 +383,14 @@ function runStep(job, cmd, args, opts) {
     return Promise.resolve(-1)
   }
   job.activeChild = child
+  // Lower scheduling priority of the spawned child so the operator's
+  // foreground work (cmd.exe, browser, admin panel) preempts it. See
+  // PRIORITY_BUDGET above for the full rationale. Best-effort: failures
+  // here are non-fatal (no admin permission, OS without setpriority,
+  // etc.) and we never want a priority issue to abort a build.
+  if (PRIORITY_BUDGET != null && child.pid) {
+    try { os.setPriority(child.pid, PRIORITY_BUDGET) } catch (_) { /* best-effort */ }
+  }
   return new Promise((resolve) => {
     let settled = false
     const handleData = d => d.toString().split(/\r?\n/).forEach(l => {
@@ -415,7 +454,7 @@ function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete, onCa
     // cancelled before it runs never touches the disk.
     try {
       jobAppend(job, '== Preparing isolated build workspace…')
-      job.workspace = createJobWorkspace(job.id, projectRoot)
+      job.workspace = await createJobWorkspace(job.id, projectRoot)
       jobAppend(job, '   workspace: ' + path.relative(projectRoot, job.workspace))
     } catch (e) {
       jobAppend(job, 'WORKSPACE ERROR: ' + e.message)

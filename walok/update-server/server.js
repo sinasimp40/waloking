@@ -10,7 +10,7 @@ const dbApi = require('./db')
 const live = require('./live')
 const { cleanupAfterBuild, cleanupCancelledJob } = require('./cleanup')
 const jobRunner = require('./job-runner')
-const { acquireInstallLock } = require('./install-lock')
+const { acquireInstallLock, acquireInstallLockAsync } = require('./install-lock')
 
 const PORT = parseInt(process.env.OTA_PORT || '4231', 10)
 const HOST = process.env.OTA_HOST || '0.0.0.0'
@@ -153,6 +153,38 @@ if (CUSTOMERS_DIR) {
 }
 
 const NPM_CMD = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+
+// Async `npm install` wrapper used by the build pre-flight. Returns a
+// Promise that resolves on exit code 0 and rejects with a descriptive
+// Error on any other outcome. Critically, this does NOT block the event
+// loop while npm runs, so the admin panel + every other route stay
+// responsive during a fresh-tree first build (Task #16). Output is
+// captured (not streamed) because the install pre-flight runs OUTSIDE
+// any job and has no SSE listener — surfacing the tail of stderr in the
+// rejection error gives the operator something to diagnose.
+function runNpmInstallAsync(cwd, label) {
+  const { spawn } = require('child_process')
+  return new Promise((resolve, reject) => {
+    let stdout = ''
+    let stderr = ''
+    let child
+    try {
+      child = spawn(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
+        cwd, shell: true, stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch (e) {
+      reject(new Error('npm install spawn failed for ' + label + ' deps: ' + e.message))
+      return
+    }
+    child.stdout.on('data', d => { stdout += d.toString() })
+    child.stderr.on('data', d => { stderr += d.toString() })
+    child.on('error', e => reject(new Error('npm install error for ' + label + ' deps: ' + e.message)))
+    child.on('exit', (code) => {
+      if (code === 0) return resolve()
+      reject(new Error('npm install failed for ' + label + ' deps (exit ' + code + '): ' + (stderr || stdout).slice(0, 800)))
+    })
+  })
+}
 
 function hasNpmBin(rootDir, name) {
   const binDir = path.join(rootDir, 'node_modules', '.bin')
@@ -699,7 +731,7 @@ app.post('/api/admin/version', requireAdmin, (req, res) => {
 // ============ SINGLE BUILD ROUTE ============
 // Always: build → publish → cleanup → live push.
 // No more separate BUILD-only or PUBLISH-only flows in the admin UI.
-app.post('/api/admin/build', requireAdmin, (req, res) => {
+app.post('/api/admin/build', requireAdmin, async (req, res) => {
   if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found — cannot run builds' })
   const { channel, all, version, dryRun } = req.body || {}
   if (!all && !isValidChannel(channel)) return res.status(400).json({ error: 'channel required (or pass all:true)' })
@@ -750,15 +782,26 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
   // EEXIST / partial-write failures. Solution: do the install ONCE here in
   // the request handler before any job is enqueued. On the typical operator
   // machine deps are already populated (rootDepsInstalled()===true) so this
-  // is a noop; on a truly fresh tree it blocks the request once.
+  // is a noop; on a truly fresh tree we block this one request, but the
+  // event loop stays free (see below) so other admin requests + SSE flushes
+  // continue to work.
+  //
   // Cross-process filesystem lock so two OTA server instances against
   // the same PROJECT_ROOT can't run `npm install` concurrently against
   // shared node_modules. Acquired only when an install is actually
-  // needed; double-checked after acquire in case a sibling just finished.
+  // needed; rechecked after acquire in case a sibling just finished.
+  //
+  // Task #16 fix: async lock acquire + async spawn. The previous
+  // implementation used Atomics.wait + spawnSync which froze the entire
+  // OTA server (admin UI, build SSE streams, every other handler) until
+  // npm install returned. With two concurrent build requests (e.g. the
+  // operator double-clicked BUILD ALL on a fresh tree) the freeze stacked
+  // and the panel felt hung. acquireInstallLockAsync polls via setTimeout
+  // and the spawn awaits 'exit' — both yield the event loop.
   if (!rootDepsInstalled() || (fs.existsSync(serverDir) && !serverDepsInstalled())) {
     let lock
     try {
-      lock = acquireInstallLock(PROJECT_ROOT, { maxWaitMs: 120000 })
+      lock = await acquireInstallLockAsync(PROJECT_ROOT, { maxWaitMs: 120000 })
     } catch (e) {
       if (e.code === 'EINSTALLLOCKED') {
         return res.status(503).json({
@@ -768,18 +811,20 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
       return res.status(503).json({ error: 'failed to acquire install lock: ' + e.message })
     }
     try {
+      // RECHECK after acquiring the lock — a sibling request that arrived
+      // ~ms before us may have just finished installing while we were
+      // polling. Without this recheck we would re-run npm install on a
+      // fully-populated tree (slow + noisy + makes the
+      // test-build-endpoint.js "exactly 1 invocation" assertion flaky).
       const installSteps = []
       if (!rootDepsInstalled()) installSteps.push({ cwd: PROJECT_ROOT, label: 'root' })
       if (fs.existsSync(serverDir) && !serverDepsInstalled()) installSteps.push({ cwd: serverDir, label: 'server' })
       for (const s of installSteps) {
         lock.touch() // keep mtime fresh across a multi-step install
-        const r = require('child_process').spawnSync(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
-          cwd: s.cwd, shell: true, stdio: 'pipe', encoding: 'utf-8',
-        })
-        if (r.status !== 0) {
-          return res.status(503).json({
-            error: 'npm install failed for ' + s.label + ' deps (exit ' + r.status + '): ' + (r.stderr || r.stdout || '').slice(0, 800),
-          })
+        try {
+          await runNpmInstallAsync(s.cwd, s.label)
+        } catch (e) {
+          return res.status(503).json({ error: e.message })
         }
       }
     } finally {
@@ -1276,6 +1321,29 @@ app.get('/api/admin/jobs/:id', requireAdmin, (req, res) => {
   })
 })
 
+// === Test-only hook (Task #16): synthesise a job that emits a burst of
+// log lines, used by test-build-endpoint.js to assert the SSE handler
+// coalesces high-rate output. Mounted only when OTA_TEST_MODE is truthy
+// so production servers never expose it. ===
+if (process.env.OTA_TEST_MODE) {
+  app.post('/api/admin/__test_inline_job', requireAdmin, (req, res) => {
+    const lines = Math.max(1, Math.min(5000, parseInt((req.body && req.body.lines) || '100', 10)))
+    const label = String((req.body && req.body.label) || 'test-burst')
+    const job = jobRunner.enqueueInlineJob({
+      label,
+      channels: [],
+      work: async (j) => {
+        // Emit a tight burst with no awaits between lines — this mirrors
+        // a noisy build step (electron-builder, npm install) which is
+        // exactly the load profile that overwhelmed the per-line SSE
+        // writer before coalescing.
+        for (let i = 0; i < lines; i++) jobAppend(j, '[burst] line ' + i)
+      },
+    })
+    res.json({ jobId: job.id, status: job.status })
+  })
+}
+
 app.get('/api/admin/jobs/:id/stream', requireAdmin, (req, res) => {
   const job = jobRunner.getJob(req.params.id)
   if (!job) { res.status(404).end(); return }
@@ -1291,9 +1359,14 @@ app.get('/api/admin/jobs/:id/stream', requireAdmin, (req, res) => {
   res.on('error', () => {})
 
   // Replay buffered output for late subscribers (so refreshing the page
-  // mid-build shows the full log instead of only new lines).
-  for (const e of job.output) {
-    res.write('data: ' + JSON.stringify(e) + '\n\n')
+  // mid-build shows the full log instead of only new lines). Concatenate
+  // into one res.write so a 5000-line buffer is shipped in one syscall
+  // instead of 5000 — replay used to spike the event loop on page reload
+  // mid-build.
+  if (job.output.length > 0) {
+    let replay = ''
+    for (const e of job.output) replay += 'data: ' + JSON.stringify(e) + '\n\n'
+    try { res.write(replay) } catch (e) {}
   }
   if (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled') {
     res.write('data: ' + JSON.stringify({ end: true, exitCode: job.exitCode, failedStep: job.failedStep, status: job.status }) + '\n\n')
@@ -1302,19 +1375,63 @@ app.get('/api/admin/jobs/:id/stream', requireAdmin, (req, res) => {
   }
   const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch (e) {} }, 15000)
   let detach = null
+
+  // Server-side SSE coalescing (Task #16). The job-runner can emit hundreds
+  // of log lines per second during heavy steps (electron-builder, npm
+  // install). Without coalescing, each line triggered a separate res.write
+  // — and with 2 parallel builds that meant ~2000 socket writes/sec from a
+  // single Node thread, which by itself was enough to make the admin SSE
+  // connection feel sluggish AND starve other handlers (the panel's REST
+  // calls would visibly stall while a build was loud).
+  //
+  // The wire format is unchanged: each log entry is still its own
+  // `data: {...}\n\n` SSE event from the client's perspective. We just
+  // concatenate consecutive entries into one TCP write at most every
+  // OTA_SSE_COALESCE_MS (default 33ms = ~30Hz, matching the admin UI's
+  // rAF-based DOM batching). {end:true} flushes synchronously so the
+  // client always sees the terminal status before EventSource closes.
+  const COALESCE_MS = Math.max(0, parseInt(process.env.OTA_SSE_COALESCE_MS || '33', 10))
+  let buffered = ''
+  let flushTimer = null
+  function flushBuffer() {
+    flushTimer = null
+    if (!buffered) return
+    const chunk = buffered
+    buffered = ''
+    try { res.write(chunk) } catch (e) {}
+  }
   const send = (entry) => {
-    try { res.write('data: ' + JSON.stringify(entry) + '\n\n') } catch (e) {}
     if (entry.end) {
+      // Drain buffered lines first — the client must see every log line
+      // BEFORE the terminal {end:...} event (and before the connection
+      // closes).
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
+      if (buffered) {
+        try { res.write(buffered) } catch (e) {}
+        buffered = ''
+      }
+      try { res.write('data: ' + JSON.stringify(entry) + '\n\n') } catch (e) {}
       clearInterval(heartbeat)
       // Detach synchronously so any further jobAppend (e.g. from a still-
       // running onComplete callback) can never call res.write on the
       // response we are about to end. Do this BEFORE res.end().
       if (detach) { detach(); detach = null }
       try { res.end() } catch (e) {}
+      return
     }
+    buffered += 'data: ' + JSON.stringify(entry) + '\n\n'
+    if (COALESCE_MS === 0) {
+      flushBuffer()
+      return
+    }
+    if (!flushTimer) flushTimer = setTimeout(flushBuffer, COALESCE_MS)
   }
   detach = jobRunner.attachListener(req.params.id, send)
-  req.on('close', () => { clearInterval(heartbeat); if (detach) { detach(); detach = null } })
+  req.on('close', () => {
+    clearInterval(heartbeat)
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
+    if (detach) { detach(); detach = null }
+  })
 })
 
 app.get('/api/admin/online', requireAdmin, (req, res) => {

@@ -387,6 +387,50 @@ async function testCancelReleasesSlot() {
   } catch (e) { fail(t, e) }
 }
 
+// === Test 10: workspace creation yields the event loop. Locks in the
+// Task #16 fix that converted createJobWorkspace from a sync recursive
+// copy to an async-yielding one. The previous sync copy stacked across N
+// fan-out jobs and produced a multi-hundred-ms event-loop freeze that
+// stuttered the admin SSE stream every time a new BUILD ALL job started. ===
+async function testWorkspaceYieldsEventLoop() {
+  const t = 'workspace: createJobWorkspace yields event loop between top-level entries'
+  try {
+    // Build a project root with several non-trivial top-level dirs so the
+    // async-yielding loop has multiple yield points. Each dir contains a
+    // file or two — small enough to copy fast, structured enough to force
+    // the loop body to fire repeatedly.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jobrunner-yield-'))
+    fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
+    for (let i = 0; i < 8; i++) {
+      const d = path.join(root, 'src' + i)
+      fs.mkdirSync(d, { recursive: true })
+      fs.writeFileSync(path.join(d, 'a.js'), 'module.exports = ' + i + '\n')
+      fs.writeFileSync(path.join(d, 'b.js'), 'module.exports = ' + (i + 100) + '\n')
+    }
+    // Schedule a setImmediate ticker BEFORE we start the workspace clone —
+    // if the clone is sync (the bug we are guarding against) the ticker
+    // will not fire until the clone returns. With the async fix it fires
+    // many times during the clone.
+    let ticks = 0
+    let stop = false
+    const tick = () => { if (stop) return; ticks++; setImmediate(tick) }
+    setImmediate(tick)
+    const wsRoot = await runner.createJobWorkspace('yield-test', root)
+    stop = true
+    assert.ok(fs.existsSync(wsRoot), 'workspace root should exist after createJobWorkspace')
+    // Synthetic project has 8 src* entries → at least 8 await-points →
+    // the ticker should have fired multiple times. We require >=2 to be
+    // robust against scheduling jitter on slow CI; the bug case fires 0
+    // ticks until createJobWorkspace returns.
+    assert.ok(ticks >= 2,
+      'event loop ticker fired ' + ticks + ' times during workspace clone — expected >=2 (clone is not yielding)')
+    // Cleanup so the tmp dir count stays bounded.
+    await runner.disposeJobWorkspace('yield-test', root)
+    try { fs.rmSync(root, { recursive: true, force: true }) } catch (_) {}
+    ok(t + ' (' + ticks + ' ticks)')
+  } catch (e) { fail(t, e) }
+}
+
 ;(async () => {
   console.log('=== job-runner.js tests ===')
   console.log('  project root: ' + PROJECT_ROOT)
@@ -401,6 +445,7 @@ async function testCancelReleasesSlot() {
   await testOnCancelRunningHook()
   await testOnCancelQueuedHook()
   await testCancelReleasesSlot()
+  await testWorkspaceYieldsEventLoop()
   console.log('')
   if (failed === 0) {
     console.log('=== ALL TESTS PASSED ===')
