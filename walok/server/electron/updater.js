@@ -1059,7 +1059,30 @@ function buildPhase2ApplierBat() {
     '  goto schedule_cleanup_fail',
     ')',
     'echo [%date% %time%] launching %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
-    'start "" "%INSTALL_DIR%\\%NEW_EXE%"',
+    // Use `start /D "<install dir>"` so the new GUI process inherits the
+    // install directory as its working directory. Without this, the new
+    // exe is spawned with cwd = whatever wscript->cmd was launched from
+    // (typically system32 or the temp dir holding apply.bat). For the
+    // SERVER updater specifically, the productName is "<brand> Server"
+    // so NEW_EXE always contains a space (e.g. "BALDING Server.exe"),
+    // and an unset cwd can cause `start` to silently drop the launch
+    // when the bat runs in the hidden VBS-spawned cmd context — which
+    // is exactly the "new exe never appears" symptom users were seeing.
+    // Passing /D forces a known-good cwd and matches how a user would
+    // launch the exe by double-click from explorer.
+    'start "" /D "%INSTALL_DIR%" "%INSTALL_DIR%\\%NEW_EXE%"',
+    // Capture start's exit code into apply.log so a future field bug
+    // ("new exe never appeared") can be diagnosed from the log alone —
+    // we'll see exactly whether `start` reported a failure or returned
+    // 0 (architect-recommended diagnosability hardening).
+    'set "_START_RC=%ERRORLEVEL%"',
+    'echo [%date% %time%] start rc=%_START_RC% >> "%APPLY_LOG%"',
+    // Brief settle: give Windows a moment to actually fork the GUI
+    // process before this hidden cmd exits. `exit /b 0` immediately
+    // after `start` has occasionally raced with shell-create on slow
+    // machines and produced a "started but instantly disappeared"
+    // failure mode. ping is ~1s and detached-safe.
+    'ping 127.0.0.1 -n 2 >NUL 2>&1',
     'echo done > "%PENDING_DIR%\\SUCCESS"',
     'echo [%date% %time%] SUCCESS >> "%APPLY_LOG%"',
     '',

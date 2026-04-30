@@ -443,9 +443,165 @@
       letter-spacing: 0.1em;
       color: rgba(255,106,0,0.3);
     }
+
+    /* === OTA UPDATE MODAL ===
+       Mirrors walok/src/components/UpdateModal.jsx so the server dashboard
+       shows the SAME 5-4-3-2-1 countdown experience the launcher does
+       (download progress, verify, apply, ready-to-restart with countdown). */
+    .ota-overlay {
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(5, 3, 0, 0.92);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: none;
+      align-items: center; justify-content: center;
+      font-family: 'Segoe UI', 'Rajdhani', sans-serif;
+      -webkit-app-region: no-drag;
+    }
+    .ota-overlay.visible { display: flex; }
+    .ota-card {
+      width: 90%; max-width: 580px;
+      background: linear-gradient(135deg, #100806 0%, #1a0c05 100%);
+      border: 2px solid #ff6a00;
+      border-radius: 12px;
+      padding: 36px 40px;
+      box-shadow: 0 0 60px rgba(255, 106, 0, 0.5),
+                  inset 0 0 30px rgba(255, 106, 0, 0.08);
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+    .ota-card.error {
+      border-color: #ff3030;
+      box-shadow: 0 0 60px rgba(255, 48, 48, 0.4),
+                  inset 0 0 30px rgba(255, 48, 48, 0.08);
+    }
+    .ota-card-scan {
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, transparent, #ff6a00, #ffb070, #ff6a00, transparent);
+      background-size: 200% 100%;
+      animation: ota-scan 2.5s linear infinite;
+    }
+    .ota-card.error .ota-card-scan {
+      background: linear-gradient(90deg, transparent, #ff3030, transparent);
+    }
+    .ota-kicker {
+      font-size: 11px; letter-spacing: 4px;
+      color: #ffaa66; margin-bottom: 8px;
+      text-transform: uppercase; font-weight: 600;
+    }
+    .ota-card.error .ota-kicker { color: #ff8080; }
+    .ota-title {
+      margin: 0; font-size: 32px; letter-spacing: 3px;
+      font-weight: 800; color: #ff6a00;
+      text-shadow: 0 0 20px rgba(255, 106, 0, 0.6);
+      font-family: 'Rajdhani', 'Segoe UI', sans-serif;
+    }
+    .ota-card.error .ota-title {
+      color: #ff5050;
+      text-shadow: 0 0 20px rgba(255, 80, 80, 0.6);
+    }
+    .ota-subtitle {
+      margin-top: 6px; font-size: 15px; color: #ddd;
+      letter-spacing: 1px; opacity: 0.9;
+    }
+    .ota-progress-wrap {
+      margin-top: 28px;
+      position: relative; height: 26px;
+      background: #1a0e08;
+      border: 1px solid #3a1f0e;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .ota-progress-bar {
+      width: 0%; height: 100%;
+      background: linear-gradient(90deg, #6a3500 0%, #ff6a00 50%, #ffb070 100%);
+      transition: width 0.3s ease-out;
+      box-shadow: inset 0 0 12px rgba(255, 220, 200, 0.3),
+                  0 0 18px rgba(255, 106, 0, 0.6);
+    }
+    .ota-card.error .ota-progress-bar {
+      background: linear-gradient(90deg, #6a1010 0%, #ff3030 50%, #ff6060 100%);
+      box-shadow: inset 0 0 12px rgba(255, 200, 200, 0.3),
+                  0 0 18px rgba(255, 48, 48, 0.6);
+    }
+    .ota-shimmer {
+      position: absolute; top: 0; bottom: 0; left: 0;
+      width: 100%;
+      background: linear-gradient(90deg, transparent 0%, rgba(255, 220, 180, 0.15) 50%, transparent 100%);
+      animation: ota-shimmer 1.6s linear infinite;
+      pointer-events: none;
+      display: none;
+    }
+    .ota-shimmer.active { display: block; }
+    .ota-percent-label {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; letter-spacing: 2px;
+      color: #fff; text-shadow: 0 0 6px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+    .ota-status-text {
+      margin-top: 14px; font-size: 13px; color: #ffcca0;
+      font-family: 'Consolas', 'Courier New', monospace;
+      letter-spacing: 0.5px; min-height: 18px; word-break: break-word;
+    }
+    .ota-card.error .ota-status-text { color: #ffb0b0; }
+    .ota-actions {
+      margin-top: 28px; display: none;
+      gap: 12px; justify-content: flex-end;
+    }
+    .ota-actions.visible { display: flex; }
+    .ota-restart-btn {
+      background: linear-gradient(135deg, #ff6a00 0%, #ff8c30 100%);
+      color: #fff; border: none;
+      padding: 12px 28px; border-radius: 4px;
+      font-weight: 800; font-size: 14px; letter-spacing: 2px;
+      cursor: pointer; text-transform: uppercase;
+      box-shadow: 0 0 20px rgba(255, 106, 0, 0.5);
+      font-family: inherit;
+    }
+    .ota-footer {
+      margin-top: 24px; padding-top: 14px;
+      border-top: 1px solid #3a1f0e;
+      font-size: 10px; letter-spacing: 1.5px;
+      color: #664433; text-transform: uppercase;
+      text-align: center;
+    }
+    @keyframes ota-scan {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @keyframes ota-shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
   </style>
 </head>
 <body>
+  <!-- OTA UPDATE MODAL — hidden until an ota:* event arrives.
+       Mirrors UpdateModal.jsx structure 1:1 so the server matches the
+       launcher's UX (download progress, verify, apply, ready countdown). -->
+  <div class="ota-overlay" id="otaOverlay">
+    <div class="ota-card" id="otaCard">
+      <div class="ota-card-scan"></div>
+      <div class="ota-kicker" id="otaKicker">// OTA SYSTEM //</div>
+      <h2 class="ota-title" id="otaTitle">UPDATE</h2>
+      <div class="ota-subtitle" id="otaSubtitle"></div>
+      <div class="ota-progress-wrap">
+        <div class="ota-progress-bar" id="otaProgressBar"></div>
+        <div class="ota-shimmer" id="otaShimmer"></div>
+        <div class="ota-percent-label" id="otaPercent">0%</div>
+      </div>
+      <div class="ota-status-text" id="otaStatusText"></div>
+      <div class="ota-actions" id="otaActions">
+        <button class="ota-restart-btn" id="otaRestartBtn">RESTART NOW</button>
+      </div>
+      <div class="ota-footer" id="otaFooter">INSTALLATION IS MANDATORY &bull; PLEASE WAIT</div>
+    </div>
+  </div>
+
   <div class="titlebar">
     <div class="titlebar-left">
       <span class="titlebar-brand">EXAMPLE CAFE</span>
@@ -695,6 +851,11 @@
     setInterval(() => { updateStatus(); updateStats(); }, 5000)
 
     if (window.serverAPI && window.serverAPI.ota) {
+      // Brand string for the OTA modal kicker — pulled from ota-config.json
+      // via ota:get-status (NOT hardcoded). A rebrand-style update changes
+      // the brand on disk; reading it live ensures the modal always shows
+      // the current brand even immediately after an apply.
+      let otaBrand = ''
       window.serverAPI.ota.getStatus()
         .then(s => {
           if (s && s.currentVersion) {
@@ -703,8 +864,205 @@
             const fv = document.getElementById('footerVersion')
             if (fv) fv.textContent = 'Save & Load Server  \u2022  v' + s.currentVersion
           }
+          if (s && typeof s.brand === 'string' && s.brand.trim()) {
+            otaBrand = s.brand.trim()
+            const k = document.getElementById('otaKicker')
+            if (k) k.textContent = '// ' + otaBrand + ' OTA SYSTEM //'
+          }
         })
         .catch(() => {})
+
+      // === OTA modal state ===
+      // Mirrors walok/src/components/UpdateModal.jsx — same stages, same
+      // copy, same 5-second countdown wired to ota:restart on click or
+      // when the timer hits 0. The server emits the SAME ota:* IPC events
+      // the launcher does (broadcast() in walok/server/electron/updater.js),
+      // so all we have to do here is subscribe and re-render.
+      const $ = (id) => document.getElementById(id)
+      const overlay = $('otaOverlay')
+      const card = $('otaCard')
+      const titleEl = $('otaTitle')
+      const subtitleEl = $('otaSubtitle')
+      const statusEl = $('otaStatusText')
+      const barEl = $('otaProgressBar')
+      const shimmerEl = $('otaShimmer')
+      const percentEl = $('otaPercent')
+      const actionsEl = $('otaActions')
+      const restartBtn = $('otaRestartBtn')
+      const footerEl = $('otaFooter')
+
+      let stage = 'idle'
+      let info = null
+      let progress = { downloaded: 0, total: 0, percent: 0 }
+      let errorMsg = ''
+      let countdown = null
+      let countdownTimer = null
+      let speed = 0
+      const speedTrack = { lastTime: 0, lastBytes: 0, samples: [] }
+      // One-shot guard: the countdown auto-fires restart at 0 AND the user
+      // can also click RESTART NOW. Without this, both paths would invoke
+      // the IPC, which calls app.relaunch() — a duplicate relaunch can
+      // double-spawn the OLD exe and confuse the OOP applier (architect
+      // recommendation). Latches true on first call; reset never needed
+      // because the process exits immediately afterwards.
+      let restartRequested = false
+      function requestRestartOnce() {
+        if (restartRequested) return
+        restartRequested = true
+        try { window.serverAPI.ota.restart() } catch (e) {}
+      }
+
+      function fmtBytes(n) {
+        if (!n || n <= 0) return '0 B'
+        const units = ['B', 'KB', 'MB', 'GB']
+        let i = 0, v = n
+        while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+        const dp = v >= 100 || i === 0 ? 0 : v >= 10 ? 1 : 2
+        return v.toFixed(dp) + ' ' + units[i]
+      }
+
+      function render() {
+        const isError = stage === 'error'
+        card.classList.toggle('error', isError)
+        const versionLabel = (info && (info.latestVersion || info.version)) || '?'
+        const currentVersion = (info && info.currentVersion) || ''
+
+        let title = 'UPDATE', subtitle = '', statusText = ''
+        switch (stage) {
+          case 'available':
+            title = 'UPDATE INCOMING'
+            subtitle = 'A new version has been detected'
+            statusText = 'Preparing download...'
+            break
+          case 'downloading':
+            title = 'DOWNLOADING UPDATE'
+            subtitle = 'v' + currentVersion + ' \u2192 v' + versionLabel
+            statusText = fmtBytes(progress.downloaded) + ' / ' + fmtBytes(progress.total) +
+              (speed > 0 ? '  \u2022  ' + fmtBytes(speed) + '/s' : '')
+            break
+          case 'verifying':
+            title = 'VERIFYING INTEGRITY'
+            subtitle = 'v' + versionLabel
+            statusText = 'Checking SHA-256 signature...'
+            break
+          case 'applying':
+            title = 'APPLYING UPDATE'
+            subtitle = 'v' + versionLabel
+            statusText = 'Staging files for next launch...'
+            break
+          case 'ready':
+            title = 'UPDATE READY'
+            subtitle = 'v' + currentVersion + ' \u2192 v' + versionLabel
+            statusText = countdown != null && countdown > 0
+              ? 'Restarting in ' + countdown + 's...'
+              : 'Restarting now...'
+            break
+          case 'error':
+            title = 'UPDATE FAILED'
+            subtitle = 'Will retry automatically'
+            statusText = errorMsg
+            break
+        }
+
+        titleEl.textContent = title
+        subtitleEl.textContent = subtitle
+        subtitleEl.style.display = subtitle ? '' : 'none'
+        statusEl.textContent = statusText
+
+        const percent = (stage === 'verifying' || stage === 'applying' || stage === 'ready')
+          ? 100 : (progress.percent || 0)
+        barEl.style.width = percent + '%'
+        percentEl.textContent = percent + '%'
+        shimmerEl.classList.toggle('active', !isError && stage === 'downloading')
+
+        if (stage === 'ready') {
+          actionsEl.classList.add('visible')
+          restartBtn.textContent = 'RESTART NOW' +
+            (countdown != null && countdown > 0 ? ' (' + countdown + ')' : '')
+        } else {
+          actionsEl.classList.remove('visible')
+        }
+
+        footerEl.textContent = isError
+          ? 'WILL RETRY ON NEXT CHECK CYCLE'
+          : 'INSTALLATION IS MANDATORY \u2022 PLEASE WAIT'
+      }
+
+      function show() { overlay.classList.add('visible') }
+
+      function startCountdown(n) {
+        if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+        countdown = n
+        render()
+        countdownTimer = setInterval(() => {
+          if (countdown == null) return
+          countdown -= 1
+          if (countdown <= 0) {
+            clearInterval(countdownTimer); countdownTimer = null
+            countdown = 0
+            render()
+            // Fire the same IPC the launcher fires when its countdown
+            // hits 0 — main-process restartApp() handles app.relaunch()
+            // and the rebrand-aware exe handoff. Guarded so it can't
+            // race with the RESTART NOW button click.
+            requestRestartOnce()
+            return
+          }
+          render()
+        }, 1000)
+      }
+
+      restartBtn.addEventListener('click', () => {
+        // Guarded so a click during the final countdown second can't
+        // race the auto-fire path and trigger app.relaunch() twice.
+        requestRestartOnce()
+      })
+
+      const api = window.serverAPI.ota
+      if (api && typeof api.on === 'function') {
+        api.on('ota:update-available', (data) => {
+          stage = 'available'; info = data || null; errorMsg = ''
+          progress = { downloaded: 0, total: 0, percent: 0 }
+          show(); render()
+        })
+        api.on('ota:download-start', (data) => {
+          stage = 'downloading'
+          progress = { downloaded: 0, total: (data && data.totalSize) || 0, percent: 0 }
+          speedTrack.lastTime = Date.now(); speedTrack.lastBytes = 0; speedTrack.samples = []
+          speed = 0
+          show(); render()
+        })
+        api.on('ota:download-progress', (p) => {
+          progress = p || progress
+          const now = Date.now()
+          const dt = (now - speedTrack.lastTime) / 1000
+          if (dt >= 0.4) {
+            const sample = (progress.downloaded - speedTrack.lastBytes) / dt
+            speedTrack.samples.push(sample)
+            if (speedTrack.samples.length > 5) speedTrack.samples.shift()
+            speed = speedTrack.samples.reduce((a, b) => a + b, 0) / speedTrack.samples.length
+            speedTrack.lastTime = now
+            speedTrack.lastBytes = progress.downloaded
+          }
+          render()
+        })
+        api.on('ota:verifying', () => { stage = 'verifying'; render() })
+        api.on('ota:applying', () => { stage = 'applying'; render() })
+        api.on('ota:ready-to-restart', (data) => {
+          stage = 'ready'
+          info = Object.assign({}, info || {}, data || {})
+          show()
+          // 5-4-3-2-1 countdown matches the launcher's UpdateModal.jsx.
+          startCountdown(5)
+        })
+        api.on('ota:error', (e) => {
+          errorMsg = (e && e.error) || 'Unknown error'
+          stage = 'error'
+          if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+          countdown = null
+          show(); render()
+        })
+      }
     }
   </script>
 </body>
