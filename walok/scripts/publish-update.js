@@ -5,7 +5,17 @@ const { execSync } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
 const RELEASES_DIR = path.join(ROOT, 'releases')
-const UPDATE_SERVER_PUBLIC = path.join(ROOT, 'update-server', 'public', 'updates')
+// IMPORTANT: when invoked from the OTA admin's build job runner, this script
+// runs inside an ephemeral workspace clone at <projectRoot>/.build-jobs/<jobId>/.
+// In that case ROOT points at the WORKSPACE, not the real project root, so
+// publishing to ROOT/update-server/public/updates lands in a directory that
+// gets wiped by finishJob seconds later — leaving the customer card with
+// "[file missing — rebuild]" + "Last release: ---" despite a "successful"
+// build. The OTA server passes OTA_UPDATES_DIR pointing at the REAL updates
+// dir for exactly this reason; honor it when set.
+const UPDATE_SERVER_PUBLIC = process.env.OTA_UPDATES_DIR
+  ? path.resolve(process.env.OTA_UPDATES_DIR)
+  : path.join(ROOT, 'update-server', 'public', 'updates')
 
 function log(msg) { console.log('[publish-update] ' + msg) }
 function err(msg) { console.error('[publish-update] ERROR: ' + msg) }
