@@ -805,7 +805,7 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
       // fired above, or something else threw. Without this finally a
       // single bad install would brick all subsequent /api/admin/build
       // requests on every OTA server until the operator manually deleted
-      // the lockfile (or 10 min stale-recovery kicked in).
+      // the lockfile (or 30 min stale-recovery kicked in).
       lock.release()
     }
   }
