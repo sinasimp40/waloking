@@ -1,0 +1,356 @@
+// Integration regression test: lock in the parallel-install safety
+// guarantee for /api/admin/build.
+//
+// What this test proves
+// ---------------------
+// A future refactor must NEVER allow two overlapping POST /api/admin/build
+// requests to run `npm install` against the shared PROJECT_ROOT/node_modules
+// concurrently. npm is not concurrency-safe on a shared install target;
+// overlap can corrupt the tree (EEXIST / partial writes / wrong-version
+// resolutions) and the corruption is silent until the next build.
+//
+// How it proves it
+// ----------------
+// 1. We spin up an isolated forked instance of server.js with:
+//    - OTA_PROJECT_ROOT pointing at a synthetic project (package.json +
+//      empty customers/ + no node_modules, so rootDepsInstalled() returns
+//      false and the install pre-flight WILL fire)
+//    - OTA_DATA_DIR pointing at an empty temp dir (fresh launcher.db; we
+//      do not touch the real customer table)
+//    - PATH prefixed with a temp bin dir whose ONLY entry is a fake `npm`
+//      shim (Node script). The shim records START + END timestamps to a
+//      marker log every time it's invoked, sleeps a known interval, then
+//      writes the .bin/vite + .bin/electron-builder stubs the server uses
+//      to detect "deps installed".
+// 2. We POST one customer (so /api/admin/build {all:true} has a target).
+// 3. We fire TWO POST /api/admin/build {all:true} concurrently.
+// 4. We parse the marker log and assert no two npm-install intervals
+//    overlap. (In a healthy implementation only ONE invocation happens at
+//    all, because spawnSync blocks the Node event loop while request #1's
+//    pre-flight runs, so by the time request #2's handler sees the world,
+//    rootDepsInstalled() already returns true.)
+// 5. We cancel any leftover jobs and tear the server down.
+//
+// Run via:  node walok/update-server/test-build-endpoint.js
+'use strict'
+
+const assert = require('assert')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const http = require('http')
+const child_process = require('child_process')
+
+let passed = 0
+let failed = 0
+function ok(msg) { passed++; console.log('  PASS  ' + msg) }
+function fail(msg, err) { failed++; console.log('  FAIL  ' + msg + '\n        ' + (err && err.stack || err)) }
+
+// ---- temp-dir scaffolding ----
+const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'test-build-endpoint-'))
+const PROJ_DIR = path.join(TMP_ROOT, 'proj')
+const DATA_DIR = path.join(TMP_ROOT, 'data')
+const BIN_DIR = path.join(TMP_ROOT, 'bin')
+const MARKER = path.join(TMP_ROOT, 'npm-marker.log')
+const SERVER_LOG = path.join(TMP_ROOT, 'server.log')
+
+function setupTempProject() {
+  fs.mkdirSync(PROJ_DIR, { recursive: true })
+  fs.mkdirSync(path.join(PROJ_DIR, 'customers'), { recursive: true })
+  fs.writeFileSync(
+    path.join(PROJ_DIR, 'package.json'),
+    JSON.stringify({ name: 'test-fake-walok', version: '1.0.0' }, null, 2),
+  )
+  fs.mkdirSync(DATA_DIR, { recursive: true })
+  fs.mkdirSync(BIN_DIR, { recursive: true })
+}
+
+// Fake `npm` shim. Records START/END events with PID + ISO timestamp +
+// argv to MARKER, sleeps SHIM_DELAY_MS to widen the concurrency window
+// (so an accidentally-parallel pair is easy to detect), then writes the
+// .bin/vite and .bin/electron-builder stubs that rootDepsInstalled()
+// looks for. The shim is a Node script (portable across Linux/Windows
+// without bash). The server invokes us as `npm install --no-audit --no-fund`
+// from cwd=<PROJECT_ROOT> or cwd=<PROJECT_ROOT>/server.
+const SHIM_DELAY_MS = 600
+function writeFakeNpmShim() {
+  const shim = `#!/usr/bin/env node
+'use strict'
+const fs = require('fs')
+const path = require('path')
+const MARKER = ${JSON.stringify(MARKER)}
+const DELAY = ${SHIM_DELAY_MS}
+const cwd = process.cwd()
+const pid = process.pid
+const argv = process.argv.slice(2).join(' ')
+function stamp(kind) {
+  fs.appendFileSync(MARKER, kind + ' ' + pid + ' ' + new Date().toISOString() + ' cwd=' + cwd + ' argv="' + argv + '"\\n')
+}
+stamp('START')
+// Busy-wait sleep to model real npm's CPU-bound install. setTimeout would
+// yield the event loop, but the host server uses spawnSync so what matters
+// is wall-clock duration of the child process.
+const end = Date.now() + DELAY
+while (Date.now() < end) { /* busy */ }
+// Drop the .bin shims the server uses as its "deps installed" sentinel.
+const binDir = path.join(cwd, 'node_modules', '.bin')
+fs.mkdirSync(binDir, { recursive: true })
+for (const name of ['vite', 'electron-builder']) {
+  const file = path.join(binDir, name)
+  if (!fs.existsSync(file)) fs.writeFileSync(file, '#!/bin/sh\\nexit 0\\n', { mode: 0o755 })
+}
+stamp('END')
+process.exit(0)
+`
+  const npmShim = path.join(BIN_DIR, 'npm')
+  fs.writeFileSync(npmShim, shim, { mode: 0o755 })
+  // Windows-friendly alias: npm.cmd just spawns node on the same shim.
+  if (process.platform === 'win32') {
+    fs.writeFileSync(
+      path.join(BIN_DIR, 'npm.cmd'),
+      '@echo off\r\nnode "' + npmShim + '" %*\r\n',
+    )
+  }
+}
+
+// ---- HTTP helpers ----
+let SERVER_PORT = 0
+let cookieHeader = ''
+
+function httpReq(method, urlPath, body) {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : null
+    const opts = {
+      host: '127.0.0.1', port: SERVER_PORT, path: urlPath, method,
+      headers: { 'Content-Type': 'application/json' },
+    }
+    if (data) opts.headers['Content-Length'] = Buffer.byteLength(data)
+    if (cookieHeader) opts.headers['Cookie'] = cookieHeader
+    const req = http.request(opts, (res) => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf-8')
+        let json = null
+        try { json = JSON.parse(text) } catch (e) {}
+        // Capture the auth cookie from /api/admin/login.
+        const sc = res.headers['set-cookie']
+        if (sc && sc.length) {
+          cookieHeader = sc.map(c => c.split(';')[0]).join('; ')
+        }
+        resolve({ status: res.statusCode, body: json, raw: text })
+      })
+    })
+    req.on('error', reject)
+    if (data) req.write(data)
+    req.end()
+  })
+}
+
+// ---- server lifecycle ----
+let serverChild = null
+
+function startServer() {
+  return new Promise((resolve, reject) => {
+    SERVER_PORT = 14231 + Math.floor(Math.random() * 1000)
+    const env = Object.assign({}, process.env, {
+      OTA_PORT: String(SERVER_PORT),
+      OTA_HOST: '127.0.0.1',
+      OTA_ADMIN_PASSWORD: 'test-password-12345',
+      OTA_PROJECT_ROOT: PROJ_DIR,
+      OTA_DATA_DIR: DATA_DIR,
+      // PATH-prefix with our shim dir so the server's `npm install` resolves
+      // to our fake. NPM_CMD on the server is plain 'npm' (or npm.cmd on
+      // Windows) so a PATH prefix is sufficient.
+      PATH: BIN_DIR + path.delimiter + (process.env.PATH || ''),
+    })
+    const logFd = fs.openSync(SERVER_LOG, 'w')
+    serverChild = child_process.spawn(
+      process.execPath,
+      [path.join(__dirname, 'server.js')],
+      { env, cwd: __dirname, stdio: ['ignore', logFd, logFd] },
+    )
+    serverChild.on('exit', (code, sig) => {
+      // Surface unexpected exits during the test window as a rejection.
+      if (!serverChild._expectedExit) {
+        reject(new Error('server exited unexpectedly: code=' + code + ' sig=' + sig + '; see ' + SERVER_LOG))
+      }
+    })
+    // Poll /api/admin/status until it responds.
+    const deadline = Date.now() + 8000
+    const tick = () => {
+      httpReq('GET', '/api/admin/status').then(r => {
+        if (r.status === 200) resolve()
+        else if (Date.now() > deadline) reject(new Error('server status never became 200, last=' + r.status))
+        else setTimeout(tick, 100)
+      }).catch(() => {
+        if (Date.now() > deadline) reject(new Error('server never accepted connections'))
+        else setTimeout(tick, 100)
+      })
+    }
+    setTimeout(tick, 200)
+  })
+}
+
+function stopServer() {
+  return new Promise((resolve) => {
+    if (!serverChild) return resolve()
+    serverChild._expectedExit = true
+    serverChild.once('exit', () => resolve())
+    try { serverChild.kill('SIGTERM') } catch (e) {}
+    setTimeout(() => { try { serverChild.kill('SIGKILL') } catch (e) {} }, 1500)
+  })
+}
+
+// ---- assertions ----
+function parseMarker() {
+  if (!fs.existsSync(MARKER)) return []
+  const lines = fs.readFileSync(MARKER, 'utf-8').split('\n').filter(Boolean)
+  const events = []
+  for (const ln of lines) {
+    const m = ln.match(/^(START|END) (\d+) (\S+) cwd=(\S+) argv="(.*)"$/)
+    if (!m) continue
+    events.push({ kind: m[1], pid: +m[2], t: Date.parse(m[3]), cwd: m[4], argv: m[5] })
+  }
+  return events
+}
+
+function pairIntervals(events) {
+  // Pair START with END by PID; assume PIDs don't recycle within the test
+  // window (very safe — child process lifetimes here are < 1s and OS PID
+  // recycling is far wider than that).
+  const open = new Map()
+  const intervals = []
+  for (const e of events) {
+    if (e.kind === 'START') open.set(e.pid, e)
+    else {
+      const start = open.get(e.pid)
+      if (start) {
+        intervals.push({ pid: e.pid, start: start.t, end: e.t, cwd: e.cwd })
+        open.delete(e.pid)
+      }
+    }
+  }
+  return intervals
+}
+
+function intervalsOverlap(a, b) {
+  return a.start < b.end && b.start < a.end
+}
+
+// ---- the test ----
+async function run() {
+  console.log('=== test-build-endpoint.js: parallel-install safety regression ===')
+  console.log('  tmp dir: ' + TMP_ROOT)
+
+  setupTempProject()
+  writeFakeNpmShim()
+
+  try {
+    await startServer()
+  } catch (e) {
+    fail('startServer', e)
+    return
+  }
+
+  // --- Login ---
+  try {
+    const r = await httpReq('POST', '/api/admin/login', { password: 'test-password-12345' })
+    assert.strictEqual(r.status, 200, 'login HTTP status (got ' + r.status + ' body=' + r.raw + ')')
+    assert.ok(r.body && r.body.ok, 'login should return ok:true')
+    ok('login succeeds with env-supplied password')
+  } catch (e) { fail('login', e) }
+
+  // --- Create one customer so /api/admin/build {all:true} has a target ---
+  try {
+    const r = await httpReq('POST', '/api/admin/customers', {
+      channel: 'parallel-install-test',
+      brandName: 'PARALLEL TEST',
+      subtitle: 'sub',
+      updateServer: 'http://10.0.0.1:4231',
+    })
+    assert.strictEqual(r.status, 200, 'create customer HTTP status (got ' + r.status + ' body=' + r.raw + ')')
+    ok('seed: created one customer in fresh DB')
+  } catch (e) { fail('create customer', e) }
+
+  // --- Fire two overlapping build requests ---
+  try {
+    const t0 = Date.now()
+    const [r1, r2] = await Promise.all([
+      httpReq('POST', '/api/admin/build', { all: true }),
+      httpReq('POST', '/api/admin/build', { all: true }),
+    ])
+    const elapsed = Date.now() - t0
+    // Both should succeed (200) — the install pre-flight runs to completion
+    // for the first request, and the second arrives to find deps already
+    // installed (or, on a slow pre-flight, waits for it to finish). Either
+    // way both end up returning a fan-out job list.
+    assert.strictEqual(r1.status, 200, 'build #1 HTTP status (got ' + r1.status + ' body=' + r1.raw + ')')
+    assert.strictEqual(r2.status, 200, 'build #2 HTTP status (got ' + r2.status + ' body=' + r2.raw + ')')
+    assert.ok(Array.isArray(r1.body.jobs) && r1.body.jobs.length >= 1, 'build #1 returns jobs[]')
+    assert.ok(Array.isArray(r2.body.jobs) && r2.body.jobs.length >= 1, 'build #2 returns jobs[]')
+    ok('both overlapping build requests returned 200 with jobs[] (elapsed=' + elapsed + 'ms)')
+  } catch (e) { fail('overlapping build requests', e) }
+
+  // --- THE CORE ASSERTION: npm install never ran in parallel ---
+  try {
+    const events = parseMarker()
+    const intervals = pairIntervals(events)
+    assert.ok(intervals.length >= 1,
+      'expected at least one npm-install invocation (marker had ' + events.length + ' events)')
+    for (let i = 0; i < intervals.length; i++) {
+      for (let j = i + 1; j < intervals.length; j++) {
+        const a = intervals[i], b = intervals[j]
+        assert.ok(!intervalsOverlap(a, b),
+          'npm install ran CONCURRENTLY: pid=' + a.pid + ' [' + a.start + '..' + a.end + '] cwd=' + a.cwd +
+          ' overlaps pid=' + b.pid + ' [' + b.start + '..' + b.end + '] cwd=' + b.cwd +
+          ' — this is the regression we are guarding against')
+      }
+    }
+    ok('npm install never ran concurrently across overlapping requests (' + intervals.length + ' invocation(s) observed, all serialized)')
+  } catch (e) { fail('parallel-install safety', e) }
+
+  // --- Cancel any jobs the requests enqueued so they don't run their
+  //     (broken — no real build-customer.js in temp project root) steps. ---
+  try {
+    const r = await httpReq('GET', '/api/admin/jobs')
+    if (r.status === 200 && r.body && r.body.jobs) {
+      for (const j of r.body.jobs) {
+        if (j.status === 'running' || j.status === 'queued') {
+          await httpReq('POST', '/api/admin/jobs/' + j.id + '/cancel')
+        }
+      }
+    }
+  } catch (e) { /* best-effort cleanup */ }
+
+  await stopServer()
+
+  // --- Cleanup tmp dir ---
+  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch (e) {}
+
+  console.log('')
+  if (failed === 0) {
+    console.log('=== ALL TESTS PASSED ===')
+    process.exit(0)
+  } else {
+    console.log('=== ' + failed + ' TEST(S) FAILED ===')
+    console.log('=== ' + passed + ' passed ===')
+    process.exit(1)
+  }
+}
+
+// Catch-all so an unhandled rejection doesn't leave the server child
+// orphaned and the temp dir un-cleaned.
+process.on('unhandledRejection', async (e) => {
+  console.error('unhandledRejection:', e && e.stack || e)
+  await stopServer().catch(() => {})
+  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch (_) {}
+  process.exit(1)
+})
+
+run().catch(async (e) => {
+  fail('run()', e)
+  await stopServer().catch(() => {})
+  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch (_) {}
+  process.exit(1)
+})

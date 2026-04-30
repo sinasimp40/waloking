@@ -2,7 +2,15 @@ const fs = require('fs')
 const path = require('path')
 const Database = require('better-sqlite3')
 
-const DATA_DIR = path.join(__dirname, 'data')
+// DATA_DIR is the on-disk home of launcher.db (the customer registry).
+// Defaults to <update-server>/data so production behavior is unchanged.
+// OTA_DATA_DIR lets integration tests point a forked server at a temp DB
+// without polluting the real customer table — required by
+// test-build-endpoint.js which spins up an isolated server to lock in the
+// install pre-flight serialization guarantee.
+const DATA_DIR = process.env.OTA_DATA_DIR
+  ? path.resolve(process.env.OTA_DATA_DIR)
+  : path.join(__dirname, 'data')
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
 
 const DB_PATH = path.join(DATA_DIR, 'launcher.db')
