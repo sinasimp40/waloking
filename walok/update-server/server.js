@@ -554,13 +554,42 @@ app.get('/api/admin/customers', requireAdmin, (req, res) => {
   const customers = dbApi.listCustomers().map(c => {
     const launcherInfo = getChannelInfo(c.channel)
     const serverInfo = getChannelInfo(c.channel + '-server')
+    // Authoritative source for "what the operator can download" is a 2-step
+    // resolution: prefer the on-disk manifest version (always matches the
+    // payload zip we published), fall back to the DB-recorded version if
+    // the manifest read failed for any reason (e.g. publish-update.js
+    // exited mid-write, manifest got hand-edited, fs glitch). Without the
+    // DB fallback the UI silently hides the download link even though the
+    // build was recorded as successful.
+    const launcherVersion = launcherInfo?.version || c.launcherVersion || null
+    const serverVersion = serverInfo?.version || c.serverVersion || null
+    // Verify the actual payload zip exists on disk. The manifest can claim
+    // a version but the zip file itself may be missing (interrupted publish,
+    // overzealous cleanup, manual deletion). Without this check the UI
+    // shows a [download] link that 404s when clicked — confusing the user.
+    //
+    // Defense-in-depth: validate channel + version against the same regexes
+    // the upload routes use BEFORE building a filesystem path. The values
+    // come from a JSON manifest we wrote and a DB column we wrote, so they
+    // should already be safe — but a corrupted manifest or a future code
+    // path that bypasses the regex could otherwise sneak ".." into a
+    // path.join. Cheap to add, eliminates an entire class of bugs.
+    const safeForPath = (v) => typeof v === 'string' && /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(v)
+    const launcherFileExists = launcherVersion && safeForPath(launcherVersion)
+      ? fs.existsSync(path.join(UPDATES_DIR, c.channel, launcherVersion, 'launcher-payload.zip'))
+      : false
+    const serverFileExists = serverVersion && safeForPath(serverVersion)
+      ? fs.existsSync(path.join(UPDATES_DIR, c.channel + '-server', serverVersion, 'server-payload.zip'))
+      : false
     const cls = classifyUpdateServerUrl(c.updateServer, reqIp)
     const online = onlineSnapshot[c.channel] || { launchers: [], servers: [], total: 0 }
     return {
       ...c,
-      _launcherVersion: launcherInfo?.version || null,
-      _serverVersion: serverInfo?.version || null,
+      _launcherVersion: launcherVersion,
+      _serverVersion: serverVersion,
       _launcherReleased: launcherInfo?.releasedAt || null,
+      _launcherFileExists: launcherFileExists,
+      _serverFileExists: serverFileExists,
       _placeholderUrl: cls !== '',
       _urlIssue: cls || null,
       _online: online,

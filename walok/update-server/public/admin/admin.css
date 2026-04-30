@@ -213,6 +213,7 @@ button{cursor:pointer;font-family:inherit;border-radius:4px;border:none;letter-s
 .customer-card .meta strong{color:var(--orange-soft)}
 .customer-card .meta .dl-link{color:#7fc7ff;text-decoration:none;font-size:11px;margin-left:4px;letter-spacing:.5px}
 .customer-card .meta .dl-link:hover{color:#fff;text-decoration:underline}
+.customer-card .meta .dl-missing{color:#ffb454;font-size:11px;margin-left:4px;letter-spacing:.5px;cursor:help;font-style:italic}
 .customer-card .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
 
 /* === CONSOLE === */

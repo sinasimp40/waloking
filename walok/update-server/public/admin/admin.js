@@ -244,14 +244,26 @@ function renderOnlinePill(channel) {
 function renderCustomer(c) {
   // Per-customer payload download links — surface the published .zip URL on
   // the card so the operator can grab the latest installer/payload without
-  // hand-typing /updates/<ch>/<v>/launcher-payload.zip. Hidden when the
-  // channel has not been published yet (no version in DB).
-  const launcherDl = c._launcherVersion
-    ? ` <a class="dl-link" href="/updates/${encodeURIComponent(c.channel)}/${encodeURIComponent(c._launcherVersion)}/launcher-payload.zip" download title="Download launcher payload zip">[download]</a>`
-    : ''
-  const serverDl = c._serverVersion
-    ? ` <a class="dl-link" href="/updates/${encodeURIComponent(c.channel)}-server/${encodeURIComponent(c._serverVersion)}/server-payload.zip" download title="Download server payload zip">[download]</a>`
-    : ''
+  // hand-typing /updates/<ch>/<v>/launcher-payload.zip.
+  //
+  // Three render states per role (launcher / server):
+  //   1. No version known          → "no update yet" (never built)
+  //   2. Version known, file present → [download] link
+  //   3. Version known, file MISSING → "[file missing — rebuild]" warning
+  //      (the publish step crashed mid-way, OR cleanup removed the zip;
+  //       silently hiding the link here was the bug that made the operator
+  //       think a successful build "didn't work" with zero diagnostic.)
+  function dlMarkup(version, fileExists, channel, role) {
+    if (!version) return ''
+    const filename = role === 'launcher' ? 'launcher-payload.zip' : 'server-payload.zip'
+    const channelPart = role === 'launcher' ? channel : channel + '-server'
+    if (fileExists) {
+      return ` <a class="dl-link" href="/updates/${encodeURIComponent(channelPart)}/${encodeURIComponent(version)}/${filename}" download title="Download ${role} payload zip">[download]</a>`
+    }
+    return ` <span class="dl-missing" title="The ${role} v${version} build was recorded but the payload zip is missing on the server. The publish step likely failed — please rebuild this customer and watch the BUILD CONSOLE for an error.">[file missing — rebuild]</span>`
+  }
+  const launcherDl = dlMarkup(c._launcherVersion, c._launcherFileExists, c.channel, 'launcher')
+  const serverDl = dlMarkup(c._serverVersion, c._serverFileExists, c.channel, 'server')
   const launcherV = c._launcherVersion ? `v${escapeHtml(c._launcherVersion)}${launcherDl}` : '<em>no update yet</em>'
   const serverV = c._serverVersion ? `v${escapeHtml(c._serverVersion)}${serverDl}` : '<em>no update yet</em>'
   const released = c._launcherReleased ? new Date(c._launcherReleased).toLocaleString() : '—'

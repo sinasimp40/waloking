@@ -161,20 +161,38 @@ function publishChannel(channel, version, multi) {
     log('Server payload: ' + serverInfo.size + ' bytes')
   }
 
-  const exeName = computeExeName(channel, multi)
-  const launcherManifest = {
-    version: version,
-    channel: channel,
-    releasedAt: new Date().toISOString(),
-    launcher: launcherInfo,
-    ...(exeName ? { exeName } : {}),
-    notes: 'Update v' + version
+  // Guard: only write the launcher manifest when we actually produced a
+  // launcher payload. Writing one with `launcher: null` (the previous
+  // behavior when launcher-unpacked/ was missing) leaves the admin UI in
+  // a confusing half-state where the customer card claims a version but
+  // the [download] link 404s — the customers endpoint now defends against
+  // that with a file-existence check, but we should still not write a
+  // bogus manifest in the first place.
+  if (launcherInfo) {
+    const exeName = computeExeName(channel, multi)
+    const launcherManifest = {
+      version: version,
+      channel: channel,
+      releasedAt: new Date().toISOString(),
+      launcher: launcherInfo,
+      ...(exeName ? { exeName } : {}),
+      notes: 'Update v' + version
+    }
+    const manifestPath = path.join(UPDATE_SERVER_PUBLIC, channel, 'latest.json')
+    fs.writeFileSync(manifestPath, JSON.stringify(launcherManifest, null, 2))
+    // Final sanity check: confirm both the manifest AND the zip the manifest
+    // points at are present on disk. Surfacing this in the build console
+    // gives the operator unambiguous confirmation that the customer card
+    // will show a working [download] link the moment it next refreshes.
+    const zipPath = path.join(UPDATE_SERVER_PUBLIC, channel, version, 'launcher-payload.zip')
+    if (fs.existsSync(manifestPath) && fs.existsSync(zipPath)) {
+      log('Launcher OK: ' + path.relative(ROOT, manifestPath) + ' (' + launcherInfo.size + ' bytes)')
+    } else {
+      err('Launcher publish INCOMPLETE — manifest=' + fs.existsSync(manifestPath) + ' zip=' + fs.existsSync(zipPath))
+    }
+  } else {
+    log('Skipping launcher manifest (no launcher-unpacked/ for v' + version + ')')
   }
-  fs.writeFileSync(
-    path.join(UPDATE_SERVER_PUBLIC, channel, 'latest.json'),
-    JSON.stringify(launcherManifest, null, 2)
-  )
-  log('Manifest: ' + path.relative(ROOT, path.join(UPDATE_SERVER_PUBLIC, channel, 'latest.json')))
 
   if (serverInfo) {
     const serverManifestDir = path.join(UPDATE_SERVER_PUBLIC, channel + '-server', version)
@@ -193,11 +211,15 @@ function publishChannel(channel, version, multi) {
       },
       notes: 'Server update v' + version
     }
-    fs.writeFileSync(
-      path.join(UPDATE_SERVER_PUBLIC, channel + '-server', 'latest.json'),
-      JSON.stringify(serverManifest, null, 2)
-    )
-    log('Server manifest written for channel "' + channel + '-server"')
+    const serverManifestPath = path.join(UPDATE_SERVER_PUBLIC, channel + '-server', 'latest.json')
+    fs.writeFileSync(serverManifestPath, JSON.stringify(serverManifest, null, 2))
+    if (fs.existsSync(serverManifestPath) && fs.existsSync(destZip)) {
+      log('Server OK: ' + path.relative(ROOT, serverManifestPath) + ' (' + serverInfo.size + ' bytes)')
+    } else {
+      err('Server publish INCOMPLETE — manifest=' + fs.existsSync(serverManifestPath) + ' zip=' + fs.existsSync(destZip))
+    }
+  } else {
+    log('Skipping server manifest (no server-unpacked/ for v' + version + ')')
   }
 
   log('Published channel "' + channel + '" v' + version)
