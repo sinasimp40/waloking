@@ -622,6 +622,18 @@ function escapeHtml(s) {
 async function cancelJob(jobId) {
   if (!jobId) return
   if (!confirm('Cancel job ' + jobId + '? If it is running this will kill the build process tree.')) return
+  // Optimistic UI: grey-out + disable any queue-row CANCEL button for this
+  // jobId immediately so the operator gets feedback without waiting for the
+  // next queue snapshot. The next renderQueue tick will rebuild rows from
+  // the authoritative snapshot — terminal rows naturally drop off at that
+  // point. If the API call itself fails, we re-enable in the catch below.
+  const rowBtns = Array.from(document.querySelectorAll('.queue-row-cancel[data-job="' + jobId + '"]'))
+  for (const btn of rowBtns) {
+    btn.disabled = true
+    btn.textContent = 'CANCELLING…'
+    const row = btn.closest('.queue-row')
+    if (row) row.classList.add('queue-row-cancelling')
+  }
   try {
     await api('POST', '/api/admin/jobs/' + encodeURIComponent(jobId) + '/cancel')
     // If we have a console card for this job, write a confirmation line so
@@ -630,6 +642,13 @@ async function cancelJob(jobId) {
     const rec = consoleCards.get(jobId)
     if (rec) appendConsoleLine(rec, '[cancel] requested cancellation of job ' + jobId, 'cmd')
   } catch (e) {
+    // Revert the optimistic grey-out so the operator can retry.
+    for (const btn of rowBtns) {
+      btn.disabled = false
+      btn.textContent = 'CANCEL'
+      const row = btn.closest('.queue-row')
+      if (row) row.classList.remove('queue-row-cancelling')
+    }
     alert('Cancel failed: ' + e.message)
   }
 }
