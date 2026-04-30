@@ -85,6 +85,8 @@ Preferred communication style: Simple, everyday language.
 - `tests/test-build-all-logo-isolation.js` — regression test for per-customer logo isolation
 - `update-server/test-job-runner.js` — smoke tests for job runner concurrency, cancel, queue, SSE replay
 - `update-server/test-install-lock.js` — cross-process filesystem-lock tests for the npm-install pre-flight (atomicity, idempotent release, timeout, stale reclaim, finally-release crash safety, real two-process race)
+- `update-server/test-publish-paths.js` — script-level test that `scripts/publish-update.js` honors `OTA_UPDATES_DIR` (real publish dir vs ephemeral workspace clone) and falls back to the workspace-relative path when unset
+- `update-server/test-build-e2e.js` — end-to-end test that drives POST `/api/admin/build` (single + `all:true` with 2 customers) against a synthetic project, waits for jobs to succeed, then asserts GET `/api/admin/customers` reports `_launcherFileExists/_serverFileExists=true` and a non-null `_launcherReleased` for each built channel — the exact contract the original Task #15 bug violated
 
 ## External Dependencies
 
