@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-electron/
+.env
+*.local
+electron/_integrity_secret.json
+server/electron/_integrity_secret.json
+Nextreme-Gaming-Hub-Release/
+update-server/.admin-password
+update-server/public/updates/
+update-server/data/
+customers/_migrated_backup/
+releases/
+.ota-pending/

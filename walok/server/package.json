@@ -1,0 +1,58 @@
+{
+  "name": "example-cafe-server",
+  "version": "1.0.0",
+  "description": "EXAMPLE CAFE Server",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "start": "node electron/api.js",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "sql.js": "^1.10.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.examplecafe.server",
+    "productName": "EXAMPLE CAFE Server",
+    "icon": "../public/icon.ico",
+    "asar": true,
+    "win": {
+      "target": [
+        "zip",
+        "dir"
+      ],
+      "icon": "../public/icon.ico",
+      "artifactName": "Example-Cafe-Server-Portable-${version}.${ext}",
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+    },
+    "directories": {
+      "output": "dist-electron"
+    },
+    "beforePack": "../scripts/integrity-beforepack.js",
+    "afterPack": "../scripts/integrity-postpack.js",
+    "afterSign": "../scripts/integrity-postpack.js",
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../branding/ota-config-server.json",
+        "to": "ota-config.json"
+      }
+    ]
+  }
+}

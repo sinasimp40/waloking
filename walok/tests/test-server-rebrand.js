@@ -1,0 +1,274 @@
+// Pure-JS regression test for Task #17 (server.exe rebrand-style OTA update).
+//
+// Mirrors tests/test-rebrand-update.js but drives the SERVER updater
+// (server/electron/updater.js). Adds two new assertions specific to Task
+// #17:
+//   1. Orphan exe deletion across rebrand (same flow as launcher).
+//   2. Orphan-shortcut sweep — the cleanup marker also removes any Windows
+//      .lnk shortcut on the user's Desktop / Start menu that points at the
+//      now-deleted exe. Verified via OTA_TEST_SHORTCUT_DIRS, which lets the
+//      sweep treat an arbitrary tmpdir as if it were the Start menu.
+
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const zlib = require('zlib')
+
+let pass = 0, fail = 0
+function ok(msg) { pass++; console.log('  PASS  ' + msg) }
+function bad(msg) { fail++; console.log('  FAIL  ' + msg) }
+function assert(cond, msg) { cond ? ok(msg) : bad(msg) }
+
+function makeMinimalZip(entries) {
+  const parts = []
+  for (const e of entries) {
+    const nameBuf = Buffer.from(e.name, 'utf8')
+    const compressed = zlib.deflateRawSync(e.data)
+    const lfh = Buffer.alloc(30)
+    lfh.writeUInt32LE(0x04034b50, 0)
+    lfh.writeUInt16LE(20, 4)
+    lfh.writeUInt16LE(0, 6)
+    lfh.writeUInt16LE(8, 8)
+    lfh.writeUInt16LE(0, 10)
+    lfh.writeUInt16LE(0, 12)
+    lfh.writeUInt32LE(0, 14)
+    lfh.writeUInt32LE(compressed.length, 18)
+    lfh.writeUInt32LE(e.data.length, 22)
+    lfh.writeUInt16LE(nameBuf.length, 26)
+    lfh.writeUInt16LE(0, 28)
+    parts.push(lfh, nameBuf, compressed)
+  }
+  return Buffer.concat(parts)
+}
+
+function rmrf(p) {
+  try { fs.rmSync(p, { recursive: true, force: true }) } catch (e) {}
+}
+
+// Build a minimal Windows .lnk (Shell Link Binary File) that readLnkTarget()
+// can parse. We only need:
+//   - the 0x4C signature in the first 4 bytes ("L"-shaped marker)
+//   - a recognizable ASCII <drive>:\\...\\<exeName> string somewhere in the body
+// readLnkTarget() does a regex sweep, so a bare LinkInfo is not required.
+function makeFakeLnk(targetPath) {
+  const sig = Buffer.alloc(76, 0)
+  sig.writeUInt32LE(0x0000004C, 0) // HeaderSize / Shell Link signature
+  // A real .lnk also carries a CLSID at offset 4 + flags/etc. The header just
+  // needs to be at least 76 bytes; the rest can be zero for our parser.
+  const body = Buffer.from(targetPath, 'latin1')
+  return Buffer.concat([sig, body])
+}
+
+function main() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-server-rebrand-test-'))
+  const desktopDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-srv-desktop-'))
+  const startMenuDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-srv-startmenu-'))
+  console.log('TEMP install dir: ' + tmp)
+  console.log('TEMP desktop dir: ' + desktopDir)
+  console.log('TEMP start menu dir: ' + startMenuDir)
+
+  // Point the shortcut sweep at our tmp dirs (so we don't poke the real
+  // user's Desktop/Start menu in the test environment).
+  process.env.OTA_TEST_SHORTCUT_DIRS = [desktopDir, startMenuDir].join(path.delimiter)
+
+  try {
+    // ---- Set up the "currently installed server" (DENFI-server build) ----
+    fs.writeFileSync(path.join(tmp, 'OLD-server.exe'), 'old-server-binary-v1')
+    fs.writeFileSync(path.join(tmp, 'app.asar'), 'OLD server ASAR v1.0.0')
+    fs.writeFileSync(path.join(tmp, 'ota-config.json'), JSON.stringify({
+      enabled: true,
+      channel: 'rebrand-test-server',
+      version: '1.0.0',
+      updateServer: 'http://example.test',
+    }, null, 2))
+
+    // Stage shortcuts pointing at the OLD exe — both inside and outside our
+    // install dir. The sweep must remove the in-tree one, leave the
+    // out-of-tree one alone (safety: another app might share the basename).
+    const ourShortcutPath = path.join(desktopDir, 'EXAMPLE CAFE Server.lnk')
+    const ourStartMenuShortcut = path.join(startMenuDir, 'EXAMPLE CAFE Server.lnk')
+    const unrelatedShortcut = path.join(desktopDir, 'Unrelated App.lnk')
+    fs.writeFileSync(ourShortcutPath, makeFakeLnk(path.join(tmp, 'OLD-server.exe')))
+    fs.writeFileSync(ourStartMenuShortcut, makeFakeLnk(path.join(tmp, 'OLD-server.exe')))
+    // Unrelated shortcut: same basename "OLD-server.exe" but in a totally
+    // different install dir — sweep MUST NOT touch it.
+    fs.writeFileSync(unrelatedShortcut,
+      makeFakeLnk(path.join(os.tmpdir(), 'some-other-app', 'OLD-server.exe')))
+
+    // ---- Stage a pending update (rebrand DENFI-server -> BLAST-server) ----
+    const pendingDir = path.join(tmp, '.ota-pending')
+    fs.mkdirSync(pendingDir)
+    const payloadZip = makeMinimalZip([
+      { name: 'NEW-server.exe', data: Buffer.from('new-server-binary-v2') },
+      { name: 'app.asar', data: Buffer.from('NEW server ASAR v2.0.0') },
+    ])
+    fs.writeFileSync(path.join(pendingDir, 'payload.zip'), payloadZip)
+    fs.writeFileSync(path.join(pendingDir, 'manifest.json'), JSON.stringify({
+      version: '2.0.0',
+      channel: 'rebrand-test-server',
+      exeName: 'NEW-server.exe',
+    }, null, 2))
+    fs.writeFileSync(path.join(pendingDir, 'READY'), new Date().toISOString())
+
+    // ---- Become the OLD server exe and require the server updater ----
+    process.env.OTA_TEST_CURRENT_EXE = 'OLD-server.exe'
+    delete require.cache[require.resolve('../server/electron/updater.js')]
+    delete require.cache[require.resolve('../server/electron/ota-live.js')]
+    const updater = require('../server/electron/updater.js')
+
+    // ---- Drive the apply step ----
+    const applied = updater.applyPendingUpdateOnStartup(tmp)
+
+    assert(applied === true, 'server applyPendingUpdateOnStartup returns true')
+    assert(fs.existsSync(path.join(tmp, 'NEW-server.exe')), 'NEW-server.exe was extracted into install dir')
+    assert(
+      fs.readFileSync(path.join(tmp, 'NEW-server.exe'), 'utf-8') === 'new-server-binary-v2',
+      'NEW-server.exe has the v2 payload bytes',
+    )
+    assert(
+      fs.readFileSync(path.join(tmp, 'app.asar'), 'utf-8') === 'NEW server ASAR v2.0.0',
+      'app.asar overwritten with v2 contents',
+    )
+    assert(fs.existsSync(path.join(tmp, 'OLD-server.exe')),
+      'OLD-server.exe is still on disk (Windows would have it locked at this point)')
+    assert(!fs.existsSync(pendingDir), '.ota-pending/ removed after successful apply')
+
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmp, 'ota-config.json'), 'utf-8'))
+    assert(cfg.version === '2.0.0', 'server ota-config.json version bumped to 2.0.0')
+
+    const markerPath = path.join(tmp, '.ota-cleanup.json')
+    assert(fs.existsSync(markerPath), '.ota-cleanup.json marker written for orphan server exe')
+    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf-8'))
+    assert(
+      Array.isArray(marker.deleteExes) && marker.deleteExes.includes('OLD-server.exe'),
+      'cleanup marker lists OLD-server.exe in deleteExes',
+    )
+
+    // ---- Simulate the next launch: we are now the NEW server exe ----
+    process.env.OTA_TEST_CURRENT_EXE = 'NEW-server.exe'
+
+    updater.sweepCleanupMarker(tmp)
+
+    assert(!fs.existsSync(path.join(tmp, 'OLD-server.exe')),
+      'next launch sweep deleted the orphan OLD-server.exe')
+    assert(fs.existsSync(path.join(tmp, 'NEW-server.exe')),
+      'NEW-server.exe (the running exe) was NOT touched by the sweep')
+    assert(!fs.existsSync(markerPath),
+      '.ota-cleanup.json removed once the orphan list is empty')
+
+    // ---- Task #17 NEW: orphan-shortcut sweep ----
+    assert(!fs.existsSync(ourShortcutPath),
+      'Desktop shortcut pointing at OLD-server.exe was removed')
+    assert(!fs.existsSync(ourStartMenuShortcut),
+      'Start-menu shortcut pointing at OLD-server.exe was removed')
+    assert(fs.existsSync(unrelatedShortcut),
+      'Unrelated shortcut (target outside our install dir) was NOT removed (safety check)')
+
+    // ---- Edge case: same-name update must NOT write a marker ----
+    rmrf(path.join(tmp, '.ota-cleanup.json'))
+    fs.writeFileSync(path.join(tmp, 'ota-config.json'), JSON.stringify({
+      enabled: true, channel: 'rebrand-test-server', version: '2.0.0', updateServer: 'http://example.test',
+    }, null, 2))
+    fs.mkdirSync(pendingDir)
+    fs.writeFileSync(path.join(pendingDir, 'payload.zip'), makeMinimalZip([
+      { name: 'NEW-server.exe', data: Buffer.from('new-server-binary-v3') },
+    ]))
+    fs.writeFileSync(path.join(pendingDir, 'manifest.json'), JSON.stringify({
+      version: '3.0.0', channel: 'rebrand-test-server', exeName: 'NEW-server.exe',
+    }, null, 2))
+    fs.writeFileSync(path.join(pendingDir, 'READY'), new Date().toISOString())
+
+    const applied2 = updater.applyPendingUpdateOnStartup(tmp)
+    assert(applied2 === true, 'same-name server update applies cleanly')
+    assert(!fs.existsSync(path.join(tmp, '.ota-cleanup.json')),
+      'no cleanup marker is written when the new exe name matches the running server exe')
+
+    // ---- Edge case: legacy manifest without exeName, but a new .exe added ----
+    rmrf(pendingDir)
+    fs.mkdirSync(pendingDir)
+    fs.writeFileSync(path.join(pendingDir, 'payload.zip'), makeMinimalZip([
+      { name: 'BLAST-server.exe', data: Buffer.from('blast-server-binary-v4') },
+      { name: 'app.asar', data: Buffer.from('NEW server ASAR v4') },
+    ]))
+    fs.writeFileSync(path.join(pendingDir, 'manifest.json'), JSON.stringify({
+      version: '4.0.0', channel: 'rebrand-test-server',
+    }, null, 2))
+    fs.writeFileSync(path.join(pendingDir, 'READY'), new Date().toISOString())
+    process.env.OTA_TEST_CURRENT_EXE = 'NEW-server.exe'
+
+    const applied3 = updater.applyPendingUpdateOnStartup(tmp)
+    assert(applied3 === true, 'legacy server manifest (no exeName) still applies')
+    assert(fs.existsSync(path.join(tmp, '.ota-cleanup.json')),
+      'discoverNewExe finds BLAST-server.exe -> cleanup marker is written')
+    const marker3 = JSON.parse(fs.readFileSync(path.join(tmp, '.ota-cleanup.json'), 'utf-8'))
+    assert(marker3.deleteExes.includes('NEW-server.exe'),
+      'legacy-flow marker lists the now-orphaned previous server exe (NEW-server.exe)')
+
+    rmrf(path.join(tmp, '.ota-cleanup.json'))
+    rmrf(path.join(tmp, 'BLAST-server.exe'))
+
+    // ---- Edge case: case-only manifest exeName must NOT trigger a marker ----
+    fs.mkdirSync(pendingDir)
+    fs.writeFileSync(path.join(pendingDir, 'payload.zip'), makeMinimalZip([
+      { name: 'NEW-server.exe', data: Buffer.from('new-server-binary-v5') },
+    ]))
+    fs.writeFileSync(path.join(pendingDir, 'manifest.json'), JSON.stringify({
+      version: '5.0.0', channel: 'rebrand-test-server', exeName: 'new-SERVER.exe',
+    }, null, 2))
+    fs.writeFileSync(path.join(pendingDir, 'READY'), new Date().toISOString())
+
+    const applied4 = updater.applyPendingUpdateOnStartup(tmp)
+    assert(applied4 === true, 'case-only exeName difference still applies cleanly')
+    assert(!fs.existsSync(path.join(tmp, '.ota-cleanup.json')),
+      'case-only exeName difference does NOT write a cleanup marker (would otherwise self-delete on Windows)')
+
+    // ---- Edge case: malformed cleanup marker is removed gracefully ----
+    fs.writeFileSync(path.join(tmp, '.ota-cleanup.json'), '{ malformed json')
+    updater.sweepCleanupMarker(tmp)
+    assert(!fs.existsSync(path.join(tmp, '.ota-cleanup.json')),
+      'malformed cleanup marker is deleted by sweepCleanupMarker')
+
+    // ---- Defense-in-depth: tampered marker with traversal entries ----
+    const sentinel = path.join(os.tmpdir(), 'ota-srv-sentinel-' + process.pid + '.dat')
+    fs.writeFileSync(sentinel, 'must-not-be-deleted')
+    fs.writeFileSync(path.join(tmp, 'unrelated-server.exe'), 'orphan-from-traversal-test')
+    fs.writeFileSync(path.join(tmp, '.ota-cleanup.json'), JSON.stringify({
+      writtenAt: new Date().toISOString(),
+      deleteExes: [
+        '../../' + path.basename(sentinel),
+        '/tmp/' + path.basename(sentinel),
+        'unrelated-server.exe',
+      ],
+    }))
+    updater.sweepCleanupMarker(tmp)
+    assert(fs.existsSync(sentinel),
+      'sweep does NOT follow ../ in marker entries — sentinel survives')
+    assert(!fs.existsSync(path.join(tmp, 'unrelated-server.exe')),
+      'sweep still deletes the legitimate orphan listed alongside traversal attempts')
+    try { fs.unlinkSync(sentinel) } catch (_) {}
+
+    // ---- Direct unit check: removeShortcutsTo() honors install-dir safety ----
+    // Re-arm both shortcuts; ask the helper to remove only one orphan.
+    fs.writeFileSync(ourShortcutPath, makeFakeLnk(path.join(tmp, 'OLD-server.exe')))
+    fs.writeFileSync(unrelatedShortcut,
+      makeFakeLnk(path.join(os.tmpdir(), 'some-other-app', 'OLD-server.exe')))
+    const removed = updater.removeShortcutsTo(tmp, ['OLD-server.exe'])
+    assert(Array.isArray(removed) && removed.includes(ourShortcutPath),
+      'removeShortcutsTo reports our in-tree shortcut as removed')
+    assert(!fs.existsSync(ourShortcutPath),
+      'our in-tree shortcut for OLD-server.exe was deleted')
+    assert(fs.existsSync(unrelatedShortcut),
+      'unrelated shortcut with a foreign-install-dir target was preserved')
+  } finally {
+    rmrf(tmp)
+    rmrf(desktopDir)
+    rmrf(startMenuDir)
+    delete process.env.OTA_TEST_CURRENT_EXE
+    delete process.env.OTA_TEST_SHORTCUT_DIRS
+  }
+
+  console.log('\n=== ' + pass + ' pass / ' + fail + ' fail ===')
+  process.exit(fail === 0 ? 0 : 1)
+}
+
+main()

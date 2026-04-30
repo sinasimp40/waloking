@@ -1,0 +1,82 @@
+{
+  "name": "example-cafe",
+  "version": "1.0.0",
+  "description": "Premium Futuristic Game Launcher",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite --port 5000 --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5000 && electron .\"",
+    "dist": "npm run build && electron-builder",
+    "dist:server": "cd server && npm run dist",
+    "dist:server:fresh": "cd server && npm install && npm run dist",
+    "dist:all": "npm run dist && npm run dist:server && node scripts/collect-builds.js",
+    "test:rebrand-update": "node tests/test-rebrand-update.js",
+    "test:build-all-logos": "node tests/test-build-all-logo-isolation.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fontsource/orbitron": "^5.2.8",
+    "@fontsource/rajdhani": "^5.2.7",
+    "framer-motion": "^11.18.2",
+    "lucide-react": "^0.441.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.6.0",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1",
+    "postcss": "^8.5.12",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.examplecafe.launcher",
+    "productName": "EXAMPLE CAFE",
+    "icon": "public/icon.ico",
+    "asar": true,
+    "win": {
+      "target": [
+        "zip",
+        "dir"
+      ],
+      "icon": "public/icon.ico",
+      "artifactName": "Example-Cafe-Portable-${version}.${ext}",
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+    },
+    "directories": {
+      "output": "dist-electron"
+    },
+    "beforePack": "./scripts/integrity-beforepack.js",
+    "afterPack": "./scripts/integrity-postpack.js",
+    "afterSign": "./scripts/integrity-postpack.js",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "branding/ota-config.json",
+        "to": "ota-config.json"
+      }
+    ]
+  }
+}

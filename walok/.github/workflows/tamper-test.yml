@@ -1,0 +1,68 @@
+name: Tamper Protection Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  tamper-test:
+    name: Build installers and run tamper test
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      STRICT_MODE: '1'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install launcher dependencies
+        run: npm ci
+
+      - name: Assert integrity hooks remain registered on both events
+        shell: bash
+        run: |
+          set -e
+          for f in package.json server/package.json; do
+            for evt in afterPack afterSign; do
+              if ! node -e "process.exit(require('./'+'$f').build && require('./'+'$f').build['$evt'] ? 0 : 1)"; then
+                echo "FATAL: $f is missing build.$evt hook — unsigned builds will silently skip tamper protection." >&2
+                exit 1
+              fi
+            done
+            echo "OK: $f has both afterPack and afterSign hooks"
+          done
+
+      - name: Build launcher installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist
+
+      - name: Build server installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:server
+
+      - name: Run tamper protection regression test
+        run: node scripts/integrity-tamper-test.js
+
+      - name: Upload tamper-test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tamper-test-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            dist-electron/*.log
+            dist-electron/builder-*.yml
+            server/dist-electron/*.log
+            server/dist-electron/builder-*.yml

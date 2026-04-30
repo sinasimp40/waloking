@@ -1,0 +1,16 @@
+{
+  "name": "nextreme-ota-update-server",
+  "version": "1.0.0",
+  "description": "OTA update server for NEXTREME GAMING HUB launcher and server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.21.0",
+    "multer": "^2.1.1"
+  }
+}

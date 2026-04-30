@@ -1,0 +1,7 @@
+{
+  "channel": "example-cafe",
+  "brandName": "EXAMPLE CAFE",
+  "subtitle": "Premium Gaming Lounge",
+  "updateServer": "http://YOUR-RDP-IP:4231",
+  "logo": "branding/example-cafe-logo.png"
+}

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #050403;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-app-region: drag;
+      user-select: none;
+      border: 1px solid rgba(255,106,0,0.15);
+      border-radius: 12px;
+    }
+    .splash-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+    .splash-image {
+      max-width: 90%;
+      max-height: 180px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 30px rgba(255,106,0,0.3));
+    }
+    .default-logo {
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 28px;
+      font-weight: 900;
+      color: #ff6a00;
+      letter-spacing: 8px;
+      text-shadow: 0 0 20px rgba(255,106,0,0.5);
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid transparent;
+      border-top-color: #ff6a00;
+      border-right-color: rgba(255,106,0,0.3);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .loading-text {
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 10px;
+      color: rgba(255,106,0,0.35);
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-container">
+    <div id="logoArea"></div>
+    <div class="spinner"></div>
+    <span class="loading-text">Loading</span>
+  </div>
+  <script>
+    var params = new URLSearchParams(window.location.search);
+    var imgPath = params.get('img');
+    var logoArea = document.getElementById('logoArea');
+    if (imgPath) {
+      var img = document.createElement('img');
+      img.className = 'splash-image';
+      img.src = 'file:///' + imgPath.replace(/\\/g, '/');
+      img.onerror = function() {
+        img.style.display = 'none';
+        var text = document.createElement('div');
+        text.className = 'default-logo';
+        text.textContent = 'EXAMPLE CAFE';
+        logoArea.appendChild(text);
+      };
+      logoArea.appendChild(img);
+    } else {
+      var text = document.createElement('div');
+      text.className = 'default-logo';
+      text.textContent = 'EXAMPLE CAFE';
+      logoArea.appendChild(text);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "brandName": "EXAMPLE CAFE",
+  "titleHyphen": "Example-Cafe",
+  "subtitle": "Premium Gaming Lounge",
+  "filePrefix": "example-cafe",
+  "appIdBase": "examplecafe",
+  "storageVersion": 30,
+  "legacyPrefixes": [
+    "xyberzone",
+    "denfi",
+    "pikakz",
+    "gamerzspot",
+    "jahel-gamers",
+    "nextreme-gaming-hub"
+  ]
+}
