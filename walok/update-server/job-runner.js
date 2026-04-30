@@ -446,13 +446,11 @@ function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete }) {
       jobAppend(job, 'CHAIN ERROR: ' + e.message)
       exitCode = -1
     }
-    // Run onComplete BEFORE finishJob so any jobAppend() it does (cleanup
-    // summary, db record, [live-push] line) reaches the live SSE stream
-    // instead of being silently swallowed by the just-closed response.
-    // finishJob() emits the {end:true} event and clears all listeners, so
-    // doing this in the wrong order both (a) drops these lines from the live
-    // build console and (b) used to crash the process via an unhandled
-    // 'error' event on the now-ended ServerResponse.
+    // ORDER MATTERS: onComplete BEFORE finishJob. finishJob emits {end:true}
+    // and clears listeners, so any jobAppend inside onComplete must run
+    // first — otherwise its lines never reach the live SSE stream and (in
+    // the original bug) used to crash the process via a write-after-end
+    // 'error' event on the just-ended ServerResponse.
     if (onComplete) try { onComplete(exitCode, job) } catch (_) {}
     finishJob(job, exitCode)
   }
