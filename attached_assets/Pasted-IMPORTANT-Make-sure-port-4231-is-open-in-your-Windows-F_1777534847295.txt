@@ -1,0 +1,44 @@
+IMPORTANT: Make sure port 4231 is open in your Windows Firewall.
+Run start.bat which adds the firewall rule automatically.
+(node:25000) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error [ERR_STREAM_WRITE_AFTER_END]: write after end
+    at write_ (node:_http_outgoing:898:11)
+    at ServerResponse.write (node:_http_outgoing:847:15)
+    at send (C:\Users\Mary\Desktop\walok\update-server\server.js:1130:15)
+    at jobAppend (C:\Users\Mary\Desktop\walok\update-server\job-runner.js:190:11)
+    at onComplete (C:\Users\Mary\Desktop\walok\update-server\server.js:723:9)
+    at job.runner (C:\Users\Mary\Desktop\walok\update-server\job-runner.js:443:27)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+Emitted 'error' event on ServerResponse instance at:
+    at emitErrorNt (node:_http_outgoing:870:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:91:21) {
+  code: 'ERR_STREAM_WRITE_AFTER_END'
+}
+
+Node.js v24.10.0 
+
+
+it success the build the problem after that i got error and when i check admin failed to fetch.
+
+
+also example the other one is current build when i try to build i got error i think they dont allow parallel threading of build.. limit the build parallel to 2 so my server wont lag. and add queu and cancel build.
+
+still look the image i attach after i OTA update it got the black or violet screen with text ." �T*����։�����񞙩������٩���������b�R)�����J�Z�E���B�ZU�:�E!J٨��B!.77� �b�T.WKMM�r�����Ot,Y2���2���=���3Z.�'�0�477׀�4���O3�GZ�c �q=�p�yV\� ?��j��2�����e�k���u����׼r�}���w_�� ��\����4�S�~�뿭�>^#t�����S��ױ���YO�g�F��]�� ��ZO���?c����+ r��֩?IEND�B`� i think because its open a wrong .exe if the app name change cause its from BLAST change to BLASTING and why the old blast.exe is still there?.
+
+the server.exe the OTA is pending its not its update maybe because its running how about you auto stop it?. so the ota applied same as you did in launcher.exe?.. but make sure no more black screen and delete the old.exe and make sure you run the new .exe what ever app name change or logo so no more black or violet screen.
+
+
+please make sure when there is OTA or changes of .exe name please delete the old .exe so no more black or violet screen. and make it sure it open the new update .exe
+
+
+also when build all maybe add progress bar if there is more 2 each.. i mean live progress bar and i can cancel or abort one of each config without affecting the others. if i abort remember you complete remove the files in release or what so ever so it wont stock in our storage.
+
+
+are you sure you doing parallel when build all or something?. like 2 build at a time limit?.  then others is quued when whos done first it start the build for other queued
+
+please call an expert i dont want bug or glitch, if you can test here to verify the fix much better/
