@@ -30,6 +30,15 @@ const STATE = {
   // exe name than the one currently running (rebrand). init() hands off to it
   // BEFORE any window opens; restartApp() also prefers it over app.relaunch().
   nextExePath: null,
+  // Active HTTP request count, bumped by api.js's tracking middleware via
+  // trackRequestStart/trackRequestEnd. scheduleAutoQuitAfterStage waits
+  // for this to reach 0 (with a hard timeout) before exiting so we don't
+  // sever in-flight uploads/downloads. Defense against architect finding 2.
+  activeRequests: 0,
+  // Idempotency guards for the post-stage auto-restart sequence — defense
+  // against architect finding 3 (don't double-schedule the relauncher).
+  autoQuitTimer: null,
+  relaunchScheduled: false,
 }
 
 function log(msg) {
@@ -214,32 +223,182 @@ function extractZip(zipBuffer, destDir) {
   return { extracted, failed, totalEntries, failedFiles }
 }
 
+// Read-only walk of an OTA payload zip — returns the basenames of any
+// top-level *.exe entries it contains, without extracting anything. Mirrors
+// the LFH parser in extractZip but does no I/O. Used by the orphan-exe scan
+// so we can answer "is THIS .exe in the install dir part of the just-applied
+// payload, or is it stale junk from a previous build?". Top-level only — an
+// .exe nested inside a subdirectory in the zip is not one of the binaries
+// that sits next to server.exe and is not relevant to orphan cleanup.
+function listTopLevelExesInZip(zipBuffer) {
+  const out = []
+  try {
+    let pos = 0
+    while (pos + 30 <= zipBuffer.length) {
+      const sig = zipBuffer.readUInt32LE(pos)
+      if (sig !== 0x04034b50) break
+      const compSize = zipBuffer.readUInt32LE(pos + 18)
+      const nameLen = zipBuffer.readUInt16LE(pos + 26)
+      const extraLen = zipBuffer.readUInt16LE(pos + 28)
+      const name = zipBuffer.slice(pos + 30, pos + 30 + nameLen).toString('utf8')
+      pos = pos + 30 + nameLen + extraLen + compSize
+      if (!name || name.includes('..')) continue
+      if (name.indexOf('/') !== -1 || name.indexOf('\\') !== -1) continue
+      if (!name.toLowerCase().endsWith('.exe')) continue
+      out.push(name)
+    }
+  } catch (_) {}
+  return out
+}
+
+// Read the operator's persistent allowlist of exe basenames the orphan-exe
+// sweep must never delete. Lives at <appRoot>/.ota-keep-exes.json with shape
+// { "keepExes": ["ffmpeg.exe", ...] }. Lets ops ship sibling helper tools
+// next to server.exe without having them deleted on the next OTA.
+// Defense against finding #1 from the Task #3 architect review.
+function readKeepExesSidecar(appRoot) {
+  try {
+    const file = path.join(appRoot, '.ota-keep-exes.json')
+    if (!fs.existsSync(file)) return []
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    // Accept three shapes — operators will mistype this, so be forgiving:
+    //   ["a.exe","b.exe"]                      (plain array)
+    //   { "keep":     ["a.exe", ...] }         (terse object form)
+    //   { "keepExes": ["a.exe", ...] }         (verbose object form)
+    let arr = null
+    if (Array.isArray(data)) arr = data
+    else if (data && Array.isArray(data.keep)) arr = data.keep
+    else if (data && Array.isArray(data.keepExes)) arr = data.keepExes
+    if (!arr) return []
+    return arr
+      .map(n => (n ? path.basename(String(n)) : null))
+      .filter(Boolean)
+  } catch (_) {
+    return []
+  }
+}
+
+// Scan the install dir for top-level *.exe files that are stale: not the
+// running exe, not the just-staged new exe, and not an entry in the payload
+// we just extracted. Returns the basenames so the caller can hand them to
+// writeCleanupMarker. Never deletes from inside this function — the
+// marker + sweep flow on the *next* launch is the only safe deletion path.
+//
+// `manifestKeepExes` is an optional allowlist published by the staged
+// manifest (manifest.keepExes). It's merged with the on-disk sidecar
+// (.ota-keep-exes.json) so operators can protect sibling tools either
+// transiently (per-update via manifest) or persistently (sidecar file).
+function scanForOrphanExes(appRoot, payloadExeNames, currentBasename, newExeName, manifestKeepExes) {
+  const orphans = []
+  try {
+    const exclude = new Set()
+    if (currentBasename) exclude.add(String(currentBasename).toLowerCase())
+    if (newExeName) exclude.add(String(newExeName).toLowerCase())
+    // payloadExeNames already comes from listTopLevelExesInZip which
+    // emits basenames; manifestKeepExes is operator-authored, so we
+    // basename-normalize it the same way readKeepExesSidecar does. This
+    // means a manifest entry like "tools/ffmpeg.exe" still protects the
+    // on-disk ffmpeg.exe under appRoot.
+    for (const n of (payloadExeNames || [])) exclude.add(String(n).toLowerCase())
+    for (const n of (manifestKeepExes || [])) {
+      if (!n) continue
+      exclude.add(path.basename(String(n)).toLowerCase())
+    }
+    for (const n of readKeepExesSidecar(appRoot)) exclude.add(String(n).toLowerCase())
+    for (const e of fs.readdirSync(appRoot, { withFileTypes: true })) {
+      if (!e.isFile() || !e.name.toLowerCase().endsWith('.exe')) continue
+      if (exclude.has(e.name.toLowerCase())) continue
+      orphans.push(e.name)
+    }
+  } catch (_) {}
+  return orphans
+}
+
 // === Cleanup-marker (rebrand orphan-exe deletion) ===
 
 // Persist a list of orphan exe basenames that the *next* launch should delete.
 // Windows holds an exclusive lock on the currently-running .exe, so we can't
 // delete the OLD .exe from inside the OLD process — we hand the job off to the
 // NEW exe (a different process) which can safely unlink it.
-function writeCleanupMarker(appRoot, oldBasenames) {
+//
+// `nextExeBasename` (optional): the resolved new exe basename for this
+// rebrand. Persisting it in the marker lets init-time self-defense hand
+// off to the EXACT exe the rebrand intended, instead of relying on
+// discoverNewExe (which would happily pick up an unrelated setup.exe a
+// user dropped in the install dir). Defense against finding A from the
+// Task #3 architect review. We always keep the latest non-empty value if
+// multiple writes happen.
+function writeCleanupMarker(appRoot, oldBasenames, nextExeBasename) {
   if (!Array.isArray(oldBasenames) || oldBasenames.length === 0) return
   try {
     const file = path.join(appRoot, CLEANUP_MARKER)
     let existing = []
+    let existingNext = null
     try {
       if (fs.existsSync(file)) {
         const j = JSON.parse(fs.readFileSync(file, 'utf-8'))
         if (j && Array.isArray(j.deleteExes)) existing = j.deleteExes
+        if (j && typeof j.nextExe === 'string' && j.nextExe.trim()) existingNext = j.nextExe
       }
     } catch (_) {}
     const merged = Array.from(new Set([...existing, ...oldBasenames])).filter(Boolean)
-    fs.writeFileSync(file, JSON.stringify({
+    const nextExe = (nextExeBasename && String(nextExeBasename).trim())
+      ? path.basename(String(nextExeBasename))
+      : existingNext
+    const payload = {
       writtenAt: new Date().toISOString(),
       deleteExes: merged,
-    }, null, 2))
-    log('Wrote cleanup marker for orphan exe(s): ' + merged.join(', '))
+    }
+    if (nextExe) payload.nextExe = nextExe
+    fs.writeFileSync(file, JSON.stringify(payload, null, 2))
+    log('Wrote cleanup marker for orphan exe(s): ' + merged.join(', ')
+      + (nextExe ? ' (next exe: ' + nextExe + ')' : ''))
   } catch (e) {
     log('Could not write cleanup marker: ' + e.message)
   }
+}
+
+// Read the cleanup marker WITHOUT modifying or deleting it. Returns the
+// list of basenames the previous launch queued for deletion, or [] if no
+// marker exists. Used by the init-time self-defense check ("am I a marked
+// orphan?") which must run BEFORE sweepCleanupMarker would otherwise drop
+// our self-reference and continue booting.
+function peekCleanupMarker(appRoot) {
+  return peekCleanupMarkerWithMeta(appRoot).deleteExes
+}
+
+// Same as peekCleanupMarker but also returns the recorded `nextExe`
+// (when present). Self-defense uses this to hand off to the EXACT exe the
+// rebrand intended, instead of guessing via discoverNewExe.
+function peekCleanupMarkerWithMeta(appRoot) {
+  try {
+    const file = path.join(appRoot, CLEANUP_MARKER)
+    if (!fs.existsSync(file)) return { deleteExes: [], nextExe: null }
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    if (!data || !Array.isArray(data.deleteExes)) return { deleteExes: [], nextExe: null }
+    const deleteExes = data.deleteExes
+      .map(n => (n ? path.basename(String(n)) : null))
+      .filter(Boolean)
+    const nextExe = (typeof data.nextExe === 'string' && data.nextExe.trim())
+      ? path.basename(data.nextExe.trim())
+      : null
+    return { deleteExes, nextExe }
+  } catch (_) {
+    return { deleteExes: [], nextExe: null }
+  }
+}
+
+// Self-defense: returns true if the cleanup marker says the currently-running
+// exe is an orphan (e.g. user double-clicked the OLD server.exe AFTER a
+// rebrand applied but BEFORE the NEW server.exe ran sweepCleanupMarker).
+// Loading the new asar inside the old binary would produce a server with
+// the wrong identity. The caller hands off to the new exe and exits.
+function isSelfMarkedAsOrphan(appRoot) {
+  const list = peekCleanupMarker(appRoot)
+  if (list.length === 0) return false
+  const currentExe = getCurrentExeBasename()
+  if (!currentExe) return false
+  return list.some(n => sameExe(n, currentExe))
 }
 
 // Called early in init() (before any window opens). Deletes orphan .exe files
@@ -297,9 +456,17 @@ function sweepCleanupMarker(appRoot) {
   }
   try {
     if (remaining.length === 0) fs.unlinkSync(file)
-    else fs.writeFileSync(file, JSON.stringify({
-      writtenAt: data.writtenAt, deleteExes: remaining,
-    }, null, 2))
+    else {
+      // Carry forward nextExe so that the next-launch self-defense check
+      // still has the recorded successor exe to hand off to. Dropping it
+      // would silently re-introduce the heuristic discoverNewExe path
+      // and re-open the "spawn the wrong exe" risk on retry.
+      const out = { writtenAt: data.writtenAt, deleteExes: remaining }
+      if (data && typeof data.nextExe === 'string' && data.nextExe) {
+        out.nextExe = path.basename(String(data.nextExe))
+      }
+      fs.writeFileSync(file, JSON.stringify(out, null, 2))
+    }
   } catch (_) {}
 }
 
@@ -488,6 +655,17 @@ async function downloadAndApply(manifest) {
     fs.writeFileSync(path.join(pendingDir, 'READY'), new Date().toISOString())
     log('Server update staged at ' + pendingDir)
     broadcast('ota:ready-to-restart', { version: manifest.version, currentVersion: STATE.config.version })
+
+    // Auto-restart: previously the server.exe would sit on a staged update
+    // forever waiting for someone to call /api/internal/quit-for-update. The
+    // launcher does that, but in the user's deployment server.exe runs as
+    // an auto-started OS service with no launcher attached, so the update
+    // was applied "next time the box rebooted" — never. Trigger a graceful
+    // quit ourselves; the OS auto-start brings server.exe back up and the
+    // new instance applies .ota-pending on init().
+    try { scheduleAutoQuitAfterStage('post-stage auto-restart (v' + manifest.version + ')') } catch (e) {
+      log('Could not schedule post-stage auto-restart (non-fatal): ' + e.message)
+    }
   } catch (e) {
     log('Download/apply failed: ' + e.message)
     broadcast('ota:error', { stage: 'download', error: e.message })
@@ -508,6 +686,7 @@ function applyPendingUpdateOnStartup(appRoot) {
   let stagedManifest = null
   try {
     const buf = fs.readFileSync(zipPath)
+    const payloadExeNames = listTopLevelExesInZip(buf)
     const result = extractZip(buf, appRoot)
     log('Extraction: ' + result.extracted + '/' + result.totalEntries + ' files OK, ' + result.failed + ' failed.')
     if (result.failed > 0 || result.extracted === 0) {
@@ -578,9 +757,28 @@ function applyPendingUpdateOnStartup(appRoot) {
       if (newExeName) {
         STATE.nextExePath = path.join(appRoot, newExeName)
         if (currentBasename && !sameExe(newExeName, currentBasename)) {
-          writeCleanupMarker(appRoot, [currentBasename])
+          // Persist `newExeName` in the marker so init-time self-defense
+          // can hand off to the EXACT exe (defense against architect
+          // finding A — never spawn an unrelated installer).
+          writeCleanupMarker(appRoot, [currentBasename], newExeName)
           log('Rebrand detected: new server exe is "' + newExeName + '" (was "' + currentBasename + '"). init() will hand off before listen; old exe will be removed on the next launch.')
         }
+      }
+
+      // Orphan-exe sweep: queue any sibling *.exe that's not us, not the
+      // new exe, and not part of the just-extracted payload. Same logic as
+      // the launcher updater — prevents accumulated orphans across many
+      // rebrands from piling up next to server.exe.
+      // Manifest may publish a `keepExes` allowlist for sibling helper
+      // tools (e.g. ffmpeg.exe) that must NOT be swept.
+      const manifestKeepExes = (stagedManifest && Array.isArray(stagedManifest.keepExes))
+        ? stagedManifest.keepExes : []
+      const orphanExtras = scanForOrphanExes(
+        appRoot, payloadExeNames, currentBasename, newExeName, manifestKeepExes,
+      )
+      if (orphanExtras.length > 0) {
+        writeCleanupMarker(appRoot, orphanExtras, newExeName || null)
+        log('Orphan-exe scan queued ' + orphanExtras.length + ' extra .exe(s) for next-launch cleanup: ' + orphanExtras.join(', '))
       }
     } catch (e) {
       log('Rebrand-aware apply step failed (continuing with default relaunch): ' + e.message)
@@ -651,6 +849,49 @@ function init({ appRoot, isDev, ipcMain }) {
   STATE.appRoot = appRoot
 
   if (!isDev) {
+    // Self-defense FIRST — before sweep, before apply. If the previous
+    // launch wrote a cleanup marker that lists OUR basename, we are an
+    // orphan that the user just double-clicked (e.g. via a stale shortcut
+    // the sweep hadn't reached yet). Loading the new asar inside our old
+    // binary produces a server.exe with the wrong identity. Hand off to
+    // the discovered new exe and exit immediately.
+    try {
+      const meta = peekCleanupMarkerWithMeta(appRoot)
+      const currentExe = getCurrentExeBasename()
+      const isOrphan = currentExe && meta.deleteExes.some(n => sameExe(n, currentExe))
+      if (isOrphan) {
+        // Prefer the marker-recorded `nextExe` (written at rebrand time).
+        // Only fall back to discoverNewExe for legacy markers without that
+        // field — and even then only when discovery returns a single
+        // confident candidate. This blocks "spawn the wrong exe" when a
+        // user drops setup.exe in the install dir. Defense against
+        // architect finding A.
+        let target = null
+        let chosenName = null
+        if (meta.nextExe) {
+          const recorded = path.join(appRoot, meta.nextExe)
+          if (fs.existsSync(recorded) && !sameExe(meta.nextExe, currentExe)) {
+            target = recorded
+            chosenName = meta.nextExe
+          } else {
+            log('Self-defense: marker recorded nextExe "' + meta.nextExe + '" but it is missing or matches us — refusing to fall back to discovery for safety.')
+          }
+        } else {
+          const guess = discoverNewExe(appRoot, currentExe)
+          if (guess) { target = path.join(appRoot, guess); chosenName = guess }
+        }
+        if (target) {
+          log('Self-defense: this server exe (' + currentExe + ') is listed as an orphan in the cleanup marker — handing off to ' + chosenName + '.')
+          if (spawnAndExit(target, 'Orphan self-handoff (pre-init)')) return
+          log('Orphan self-handoff failed — continuing as old exe; server identity may be wrong.')
+        } else {
+          log('Self-defense: marked as orphan but no safe replacement .exe is available. Continuing as old exe.')
+        }
+      }
+    } catch (e) {
+      log('Self-defense check failed: ' + e.message)
+    }
+
     // Sweep first so an orphan exe (and its dangling shortcuts) from a
     // previous rebrand are removed BEFORE we apply any new pending update.
     try { sweepCleanupMarker(appRoot) } catch (e) { log('cleanup sweep failed: ' + e.message) }
@@ -752,10 +993,157 @@ function gracefulQuitForUpdate(reason) {
   }, 250)
 }
 
+// Belt-and-braces self-relaunch (Windows-only). Spawn a tiny detached
+// cmd.exe helper that:
+//   1. Waits `delaySec` seconds (using `ping` because Windows' built-in
+//      `timeout.exe` blocks on stdin and is unreliable when detached).
+//   2. Runs `start "" "<exe>"` to launch the new process. `start` is a
+//      cmd.exe builtin and does not block.
+// The parent server.exe will already be gone by the time the timer fires,
+// so the new instance can grab the install dir's lock and apply the
+// pending update cleanly.
+//
+// Why this exists: the user's Windows machine has an OS-level auto-start
+// for server.exe (Task Scheduler / startup folder / Service). If that
+// mechanism is mis-configured or temporarily disabled, the post-stage
+// auto-quit would leave the server down. This helper is a safety net.
+// Returns true if a relaunch was scheduled, false on non-Windows or any
+// failure (logged and treated as non-fatal). Idempotent: subsequent calls
+// in the same process are a no-op (defense against architect finding 3 —
+// duplicate detached helpers would each call `start` and produce two
+// server.exes after exit).
+function scheduleSelfRelaunch(targetExePath, delaySec) {
+  // OTA_TEST_FORCE_RELAUNCH=1 lets the test suite exercise the spawn path
+  // on a Linux runner — production code never sets it.
+  const isWin = process.platform === 'win32' || process.env.OTA_TEST_FORCE_RELAUNCH === '1'
+  if (!isWin) return false
+  if (!targetExePath) return false
+  if (STATE.relaunchScheduled) {
+    log('Belt-and-braces relauncher already scheduled — skipping duplicate.')
+    return false
+  }
+  const seconds = Math.max(2, Math.min(60, parseInt(delaySec, 10) || 5))
+  // `ping -n N` waits N-1 seconds, so add 1 to land at `seconds`.
+  const pingCount = seconds + 1
+  // Quote the exe path for cmd.exe — embedded spaces are common in
+  // "Program Files" installs. The empty "" after `start` is its window
+  // title placeholder; without it, start treats a quoted path as a title.
+  const cmdLine = 'ping 127.0.0.1 -n ' + pingCount + ' > nul && start "" "' + targetExePath + '"'
+  try {
+    const child = spawn('cmd.exe', ['/c', cmdLine], {
+      detached: true,
+      stdio: 'ignore',
+      windowsVerbatimArguments: true,
+      cwd: STATE.appRoot || path.dirname(targetExePath),
+    })
+    child.unref()
+    STATE.relaunchScheduled = true
+    log('Belt-and-braces relauncher scheduled: ' + path.basename(targetExePath) + ' in ~' + seconds + 's')
+    return true
+  } catch (e) {
+    log('Belt-and-braces relauncher failed (non-fatal): ' + e.message)
+    return false
+  }
+}
+
+// === Drain-aware request tracker ===
+//
+// api.js installs a middleware that bumps STATE.activeRequests on every
+// non-internal request and decrements on response finish/close. The
+// post-stage auto-quit then waits (with a hard cap) for the count to
+// reach 0 before exiting, so a 500MB save upload or a long download
+// isn't sliced at the 7-second mark. Defense against architect finding 2.
+function trackRequestStart() { STATE.activeRequests++ }
+function trackRequestEnd() {
+  STATE.activeRequests = Math.max(0, STATE.activeRequests - 1)
+}
+function getActiveRequestCount() { return STATE.activeRequests }
+
+// Wait for in-flight requests to drain, polling every 100ms. Resolves to
+// true if the count hit 0 within `maxMs`, false otherwise. Never throws.
+function waitForActiveRequestsToDrain(maxMs) {
+  const cap = Math.max(0, parseInt(maxMs, 10) || 0)
+  return new Promise((resolve) => {
+    if (STATE.activeRequests === 0) return resolve(true)
+    const start = Date.now()
+    const tick = () => {
+      if (STATE.activeRequests === 0) return resolve(true)
+      if (Date.now() - start >= cap) return resolve(false)
+      setTimeout(tick, 100)
+    }
+    tick()
+  })
+}
+
+// Schedule the post-stage auto-restart sequence. Called by downloadAndApply
+// once the .ota-pending/READY marker is on disk. The delay gives:
+//   - any in-flight HTTP responses time to flush,
+//   - the SSE liveSession a chance to push the "ready-to-restart" event,
+//   - the launcher (if connected) time to invoke /api/internal/quit-for-update
+//     itself, which would short-circuit ours but produces the same outcome.
+// OTA_DISABLE_AUTO_QUIT=1 disables this for tests / debugging sessions.
+//
+// Idempotent: a second call while a timer is still pending is a no-op.
+// Defense against architect finding 3.
+function scheduleAutoQuitAfterStage(reason) {
+  if (process.env.OTA_DISABLE_AUTO_QUIT === '1') {
+    log('Auto-quit after stage skipped (OTA_DISABLE_AUTO_QUIT=1).')
+    return
+  }
+  if (STATE.autoQuitTimer) {
+    log('Auto-quit after stage already scheduled — skipping duplicate.')
+    return
+  }
+  const delayMs = 7000
+  // Hard cap on how long we wait for in-flight requests to drain past
+  // the 7s mark. After this, we exit anyway — leaving the server up
+  // forever just because someone is downloading would defeat the OTA.
+  const drainMaxMs = 25000
+  log('Scheduling post-stage auto-restart in ' + Math.round(delayMs / 1000) + 's…')
+  STATE.autoQuitTimer = setTimeout(async () => {
+    try {
+      const inFlight = STATE.activeRequests
+      if (inFlight > 0) {
+        log('Waiting for ' + inFlight + ' in-flight request(s) to drain (max ' + Math.round(drainMaxMs / 1000) + 's)…')
+        const drained = await waitForActiveRequestsToDrain(drainMaxMs)
+        if (!drained) {
+          log('Drain timeout — proceeding with auto-quit despite ' + STATE.activeRequests + ' in-flight request(s).')
+        } else {
+          log('All in-flight requests drained.')
+        }
+      }
+    } catch (e) {
+      log('Drain wait failed (non-fatal, proceeding): ' + e.message)
+    }
+    // Belt-and-braces FIRST so it's already running before we exit. We
+    // pass process.execPath (the currently-running server exe) as the
+    // relaunch target — the OS auto-start mechanism is the primary path,
+    // this is just insurance.
+    try { scheduleSelfRelaunch(process.execPath, 5) } catch (_) {}
+    gracefulQuitForUpdate(reason || 'post-stage auto-restart')
+  }, delayMs)
+  // Don't let the timer pin the event loop in a test runner that's
+  // waiting for natural quiescence.
+  if (STATE.autoQuitTimer && typeof STATE.autoQuitTimer.unref === 'function') {
+    STATE.autoQuitTimer.unref()
+  }
+}
+
 module.exports = {
   init, checkForUpdate, restartApp, applyPendingUpdateOnStartup,
   // Exported so tests can drive the rebrand-style apply + cleanup-marker
   // flow (and the orphan-shortcut sweep) without a real electron build.
   sweepCleanupMarker, writeCleanupMarker, getCurrentExeBasename,
   removeShortcutsTo, gracefulQuitForUpdate,
+  // Exported for Task #3 tests
+  listTopLevelExesInZip, scanForOrphanExes, peekCleanupMarker, isSelfMarkedAsOrphan,
+  scheduleSelfRelaunch, scheduleAutoQuitAfterStage,
+  // Exported for the architect-review hardening (Task #3 round 2):
+  //   - peekCleanupMarkerWithMeta + readKeepExesSidecar back the new
+  //     "exact-match handoff" and "operator allowlist" defenses.
+  //   - The request-tracker functions are wired into api.js so we can
+  //     drain in-flight requests before auto-quit.
+  peekCleanupMarkerWithMeta, readKeepExesSidecar,
+  trackRequestStart, trackRequestEnd, getActiveRequestCount,
+  waitForActiveRequestsToDrain,
 }

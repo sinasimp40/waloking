@@ -235,3 +235,36 @@ Set `CSC_LINK` (path or base64 of `.pfx`) and `CSC_KEY_PASSWORD` before running 
 - No backdrop-blur in main UI
 - Pure CSS particles (no JS loop)
 - React.memo on GameCard, granular Zustand selectors
+
+## OTA Hardening (Task #3)
+
+The OTA updater (`electron/updater.js` and `server/electron/updater.js`) includes
+several defensive features that operators should know about:
+
+- **Orphan-exe cleanup with allowlist.** After an OTA stages a new build, the
+  next launch sweeps any leftover `*.exe` from previous rebrands. To prevent
+  this from deleting legitimate sibling tools (ffmpeg.exe, helper utilities,
+  etc.), two allowlists are honored:
+  - `manifest.keepExes` — published per-release by the update server.
+  - `.ota-keep-exes.json` — operator-controlled file dropped next to the
+    running exe. Three shapes accepted: a plain JSON array, `{"keep":[...]}`,
+    or `{"keepExes":[...]}`. Entries are basename-normalized and
+    case-insensitive.
+- **Cleanup marker carries `nextExe`.** `.ota-cleanup.json` now records the
+  exact basename of the new exe to hand off to. If an operator double-clicks
+  the OLD exe after an OTA, the old process detects it's marked as an orphan
+  and immediately spawns the recorded `nextExe` (no heuristic guessing about
+  unrelated installers in the install dir).
+- **Auto-restart drains in-flight requests.** server.exe quits ~7s after a
+  successful stage, but the auto-quit waits (capped at 25s) for in-flight
+  HTTP requests to finish first, so a 500MB save upload isn't sliced. The
+  request counter is wired in via middleware in `server/electron/api.js`.
+- **Idempotent helpers.** `scheduleAutoQuitAfterStage` and
+  `scheduleSelfRelaunch` are both safe to call multiple times — the second
+  call is a no-op with a log line.
+- **Belt-and-braces relauncher.** On Windows, after the auto-quit, a detached
+  `cmd.exe /c "ping … && start <exe>"` keeps the server coming back up even
+  if the OS auto-start mechanism is misconfigured.
+- **Test coverage.** `node walok/electron/test-updater.js` runs 111 pure-Node
+  tests covering all of the above; `walok/tests/test-rebrand-update.js` and
+  `walok/tests/test-server-rebrand.js` cover the rebrand sweep flow.

@@ -53,6 +53,33 @@ function createApi(appRoot) {
   app.use(cors())
   app.use(express.json())
 
+  // Request-tracker middleware. Bumps the OTA updater's active-request
+  // counter so the post-stage auto-quit sequence can drain in-flight
+  // uploads/downloads before exiting (defense against architect finding 2).
+  // We intentionally skip /api/internal/quit-for-update — including it
+  // would deadlock the drain wait against the very request that asked
+  // for the quit. Lazy-required so api.js stays test-loadable without
+  // importing the electron-flavored updater module up front.
+  let updaterRef = null
+  app.use((req, res, next) => {
+    if (req.path === '/api/internal/quit-for-update') return next()
+    if (!updaterRef) {
+      try { updaterRef = require('./updater') }
+      catch (_) { return next() }
+    }
+    if (typeof updaterRef.trackRequestStart !== 'function') return next()
+    updaterRef.trackRequestStart()
+    let counted = false
+    const finalize = () => {
+      if (counted) return
+      counted = true
+      try { updaterRef.trackRequestEnd() } catch (_) {}
+    }
+    res.on('finish', finalize)
+    res.on('close', finalize)
+    next()
+  })
+
   const upload = multer({
     dest: path.join(getSavesDir(appRoot), '_tmp'),
     limits: { fileSize: 500 * 1024 * 1024 }

@@ -220,30 +220,187 @@ function extractZip(zipBuffer, destDir) {
   return { extracted, failed, totalEntries, failedFiles }
 }
 
+// Read-only walk of an OTA payload zip — returns the basenames of any
+// top-level *.exe entries it contains, without extracting anything. Mirrors
+// the LFH parser in extractZip but does no I/O. Used by the orphan-exe scan
+// so we can answer "is THIS .exe in the install dir part of the just-applied
+// payload, or is it stale junk from a previous build?". Top-level only — an
+// .exe nested inside a subdirectory in the zip is not one of the binaries
+// that sits next to the launcher and is not relevant to orphan cleanup.
+function listTopLevelExesInZip(zipBuffer) {
+  const out = []
+  try {
+    let pos = 0
+    while (pos + 30 <= zipBuffer.length) {
+      const sig = zipBuffer.readUInt32LE(pos)
+      if (sig !== 0x04034b50) break
+      const compSize = zipBuffer.readUInt32LE(pos + 18)
+      const nameLen = zipBuffer.readUInt16LE(pos + 26)
+      const extraLen = zipBuffer.readUInt16LE(pos + 28)
+      const name = zipBuffer.slice(pos + 30, pos + 30 + nameLen).toString('utf8')
+      pos = pos + 30 + nameLen + extraLen + compSize
+      if (!name || name.includes('..')) continue
+      // Top-level only: no forward slash AND no backslash anywhere in the
+      // entry name. (Some Windows zip producers emit backslashes.)
+      if (name.indexOf('/') !== -1 || name.indexOf('\\') !== -1) continue
+      if (!name.toLowerCase().endsWith('.exe')) continue
+      out.push(name)
+    }
+  } catch (_) {}
+  return out
+}
+
+// Read the user/operator's persistent allowlist of exe basenames that the
+// orphan-exe sweep must never delete. Lives at <appRoot>/.ota-keep-exes.json
+// with shape { "keepExes": ["ffmpeg.exe", "diagnostics.exe"] }. Lets ops
+// ship sibling helper tools next to our exe without us deleting them on
+// the next OTA. Missing/malformed file -> []. Defense against
+// finding #1 from the Task #3 architect review.
+function readKeepExesSidecar(appRoot) {
+  try {
+    const file = path.join(appRoot, '.ota-keep-exes.json')
+    if (!fs.existsSync(file)) return []
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    // Accept three shapes — operators will mistype this, so be forgiving:
+    //   ["a.exe","b.exe"]                      (plain array)
+    //   { "keep":     ["a.exe", ...] }         (terse object form)
+    //   { "keepExes": ["a.exe", ...] }         (verbose object form)
+    let arr = null
+    if (Array.isArray(data)) arr = data
+    else if (data && Array.isArray(data.keep)) arr = data.keep
+    else if (data && Array.isArray(data.keepExes)) arr = data.keepExes
+    if (!arr) return []
+    return arr
+      .map(n => (n ? path.basename(String(n)) : null))
+      .filter(Boolean)
+  } catch (_) {
+    return []
+  }
+}
+
+// Scan the install dir for top-level *.exe files that are stale: not the
+// running exe, not the just-staged new exe, and not an entry in the payload
+// we just extracted. Returns the basenames so the caller can hand them to
+// writeCleanupMarker. We never delete from inside this function — the
+// marker + sweep flow on the *next* launch is the only safe deletion path
+// (Windows holds an exclusive lock on the running exe, plus the next-launch
+// model gives the user a chance to recover if a sweep would be wrong).
+//
+// `manifestKeepExes` is an optional allowlist published by the staged
+// manifest (manifest.keepExes). It's merged with the on-disk sidecar
+// (.ota-keep-exes.json) so operators can protect sibling tools either
+// transiently (per-update via manifest) or persistently (sidecar file).
+function scanForOrphanExes(appRoot, payloadExeNames, currentBasename, newExeName, manifestKeepExes) {
+  const orphans = []
+  try {
+    const exclude = new Set()
+    if (currentBasename) exclude.add(String(currentBasename).toLowerCase())
+    if (newExeName) exclude.add(String(newExeName).toLowerCase())
+    // payloadExeNames already comes from listTopLevelExesInZip which
+    // emits basenames; manifestKeepExes is operator-authored, so we
+    // basename-normalize it the same way readKeepExesSidecar does. This
+    // means a manifest entry like "tools/ffmpeg.exe" still protects the
+    // on-disk ffmpeg.exe under appRoot.
+    for (const n of (payloadExeNames || [])) exclude.add(String(n).toLowerCase())
+    for (const n of (manifestKeepExes || [])) {
+      if (!n) continue
+      exclude.add(path.basename(String(n)).toLowerCase())
+    }
+    for (const n of readKeepExesSidecar(appRoot)) exclude.add(String(n).toLowerCase())
+    for (const e of fs.readdirSync(appRoot, { withFileTypes: true })) {
+      if (!e.isFile() || !e.name.toLowerCase().endsWith('.exe')) continue
+      if (exclude.has(e.name.toLowerCase())) continue
+      orphans.push(e.name)
+    }
+  } catch (_) {}
+  return orphans
+}
+
 // Persist a list of orphan exe basenames that the *next* launch should delete.
 // Windows holds an exclusive lock on the currently-running .exe, so we can't
 // delete the OLD .exe from inside the OLD process — we hand the job off to the
 // NEW exe (a different process) which can safely unlink it.
-function writeCleanupMarker(appRoot, oldBasenames) {
+//
+// `nextExeBasename` (optional): the resolved new exe basename for this
+// rebrand. Persisting it in the marker lets init-time self-defense hand
+// off to the EXACT exe the rebrand intended, instead of relying on
+// discoverNewExe (which would happily pick up an unrelated setup.exe a
+// user dropped in the install dir). Defense against finding A from the
+// Task #3 architect review. We always keep the latest non-empty value if
+// multiple writes happen.
+function writeCleanupMarker(appRoot, oldBasenames, nextExeBasename) {
   if (!Array.isArray(oldBasenames) || oldBasenames.length === 0) return
   try {
     const file = path.join(appRoot, CLEANUP_MARKER)
     let existing = []
+    let existingNext = null
     try {
       if (fs.existsSync(file)) {
         const j = JSON.parse(fs.readFileSync(file, 'utf-8'))
         if (j && Array.isArray(j.deleteExes)) existing = j.deleteExes
+        if (j && typeof j.nextExe === 'string' && j.nextExe.trim()) existingNext = j.nextExe
       }
     } catch (_) {}
     const merged = Array.from(new Set([...existing, ...oldBasenames])).filter(Boolean)
-    fs.writeFileSync(file, JSON.stringify({
+    const nextExe = (nextExeBasename && String(nextExeBasename).trim())
+      ? path.basename(String(nextExeBasename))
+      : existingNext
+    const payload = {
       writtenAt: new Date().toISOString(),
       deleteExes: merged,
-    }, null, 2))
-    log('Wrote cleanup marker for orphan exe(s): ' + merged.join(', '))
+    }
+    if (nextExe) payload.nextExe = nextExe
+    fs.writeFileSync(file, JSON.stringify(payload, null, 2))
+    log('Wrote cleanup marker for orphan exe(s): ' + merged.join(', ')
+      + (nextExe ? ' (next exe: ' + nextExe + ')' : ''))
   } catch (e) {
     log('Could not write cleanup marker: ' + e.message)
   }
+}
+
+// Read the cleanup marker WITHOUT modifying or deleting it. Returns the
+// list of basenames the previous launch queued for deletion, or [] if no
+// marker exists. Used by the init-time self-defense check ("am I a marked
+// orphan?") which must run BEFORE sweepCleanupMarker would otherwise drop
+// our self-reference and continue booting.
+function peekCleanupMarker(appRoot) {
+  return peekCleanupMarkerWithMeta(appRoot).deleteExes
+}
+
+// Same as peekCleanupMarker but also returns the recorded `nextExe`
+// (when present). Self-defense uses this to hand off to the EXACT exe the
+// rebrand intended, instead of guessing via discoverNewExe.
+function peekCleanupMarkerWithMeta(appRoot) {
+  try {
+    const file = path.join(appRoot, CLEANUP_MARKER)
+    if (!fs.existsSync(file)) return { deleteExes: [], nextExe: null }
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    if (!data || !Array.isArray(data.deleteExes)) return { deleteExes: [], nextExe: null }
+    const deleteExes = data.deleteExes
+      .map(n => (n ? path.basename(String(n)) : null))
+      .filter(Boolean)
+    const nextExe = (typeof data.nextExe === 'string' && data.nextExe.trim())
+      ? path.basename(data.nextExe.trim())
+      : null
+    return { deleteExes, nextExe }
+  } catch (_) {
+    return { deleteExes: [], nextExe: null }
+  }
+}
+
+// Self-defense: if the cleanup marker says the currently-running exe is an
+// orphan (e.g. user double-clicked the OLD exe AFTER the rebrand applied
+// but BEFORE the NEW exe ran sweepCleanupMarker), we are guaranteed to be
+// running the OLD binary against the NEW asar — that's the "garbled
+// black/violet screen" bug. Hand off to the new exe and exit BEFORE any
+// window opens. Returns true if a handoff was scheduled (caller should
+// short-circuit init).
+function isSelfMarkedAsOrphan(appRoot) {
+  const list = peekCleanupMarker(appRoot)
+  if (list.length === 0) return false
+  const currentExe = getCurrentExeBasename()
+  if (!currentExe) return false
+  return list.some(n => sameExe(n, currentExe))
 }
 
 // Called early in init() (before any window opens). Deletes orphan .exe files
@@ -285,9 +442,17 @@ function sweepCleanupMarker(appRoot) {
   }
   try {
     if (remaining.length === 0) fs.unlinkSync(file)
-    else fs.writeFileSync(file, JSON.stringify({
-      writtenAt: data.writtenAt, deleteExes: remaining,
-    }, null, 2))
+    else {
+      // Carry forward nextExe so that the next-launch self-defense check
+      // still has the recorded successor exe to hand off to. Dropping it
+      // would silently re-introduce the heuristic discoverNewExe path
+      // and re-open the "spawn the wrong exe" risk on retry.
+      const out = { writtenAt: data.writtenAt, deleteExes: remaining }
+      if (data && typeof data.nextExe === 'string' && data.nextExe) {
+        out.nextExe = path.basename(String(data.nextExe))
+      }
+      fs.writeFileSync(file, JSON.stringify(out, null, 2))
+    }
   } catch (_) {}
 }
 
@@ -424,6 +589,10 @@ function applyPendingUpdateOnStartup(appRoot) {
   log('Found pending update — applying before app starts...')
   try {
     const buf = fs.readFileSync(zipPath)
+    // Snapshot the payload's top-level *.exe entries BEFORE extraction so the
+    // orphan-exe scan downstream can tell "part of this payload" from
+    // "left-over junk from a previous build".
+    const payloadExeNames = listTopLevelExesInZip(buf)
     const result = extractZip(buf, appRoot)
     log('Extraction: ' + result.extracted + '/' + result.totalEntries + ' files OK, ' + result.failed + ' failed.')
 
@@ -552,9 +721,29 @@ function applyPendingUpdateOnStartup(appRoot) {
       if (newExeName) {
         STATE.nextExePath = path.join(appRoot, newExeName)
         if (currentBasename && !sameExe(newExeName, currentBasename)) {
-          writeCleanupMarker(appRoot, [currentBasename])
+          // Persist `newExeName` in the marker so init-time self-defense
+          // can hand off to the EXACT exe (not whatever discoverNewExe
+          // happens to find). Defense against architect finding A.
+          writeCleanupMarker(appRoot, [currentBasename], newExeName)
           log('Rebrand detected: new exe is "' + newExeName + '" (was "' + currentBasename + '"). init() will hand off before windows open; old exe will be removed on the next launch.')
         }
+      }
+
+      // Orphan-exe sweep: if a previous failed/aborted update (or a
+      // user-dropped sibling) left other *.exe files in the install dir,
+      // queue them for deletion on the next launch too. This is what
+      // prevents the "two .exes side by side" state the user reported
+      // when a long history of renames accumulates over time.
+      // Manifest may publish a `keepExes` allowlist for sibling helper
+      // tools (e.g. ffmpeg.exe) that must NOT be swept.
+      const manifestKeepExes = (stagedManifest && Array.isArray(stagedManifest.keepExes))
+        ? stagedManifest.keepExes : []
+      const orphanExtras = scanForOrphanExes(
+        appRoot, payloadExeNames, currentBasename, newExeName, manifestKeepExes,
+      )
+      if (orphanExtras.length > 0) {
+        writeCleanupMarker(appRoot, orphanExtras, newExeName || null)
+        log('Orphan-exe scan queued ' + orphanExtras.length + ' extra .exe(s) for next-launch cleanup: ' + orphanExtras.join(', '))
       }
     } catch (e) {
       log('Rebrand-aware apply step failed (continuing with default relaunch): ' + e.message)
@@ -628,6 +817,50 @@ function init({ appRoot, isDev, ipcMain }) {
   STATE.appRoot = appRoot
 
   if (!isDev) {
+    // Self-defense FIRST — before sweep, before apply. If the previous
+    // launch wrote a cleanup marker that lists OUR basename, we are an
+    // orphan that the user just double-clicked (e.g. via an old shortcut
+    // that the shortcut-sweep hadn't reached yet). Loading the new asar
+    // inside our old binary produces the "black/violet garbled screen"
+    // bug. Hand off to the discovered new exe and exit immediately.
+    try {
+      const meta = peekCleanupMarkerWithMeta(appRoot)
+      const currentExe = getCurrentExeBasename()
+      const isOrphan = currentExe && meta.deleteExes.some(n => sameExe(n, currentExe))
+      if (isOrphan) {
+        // Prefer the marker-recorded `nextExe` (written by writeCleanupMarker
+        // at rebrand time). Only fall back to discoverNewExe for legacy
+        // markers without that field — and ONLY when the install dir has
+        // exactly one obvious candidate, to avoid spawning a random sibling
+        // (e.g. an installer setup.exe). Defense against architect finding A.
+        let target = null
+        let chosenName = null
+        if (meta.nextExe) {
+          const recorded = path.join(appRoot, meta.nextExe)
+          if (fs.existsSync(recorded) && !sameExe(meta.nextExe, currentExe)) {
+            target = recorded
+            chosenName = meta.nextExe
+          } else {
+            log('Self-defense: marker recorded nextExe "' + meta.nextExe + '" but it is missing or matches us — refusing to fall back to discovery for safety.')
+          }
+        } else {
+          // Legacy marker (pre-Task-#3 nextExe field). Use discoverNewExe
+          // but only if it returns a single confident answer.
+          const guess = discoverNewExe(appRoot, currentExe)
+          if (guess) { target = path.join(appRoot, guess); chosenName = guess }
+        }
+        if (target) {
+          log('Self-defense: this exe (' + currentExe + ') is listed as an orphan in the cleanup marker — handing off to ' + chosenName + '.')
+          if (spawnAndExit(target, 'Orphan self-handoff (pre-init)')) return
+          log('Orphan self-handoff failed — continuing as old exe; UI may render incorrectly.')
+        } else {
+          log('Self-defense: marked as orphan but no safe replacement .exe is available. Continuing as old exe (UI may render incorrectly).')
+        }
+      }
+    } catch (e) {
+      log('Self-defense check failed: ' + e.message)
+    }
+
     // Sweep first so an orphan exe from a previous rebrand is removed BEFORE
     // we apply any new pending update (keeps install dir tidy in all cases).
     try { sweepCleanupMarker(appRoot) } catch (e) { log('cleanup sweep failed: ' + e.message) }
@@ -730,4 +963,8 @@ module.exports = {
   // exported so tests/test-rebrand-update.js can drive the rebrand-style
   // apply + cleanup-marker flow without a real electron build
   sweepCleanupMarker, writeCleanupMarker, getCurrentExeBasename,
+  // exported for Task #3 tests (orphan-exe scan + init-time self-defense)
+  listTopLevelExesInZip, scanForOrphanExes, peekCleanupMarker, isSelfMarkedAsOrphan,
+  // exported for the architect-review hardening tests (Task #3 round 2)
+  peekCleanupMarkerWithMeta, readKeepExesSidecar,
 }
