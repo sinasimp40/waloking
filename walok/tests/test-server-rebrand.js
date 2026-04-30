@@ -144,6 +144,31 @@ function main() {
       'cleanup marker lists OLD-server.exe in deleteExes',
     )
 
+    // Architect round-3 fix: per-exe identity sidecar must be written.
+    const sidecarPath = path.join(tmp, '.ota-current-exe.json')
+    assert(fs.existsSync(sidecarPath), '.ota-current-exe.json written by server apply step')
+    const sidecar = JSON.parse(fs.readFileSync(sidecarPath, 'utf-8'))
+    assert(sidecar.exe === 'NEW-server.exe', 'sidecar.exe = NEW-server.exe (canonical successor)')
+    assert(sidecar.version === '2.0.0', 'sidecar.version = 2.0.0')
+
+    // INTEGRATION test: relaunching OLD-server.exe must detect stale via
+    // the sidecar tier without relying on OTA_TEST_BUNDLED_VERSION.
+    const prevHook = process.env.OTA_TEST_BUNDLED_VERSION
+    delete process.env.OTA_TEST_BUNDLED_VERSION
+    try {
+      const stale = updater.detectVersionMismatch(tmp, 'OLD-server.exe')
+      assert(stale.stale === true,
+        'OLD-server.exe relaunched after apply: stale via sidecar (no env hook)')
+      assert(stale.reason === 'sidecar-points-elsewhere',
+        'reason=sidecar-points-elsewhere (proves tier-1 active)')
+      assert(stale.candidate && stale.candidate.basename === 'NEW-server.exe',
+        'OLD-server.exe would correctly hand off to NEW-server.exe')
+      assert(stale.candidate.source === 'current-exe-record',
+        'handoff source is the highest-confidence sidecar tier')
+    } finally {
+      if (prevHook !== undefined) process.env.OTA_TEST_BUNDLED_VERSION = prevHook
+    }
+
     // ---- Simulate the next launch: we are now the NEW server exe ----
     process.env.OTA_TEST_CURRENT_EXE = 'NEW-server.exe'
 

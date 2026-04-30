@@ -157,6 +157,141 @@ function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex')
 }
 
+// === Per-exe identity sidecar (.ota-current-exe.json) ===
+// See walok/electron/updater.js for the full design rationale (architect
+// round-3 finding). Server-side mirror of the same helpers.
+const CURRENT_EXE_RECORD = '.ota-current-exe.json'
+
+function readCurrentExeRecord(appRoot) {
+  if (!appRoot) return null
+  const p = path.join(appRoot, CURRENT_EXE_RECORD)
+  try {
+    if (!fs.existsSync(p)) return null
+    const data = JSON.parse(fs.readFileSync(p, 'utf-8'))
+    if (!data || typeof data.exe !== 'string' || !data.exe) return null
+    if (typeof data.version !== 'string' || !data.version) return null
+    return { exe: path.basename(String(data.exe)), version: String(data.version) }
+  } catch (_) { return null }
+}
+
+function writeCurrentExeRecord(appRoot, exeBasename, version) {
+  if (!appRoot || !exeBasename || !version) return false
+  const p = path.join(appRoot, CURRENT_EXE_RECORD)
+  try {
+    const payload = {
+      exe: path.basename(String(exeBasename)),
+      version: String(version),
+      written: Date.now(),
+    }
+    fs.writeFileSync(p, JSON.stringify(payload, null, 2))
+    return true
+  } catch (e) {
+    log('Failed to write ' + CURRENT_EXE_RECORD + ': ' + e.message)
+    return false
+  }
+}
+
+function getBundledVersion() {
+  if (process.env.OTA_TEST_BUNDLED_VERSION) return process.env.OTA_TEST_BUNDLED_VERSION
+  const candidates = [
+    path.join(__dirname, '..', 'package.json'),
+    path.join(__dirname, 'package.json'),
+  ]
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'))
+        if (pkg && typeof pkg.version === 'string' && pkg.version) return pkg.version
+      }
+    } catch (_) {}
+  }
+  return null
+}
+
+function readAdvertisedVersion(appRoot) {
+  const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, 'ota-config.json') : null,
+    appRoot ? path.join(appRoot, 'ota-config.json') : null,
+  ].filter(Boolean)
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf-8'))
+        if (cfg && typeof cfg.version === 'string' && cfg.version) return cfg.version
+      }
+    } catch (_) {}
+  }
+  return null
+}
+
+// Successor selection: sidecar > marker.nextExe > discoverNewExe (only
+// when neither sidecar nor marker exist).
+function pickSuccessorExe(appRoot, currentBasename) {
+  try {
+    const rec = readCurrentExeRecord(appRoot)
+    if (rec && rec.exe) {
+      const recorded = path.join(appRoot, rec.exe)
+      if (fs.existsSync(recorded) && !sameExe(rec.exe, currentBasename)) {
+        return { path: recorded, basename: rec.exe, source: 'current-exe-record' }
+      }
+    }
+  } catch (_) {}
+  try {
+    const meta = peekCleanupMarkerWithMeta(appRoot)
+    if (meta && meta.nextExe) {
+      const recorded = path.join(appRoot, meta.nextExe)
+      if (fs.existsSync(recorded) && !sameExe(meta.nextExe, currentBasename)) {
+        return { path: recorded, basename: meta.nextExe, source: 'marker.nextExe' }
+      }
+    }
+  } catch (_) {}
+  try {
+    // peekCleanupMarkerWithMeta returns {deleteExes:[], nextExe:null}
+    // even when the marker file is absent, so use a stricter check.
+    const haveSidecar = !!readCurrentExeRecord(appRoot)
+    const markerMeta = peekCleanupMarkerWithMeta(appRoot)
+    const haveMarker = !!(markerMeta && (markerMeta.deleteExes.length > 0 || markerMeta.nextExe))
+    if (!haveSidecar && !haveMarker) {
+      const guess = discoverNewExe(appRoot, currentBasename)
+      if (guess) {
+        const guessed = path.join(appRoot, guess)
+        if (fs.existsSync(guessed) && !sameExe(guess, currentBasename)) {
+          return { path: guessed, basename: guess, source: 'discoverNewExe' }
+        }
+      }
+    }
+  } catch (_) {}
+  return null
+}
+
+function detectVersionMismatch(appRoot, currentBasename) {
+  const sidecar = readCurrentExeRecord(appRoot)
+  if (sidecar) {
+    if (sameExe(sidecar.exe, currentBasename)) {
+      return {
+        stale: false, candidate: null, reason: 'sidecar-matches',
+        sidecarExe: sidecar.exe, sidecarVersion: sidecar.version,
+      }
+    }
+    const candidate = pickSuccessorExe(appRoot, currentBasename)
+    return {
+      stale: true, candidate, reason: 'sidecar-points-elsewhere',
+      sidecarExe: sidecar.exe, sidecarVersion: sidecar.version,
+    }
+  }
+  const bundled = getBundledVersion()
+  const advertised = readAdvertisedVersion(appRoot)
+  if (!bundled || !advertised) {
+    return { stale: false, candidate: null, reason: 'unknown-version', bundled, advertised }
+  }
+  const cmp = compareVersions(advertised, bundled)
+  if (cmp <= 0) {
+    return { stale: false, candidate: null, reason: 'up-to-date', bundled, advertised }
+  }
+  const candidate = pickSuccessorExe(appRoot, currentBasename)
+  return { stale: true, candidate, reason: 'older-than-advertised', bundled, advertised }
+}
+
 function extractZip(zipBuffer, destDir) {
   let pos = 0
   let extracted = 0
@@ -780,6 +915,28 @@ function applyPendingUpdateOnStartup(appRoot) {
         writeCleanupMarker(appRoot, orphanExtras, newExeName || null)
         log('Orphan-exe scan queued ' + orphanExtras.length + ' extra .exe(s) for next-launch cleanup: ' + orphanExtras.join(', '))
       }
+
+      // Write the per-exe identity sidecar (.ota-current-exe.json).
+      // Architect round-3 fix: anchors version identity to exe basename
+      // so an OLD exe relaunched later detects "I am not canonical"
+      // without relying on the OTA-mutated package.json inside the asar.
+      // Loud-log a write failure: a stale sidecar could later suppress
+      // stale-detection on a subsequent apply (architect round-3 minor).
+      try {
+        const canonicalExe = newExeName || currentBasename
+        const canonicalVersion = (stagedManifest && stagedManifest.version) || null
+        if (canonicalExe && canonicalVersion) {
+          const wrote = writeCurrentExeRecord(appRoot, canonicalExe, canonicalVersion)
+          if (!wrote) {
+            log('SEVERE: failed to update .ota-current-exe.json sidecar after apply. ' +
+              'A subsequent old-server-exe relaunch may not be detected as stale. Investigate disk permissions.')
+          }
+        } else {
+          log('Skipped sidecar write: canonicalExe=' + canonicalExe + ' canonicalVersion=' + canonicalVersion)
+        }
+      } catch (e) {
+        log('SEVERE: exception writing current-exe identity sidecar: ' + e.message)
+      }
     } catch (e) {
       log('Rebrand-aware apply step failed (continuing with default relaunch): ' + e.message)
     }
@@ -890,6 +1047,32 @@ function init({ appRoot, isDev, ipcMain }) {
       }
     } catch (e) {
       log('Self-defense check failed: ' + e.message)
+    }
+
+    // SECONDARY self-defense: explicit version-mismatch detection. Even
+    // when the cleanup marker is gone (already swept clean by a previous
+    // launch, or never written because the user manually relocated an
+    // old exe), comparing the bundled version against the on-disk
+    // ota-config.json catches "I'm running a stale binary" cases.
+    // Defense against the architect's blocking finding on the first
+    // round-2 review pass.
+    try {
+      const currentExe = getCurrentExeBasename()
+      const mismatch = detectVersionMismatch(appRoot, currentExe)
+      if (mismatch.stale) {
+        log('Version-mismatch self-defense: bundled=v' + mismatch.bundled +
+          ' advertised=v' + mismatch.advertised + ' (stale).')
+        if (mismatch.candidate) {
+          log('  Handing off to ' + mismatch.candidate.basename +
+            ' (source=' + mismatch.candidate.source + ').')
+          if (spawnAndExit(mismatch.candidate.path, 'Version-mismatch self-handoff (pre-init)')) return
+          log('  Version-mismatch handoff failed — continuing as old exe; server identity may be wrong.')
+        } else {
+          log('  No safe successor exe available — continuing as old exe; server identity may be wrong.')
+        }
+      }
+    } catch (e) {
+      log('Version-mismatch self-defense failed (non-fatal): ' + e.message)
     }
 
     // Sweep first so an orphan exe (and its dangling shortcuts) from a
@@ -1146,4 +1329,9 @@ module.exports = {
   peekCleanupMarkerWithMeta, readKeepExesSidecar,
   trackRequestStart, trackRequestEnd, getActiveRequestCount,
   waitForActiveRequestsToDrain,
+  // Exported for the version-mismatch self-defense tests (Task #3 round 2,
+  // architect blocking-finding follow-up):
+  getBundledVersion, readAdvertisedVersion, pickSuccessorExe, detectVersionMismatch,
+  // round-3 fix: per-exe identity sidecar
+  readCurrentExeRecord, writeCurrentExeRecord,
 }

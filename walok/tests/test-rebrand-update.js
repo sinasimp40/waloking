@@ -118,6 +118,39 @@ function main() {
       'cleanup marker lists OLD.exe in deleteExes',
     )
 
+    // Architect round-3 fix: per-exe identity sidecar must be written by
+    // the apply step. This is the immutable record that lets an OLD exe
+    // detect "I am no longer canonical" on a later relaunch, without
+    // depending on the OTA-mutated package.json inside the asar.
+    const sidecarPath = path.join(tmp, '.ota-current-exe.json')
+    assert(fs.existsSync(sidecarPath), '.ota-current-exe.json written by apply step')
+    const sidecar = JSON.parse(fs.readFileSync(sidecarPath, 'utf-8'))
+    assert(sidecar.exe === 'NEW.exe', 'sidecar.exe = NEW.exe (the canonical successor)')
+    assert(sidecar.version === '2.0.0', 'sidecar.version = 2.0.0 (the just-applied version)')
+    assert(typeof sidecar.written === 'number' && sidecar.written > 0, 'sidecar.written timestamp present')
+
+    // INTEGRATION test for the architect's blocking finding: after the
+    // apply has run, if the user RE-LAUNCHES OLD.exe (e.g. it's in their
+    // taskbar, or they renamed it before sweep ran), detectVersionMismatch
+    // must report stale=true via the sidecar tier — NOT via the legacy
+    // bundled-vs-advertised path that silently defaults to "up-to-date"
+    // when the asar was overwritten in place.
+    const prevHook = process.env.OTA_TEST_BUNDLED_VERSION
+    delete process.env.OTA_TEST_BUNDLED_VERSION
+    try {
+      const stale = updater.detectVersionMismatch(tmp, 'OLD.exe')
+      assert(stale.stale === true,
+        'OLD.exe relaunched after apply: detected stale via sidecar (no env hook)')
+      assert(stale.reason === 'sidecar-points-elsewhere',
+        'reason=sidecar-points-elsewhere (proves tier-1 path active)')
+      assert(stale.candidate && stale.candidate.basename === 'NEW.exe',
+        'OLD.exe would correctly hand off to NEW.exe')
+      assert(stale.candidate.source === 'current-exe-record',
+        'handoff source is the highest-confidence sidecar tier')
+    } finally {
+      if (prevHook !== undefined) process.env.OTA_TEST_BUNDLED_VERSION = prevHook
+    }
+
     // ---- Simulate the next launch: we are now the NEW exe ----
     // (process.execPath can't be changed; the env var is the test-only hook.)
     process.env.OTA_TEST_CURRENT_EXE = 'NEW.exe'

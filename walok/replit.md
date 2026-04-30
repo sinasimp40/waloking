@@ -265,6 +265,25 @@ several defensive features that operators should know about:
 - **Belt-and-braces relauncher.** On Windows, after the auto-quit, a detached
   `cmd.exe /c "ping … && start <exe>"` keeps the server coming back up even
   if the OS auto-start mechanism is misconfigured.
-- **Test coverage.** `node walok/electron/test-updater.js` runs 111 pure-Node
-  tests covering all of the above; `walok/tests/test-rebrand-update.js` and
-  `walok/tests/test-server-rebrand.js` cover the rebrand sweep flow.
+- **Per-exe identity sidecar (`.ota-current-exe.json`).** This is the
+  PRIMARY signal an OLD exe uses to detect "I am no longer canonical".
+  Written by every successful apply step at `<appRoot>/.ota-current-exe.json`
+  with `{exe, version, written}`. Because it lives next to the exes (not
+  inside the OTA-mutated asar) and is keyed by the canonical exe basename,
+  an OLD exe relaunched after an OTA sees its own basename ≠ sidecar.exe
+  and hands off — even when the asar's package.json has already been
+  rewritten with the NEW version. Reading the sidecar is tier-1 in
+  `pickSuccessorExe`; cleanup-marker `nextExe` is tier-2; `discoverNewExe`
+  is gated to "no signal at all" (tier-3 fallback only).
+- **Version-mismatch self-defense (degraded fallback).** When no sidecar
+  is present yet (very first launch, pre-rollout state), init() falls
+  back to comparing the bundled version (package.json) against the on-disk
+  advertised version (ota-config.json). Acknowledged-imperfect path —
+  the architect flagged that an OTA mutates package.json in place, so
+  this tier alone would let an OLD exe see "bundled == advertised" and
+  skip the handoff. The sidecar tier exists specifically to close that
+  gap. Test hook for the degraded path: `OTA_TEST_BUNDLED_VERSION`.
+- **Test coverage.** `node walok/electron/test-updater.js` runs 203 pure-Node
+  tests covering all of the above; `walok/tests/test-rebrand-update.js` (32)
+  and `walok/tests/test-server-rebrand.js` (35) cover the rebrand sweep
+  flow plus end-to-end sidecar assertions. Total: 270 OTA tests passing.

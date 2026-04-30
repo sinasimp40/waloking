@@ -677,6 +677,302 @@ async function testScheduleAutoQuitIdempotent() {
   }
 }
 
+// === Version-mismatch self-defense tests (Task #3 round 2 follow-up) ===
+//
+// The architect's blocking finding required: even when the cleanup marker
+// is missing/already-swept, we must still detect "I am running a stale
+// binary" by comparing the bundled version against the on-disk advertised
+// version (ota-config.json). These tests drive the four pure-data helpers
+// directly, so we don't need to invoke init() or hand off a real process.
+
+function writeOtaConfig(dir, version) {
+  fs.writeFileSync(path.join(dir, 'ota-config.json'), JSON.stringify({ version }))
+}
+
+function testGetBundledVersion(updater) {
+  console.log('\n--- getBundledVersion (with test-hook env var) ---')
+  const prev = process.env.OTA_TEST_BUNDLED_VERSION
+  try {
+    process.env.OTA_TEST_BUNDLED_VERSION = '7.7.7'
+    assert(updater.getBundledVersion() === '7.7.7', 'OTA_TEST_BUNDLED_VERSION takes precedence')
+    delete process.env.OTA_TEST_BUNDLED_VERSION
+    const v = updater.getBundledVersion()
+    // Without the hook, we read the project's own package.json — must be
+    // a non-empty string. The exact value depends on whichever updater
+    // module we pass in (launcher reads walok/package.json, server reads
+    // walok/server/package.json), but both should be defined.
+    assert(typeof v === 'string' && v.length > 0, 'real package.json read returns a non-empty version (' + v + ')')
+  } finally {
+    if (prev === undefined) delete process.env.OTA_TEST_BUNDLED_VERSION
+    else process.env.OTA_TEST_BUNDLED_VERSION = prev
+  }
+}
+
+function testReadAdvertisedVersion(updater) {
+  console.log('\n--- readAdvertisedVersion ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mismatch-cfg-'))
+  try {
+    assert(updater.readAdvertisedVersion(tmp) === null, 'returns null when ota-config.json missing')
+    writeOtaConfig(tmp, '3.4.5')
+    assert(updater.readAdvertisedVersion(tmp) === '3.4.5', 'reads version from valid ota-config.json')
+    fs.writeFileSync(path.join(tmp, 'ota-config.json'), '{not-json')
+    assert(updater.readAdvertisedVersion(tmp) === null, 'returns null on malformed JSON (no throw)')
+    fs.writeFileSync(path.join(tmp, 'ota-config.json'), JSON.stringify({ version: 42 }))
+    assert(updater.readAdvertisedVersion(tmp) === null, 'returns null when version is not a string')
+    fs.writeFileSync(path.join(tmp, 'ota-config.json'), JSON.stringify({}))
+    assert(updater.readAdvertisedVersion(tmp) === null, 'returns null when version key absent')
+  } finally {
+    rmrf(tmp)
+  }
+}
+
+function testDetectVersionMismatchDegradesGracefully(updater) {
+  console.log('\n--- detectVersionMismatch: degrades when version unknown ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mismatch-degrade-'))
+  const prev = process.env.OTA_TEST_BUNDLED_VERSION
+  try {
+    delete process.env.OTA_TEST_BUNDLED_VERSION
+    // No ota-config.json on disk -> advertised is null -> NEVER stale.
+    const r1 = updater.detectVersionMismatch(tmp, 'whatever.exe')
+    assert(r1.stale === false, 'no advertised version -> not stale')
+    assert(r1.reason === 'unknown-version', 'reason is unknown-version')
+    // With ota-config.json but bundled-version hook missing AND we
+    // override the function — easiest path: clear env, drop a sentinel
+    // that we KNOW is older than this codebase's package.json.
+    process.env.OTA_TEST_BUNDLED_VERSION = '99.99.99'
+    writeOtaConfig(tmp, '1.0.0')
+    const r2 = updater.detectVersionMismatch(tmp, 'whatever.exe')
+    assert(r2.stale === false, 'bundled > advertised -> up-to-date, not stale')
+    assert(r2.reason === 'up-to-date', 'reason is up-to-date')
+    // Equal versions -> also not stale.
+    process.env.OTA_TEST_BUNDLED_VERSION = '2.0.0'
+    writeOtaConfig(tmp, '2.0.0')
+    const r3 = updater.detectVersionMismatch(tmp, 'whatever.exe')
+    assert(r3.stale === false, 'bundled == advertised -> not stale')
+  } finally {
+    if (prev === undefined) delete process.env.OTA_TEST_BUNDLED_VERSION
+    else process.env.OTA_TEST_BUNDLED_VERSION = prev
+    rmrf(tmp)
+  }
+}
+
+function testDetectVersionMismatchStaleWithMarker(updater) {
+  console.log('\n--- detectVersionMismatch: stale + marker.nextExe successor ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mismatch-marker-'))
+  const prev = process.env.OTA_TEST_BUNDLED_VERSION
+  try {
+    process.env.OTA_TEST_BUNDLED_VERSION = '1.0.0'
+    writeOtaConfig(tmp, '2.0.0')
+    const newExe = 'BLAST.exe'
+    fs.writeFileSync(path.join(tmp, newExe), 'fake-new-exe-bytes')
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake-old-exe-bytes')
+    // Marker present, NO sidecar — exercises the tier-2 marker.nextExe
+    // fallback in pickSuccessorExe (the legacy bundled-vs-advertised
+    // tier of detectVersionMismatch).
+    fs.writeFileSync(path.join(tmp, '.ota-cleanup.json'),
+      JSON.stringify({ deleteExes: ['OLD.exe'], nextExe: newExe, ts: Date.now() }))
+    const r = updater.detectVersionMismatch(tmp, 'OLD.exe')
+    assert(r.stale === true, 'stale=true when bundled<advertised (no sidecar tier)')
+    assert(r.bundled === '1.0.0', 'bundled echoed back')
+    assert(r.advertised === '2.0.0', 'advertised echoed back')
+    assert(r.reason === 'older-than-advertised', 'reason=older-than-advertised (degraded tier)')
+    assert(r.candidate && r.candidate.basename === newExe,
+      'candidate is taken from marker.nextExe (got ' + (r.candidate && r.candidate.basename) + ')')
+    assert(r.candidate.source === 'marker.nextExe', 'source=marker.nextExe')
+  } finally {
+    if (prev === undefined) delete process.env.OTA_TEST_BUNDLED_VERSION
+    else process.env.OTA_TEST_BUNDLED_VERSION = prev
+    rmrf(tmp)
+  }
+}
+
+// === Architect round-3 critical: per-exe identity sidecar ===
+// These tests prove the PRIMARY (tier-1) path, which does NOT depend on
+// the OTA_TEST_BUNDLED_VERSION env hook. They reproduce the architect's
+// blocking scenario: an old exe relaunched after an OTA where the asar
+// (and therefore package.json) has been overwritten with the NEW
+// version, yet the old exe must still detect "I am no longer canonical".
+function testCurrentExeRecordReadWrite(updater) {
+  console.log('\n--- .ota-current-exe.json read/write helpers ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-curexe-'))
+  try {
+    assert(updater.readCurrentExeRecord(tmp) === null, 'returns null when sidecar missing')
+    const ok1 = updater.writeCurrentExeRecord(tmp, 'BLAST.exe', '2.0.0')
+    assert(ok1 === true, 'write returns true on success')
+    const r = updater.readCurrentExeRecord(tmp)
+    assert(r && r.exe === 'BLAST.exe' && r.version === '2.0.0', 'round-trips exe + version')
+    // basename normalization: write a path-y string, expect basename back.
+    // Use forward slashes so the test runs identically on Linux + Windows
+    // (path.basename on POSIX does not split on '\\').
+    updater.writeCurrentExeRecord(tmp, 'inst/NEW.exe', '3.0.0')
+    const r2 = updater.readCurrentExeRecord(tmp)
+    assert(r2 && r2.exe === 'NEW.exe', 'exe basename is normalized on write (got ' + (r2 && r2.exe) + ')')
+    // Malformed JSON returns null (no throw).
+    fs.writeFileSync(path.join(tmp, '.ota-current-exe.json'), '{not-json')
+    assert(updater.readCurrentExeRecord(tmp) === null, 'malformed sidecar returns null silently')
+    // Missing/empty version returns null.
+    fs.writeFileSync(path.join(tmp, '.ota-current-exe.json'), JSON.stringify({ exe: 'X.exe' }))
+    assert(updater.readCurrentExeRecord(tmp) === null, 'returns null when version absent')
+    fs.writeFileSync(path.join(tmp, '.ota-current-exe.json'), JSON.stringify({ exe: 'X.exe', version: 42 }))
+    assert(updater.readCurrentExeRecord(tmp) === null, 'returns null when version not a string')
+  } finally {
+    rmrf(tmp)
+  }
+}
+
+function testStaleDetectionViaSidecarOnly(updater) {
+  console.log('\n--- ARCHITECT ROUND-3 CRITICAL: sidecar-only stale detection ---')
+  console.log('    (no OTA_TEST_BUNDLED_VERSION hook — proves real production scenario)')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-sidecar-only-'))
+  const prevHook = process.env.OTA_TEST_BUNDLED_VERSION
+  try {
+    // CRITICAL: clear the test hook. We are reproducing the EXACT
+    // architect-blocking scenario: an OTA stored {exe: NEW, version: 2.0.0}
+    // and ALSO bumped ota-config.json to 2.0.0 (so legacy bundled-vs-
+    // advertised is "even"). Without the sidecar tier, the OLD exe
+    // would see bundled==advertised and skip the handoff.
+    delete process.env.OTA_TEST_BUNDLED_VERSION
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake-old')
+    fs.writeFileSync(path.join(tmp, 'NEW.exe'), 'fake-new')
+    writeOtaConfig(tmp, '2.0.0')
+    updater.writeCurrentExeRecord(tmp, 'NEW.exe', '2.0.0')
+    // No cleanup marker (already swept on a prior launch).
+    assert(!fs.existsSync(path.join(tmp, '.ota-cleanup.json')), 'precondition: marker is absent')
+
+    const r = updater.detectVersionMismatch(tmp, 'OLD.exe')
+    assert(r.stale === true, 'OLD.exe correctly flagged stale via sidecar (no env hook)')
+    assert(r.reason === 'sidecar-points-elsewhere', 'reason=sidecar-points-elsewhere (got ' + r.reason + ')')
+    assert(r.sidecarExe === 'NEW.exe', 'sidecar.exe surfaced in result')
+    assert(r.sidecarVersion === '2.0.0', 'sidecar.version surfaced in result')
+    assert(r.candidate && r.candidate.basename === 'NEW.exe',
+      'candidate is taken from sidecar (got ' + (r.candidate && r.candidate.basename) + ')')
+    assert(r.candidate.source === 'current-exe-record',
+      'source=current-exe-record (highest-confidence tier; got ' +
+        (r.candidate && r.candidate.source) + ')')
+
+    // And the canonical exe itself, when relaunched, must be marked NOT-stale.
+    const r2 = updater.detectVersionMismatch(tmp, 'NEW.exe')
+    assert(r2.stale === false, 'NEW.exe (canonical) is NOT stale')
+    assert(r2.reason === 'sidecar-matches', 'reason=sidecar-matches')
+    assert(r2.candidate === null, 'no candidate when up-to-date')
+
+    // Case-insensitive match (Windows behavior).
+    const r3 = updater.detectVersionMismatch(tmp, 'new.EXE')
+    assert(r3.stale === false, 'case-insensitive match: new.EXE matches NEW.exe')
+  } finally {
+    if (prevHook === undefined) delete process.env.OTA_TEST_BUNDLED_VERSION
+    else process.env.OTA_TEST_BUNDLED_VERSION = prevHook
+    rmrf(tmp)
+  }
+}
+
+function testSidecarBeatsMarkerAndDiscover(updater) {
+  console.log('\n--- pickSuccessorExe: sidecar beats marker beats discoverNewExe ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-tier-priority-'))
+  try {
+    // Three exes on disk so discoverNewExe is ambiguous (returns null) —
+    // proves we are NOT relying on it when sidecar is present.
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake-old')
+    fs.writeFileSync(path.join(tmp, 'NEW.exe'), 'fake-new')
+    fs.writeFileSync(path.join(tmp, 'INSTALLER.exe'), 'fake-3rd-party')
+    fs.writeFileSync(path.join(tmp, '.ota-cleanup.json'),
+      JSON.stringify({ deleteExes: ['OLD.exe'], nextExe: 'INSTALLER.exe', ts: Date.now() }))
+    updater.writeCurrentExeRecord(tmp, 'NEW.exe', '2.0.0')
+    const pick = updater.pickSuccessorExe(tmp, 'OLD.exe')
+    assert(pick && pick.basename === 'NEW.exe',
+      'sidecar wins over marker.nextExe (got ' + (pick && pick.basename) + ')')
+    assert(pick.source === 'current-exe-record', 'source=current-exe-record')
+  } finally {
+    rmrf(tmp)
+  }
+}
+
+function testDiscoverOnlyWhenNoSidecarAndNoMarker(updater) {
+  console.log('\n--- pickSuccessorExe: discoverNewExe gated to "no other signal" ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-discover-gate-'))
+  try {
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake-old')
+    fs.writeFileSync(path.join(tmp, 'NEW.exe'), 'fake-new')
+    // No sidecar, no marker -> discoverNewExe is allowed.
+    let pick = updater.pickSuccessorExe(tmp, 'OLD.exe')
+    assert(pick && pick.basename === 'NEW.exe' && pick.source === 'discoverNewExe',
+      'discoverNewExe used when no other signal (got ' +
+        (pick && pick.source) + ')')
+    // Now add a sidecar pointing at OLD itself -> sidecar tier rejects
+    // (running == sidecar.exe), AND we must NOT fall through to discover.
+    // This is the "architect minor finding #3" defense: never silently
+    // pick a lone unrelated exe when we DO have a signal saying we are
+    // canonical.
+    updater.writeCurrentExeRecord(tmp, 'OLD.exe', '1.0.0')
+    pick = updater.pickSuccessorExe(tmp, 'OLD.exe')
+    assert(pick === null,
+      'discoverNewExe is BLOCKED when a sidecar exists (even if it points at us). got ' + JSON.stringify(pick))
+  } finally {
+    rmrf(tmp)
+  }
+}
+
+function testDetectVersionMismatchStaleNoMarkerFallsBackToDiscover(updater) {
+  console.log('\n--- detectVersionMismatch: stale + NO marker, falls back to discoverNewExe ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mismatch-discover-'))
+  const prev = process.env.OTA_TEST_BUNDLED_VERSION
+  try {
+    process.env.OTA_TEST_BUNDLED_VERSION = '1.0.0'
+    writeOtaConfig(tmp, '2.0.0')
+    // No marker on disk. Drop exactly TWO exes — running + one obvious
+    // successor. discoverNewExe should pick the non-running one.
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake-old')
+    fs.writeFileSync(path.join(tmp, 'BLAST.exe'), 'fake-new')
+    const r = updater.detectVersionMismatch(tmp, 'OLD.exe')
+    assert(r.stale === true, 'stale=true with no marker present')
+    assert(r.candidate && r.candidate.basename === 'BLAST.exe',
+      'discoverNewExe picks the obvious non-running successor (got ' +
+        (r.candidate && r.candidate.basename) + ')')
+    assert(r.candidate.source === 'discoverNewExe', 'source=discoverNewExe')
+  } finally {
+    if (prev === undefined) delete process.env.OTA_TEST_BUNDLED_VERSION
+    else process.env.OTA_TEST_BUNDLED_VERSION = prev
+    rmrf(tmp)
+  }
+}
+
+function testDetectVersionMismatchStaleNoSafeSuccessor(updater) {
+  console.log('\n--- detectVersionMismatch: stale but NO safe successor ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mismatch-nosucc-'))
+  const prev = process.env.OTA_TEST_BUNDLED_VERSION
+  try {
+    process.env.OTA_TEST_BUNDLED_VERSION = '1.0.0'
+    writeOtaConfig(tmp, '2.0.0')
+    // ONLY the running exe on disk -> discoverNewExe finds nothing safe,
+    // and there is no marker -> candidate must be null. Init must NOT
+    // hand off blindly in this case.
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake-old')
+    const r = updater.detectVersionMismatch(tmp, 'OLD.exe')
+    assert(r.stale === true, 'stale=true even when no candidate exists')
+    assert(r.candidate === null, 'candidate=null when no safe successor present')
+  } finally {
+    if (prev === undefined) delete process.env.OTA_TEST_BUNDLED_VERSION
+    else process.env.OTA_TEST_BUNDLED_VERSION = prev
+    rmrf(tmp)
+  }
+}
+
+function testPickSuccessorRejectsRunningExe(updater) {
+  console.log('\n--- pickSuccessorExe: never picks the running exe ---')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mismatch-self-'))
+  try {
+    fs.writeFileSync(path.join(tmp, 'OLD.exe'), 'fake')
+    // Marker points back at OLD.exe -> must be rejected (case-insensitive
+    // match against currentBasename via sameExe()).
+    fs.writeFileSync(path.join(tmp, '.ota-cleanup.json'),
+      JSON.stringify({ deleteExes: [], nextExe: 'old.EXE', ts: Date.now() }))
+    const r = updater.pickSuccessorExe(tmp, 'OLD.exe')
+    assert(r === null, 'rejects marker.nextExe that resolves to the running exe (case-insensitive)')
+  } finally {
+    rmrf(tmp)
+  }
+}
+
 async function main() {
   const launcherUpdater = freshRequire('./updater.js')
   const serverUpdater = freshRequire('../server/electron/updater.js')
@@ -700,6 +996,33 @@ async function main() {
   testSweepPreservesNextExe(serverUpdater)
   testServerScheduleSelfRelaunchNonWindows(serverUpdater)
   testServerScheduleSelfRelaunchSpawnPayload()
+  // Version-mismatch self-defense (architect blocking-finding follow-up).
+  // Drive both updaters end-to-end through the four pure-data helpers.
+  testGetBundledVersion(launcherUpdater)
+  testGetBundledVersion(serverUpdater)
+  testReadAdvertisedVersion(launcherUpdater)
+  testReadAdvertisedVersion(serverUpdater)
+  testDetectVersionMismatchDegradesGracefully(launcherUpdater)
+  testDetectVersionMismatchDegradesGracefully(serverUpdater)
+  testDetectVersionMismatchStaleWithMarker(launcherUpdater)
+  testDetectVersionMismatchStaleWithMarker(serverUpdater)
+  testDetectVersionMismatchStaleNoMarkerFallsBackToDiscover(launcherUpdater)
+  testDetectVersionMismatchStaleNoMarkerFallsBackToDiscover(serverUpdater)
+  testDetectVersionMismatchStaleNoSafeSuccessor(launcherUpdater)
+  testDetectVersionMismatchStaleNoSafeSuccessor(serverUpdater)
+  testPickSuccessorRejectsRunningExe(launcherUpdater)
+  testPickSuccessorRejectsRunningExe(serverUpdater)
+  // Architect round-3 critical: per-exe identity sidecar (tier-1 path).
+  // These DO NOT use OTA_TEST_BUNDLED_VERSION — they reproduce the
+  // production scenario the architect flagged as the blocking case.
+  testCurrentExeRecordReadWrite(launcherUpdater)
+  testCurrentExeRecordReadWrite(serverUpdater)
+  testStaleDetectionViaSidecarOnly(launcherUpdater)
+  testStaleDetectionViaSidecarOnly(serverUpdater)
+  testSidecarBeatsMarkerAndDiscover(launcherUpdater)
+  testSidecarBeatsMarkerAndDiscover(serverUpdater)
+  testDiscoverOnlyWhenNoSidecarAndNoMarker(launcherUpdater)
+  testDiscoverOnlyWhenNoSidecarAndNoMarker(serverUpdater)
   // Re-acquire the server-updater module after the scoped reload above so
   // subsequent async tests use a fresh instance with real spawn.
   const serverUpdater2 = freshRequire('../server/electron/updater.js')
