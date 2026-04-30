@@ -368,6 +368,12 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
   res.set('Connection', 'keep-alive')
   res.set('X-Accel-Buffering', 'no')
   res.flushHeaders()
+  // Same defense as the admin SSE routes — async write-after-end (or any
+  // other late stream error) on the launcher live-push channel must NEVER
+  // crash the whole update-server process. live.broadcast() try/catches the
+  // synchronous write but cannot catch the async 'error' event the stream
+  // emits when the socket is half-closed mid-broadcast.
+  res.on('error', () => {})
 
   const send = (payload) => {
     try { res.write('data: ' + JSON.stringify(payload) + '\n\n') }
@@ -1070,6 +1076,7 @@ app.get('/api/admin/jobs/stream', requireAdmin, (req, res) => {
   res.set('Connection', 'keep-alive')
   res.set('X-Accel-Buffering', 'no')
   res.flushHeaders()
+  res.on('error', () => {})
   const send = () => {
     try {
       res.write('data: ' + JSON.stringify({
@@ -1114,6 +1121,11 @@ app.get('/api/admin/jobs/:id/stream', requireAdmin, (req, res) => {
   res.set('Connection', 'keep-alive')
   res.set('X-Accel-Buffering', 'no')
   res.flushHeaders()
+  // Swallow any late stream errors (e.g. ERR_STREAM_WRITE_AFTER_END from a
+  // race between res.end() and a still-in-flight jobAppend). Without this,
+  // an unhandled 'error' event on the ServerResponse crashes the whole
+  // Node process and kills the admin panel ("Failed to fetch").
+  res.on('error', () => {})
 
   // Replay buffered output for late subscribers (so refreshing the page
   // mid-build shows the full log instead of only new lines).
@@ -1126,15 +1138,20 @@ app.get('/api/admin/jobs/:id/stream', requireAdmin, (req, res) => {
     return
   }
   const heartbeat = setInterval(() => { try { res.write(': ping\n\n') } catch (e) {} }, 15000)
+  let detach = null
   const send = (entry) => {
     try { res.write('data: ' + JSON.stringify(entry) + '\n\n') } catch (e) {}
     if (entry.end) {
       clearInterval(heartbeat)
+      // Detach synchronously so any further jobAppend (e.g. from a still-
+      // running onComplete callback) can never call res.write on the
+      // response we are about to end. Do this BEFORE res.end().
+      if (detach) { detach(); detach = null }
       try { res.end() } catch (e) {}
     }
   }
-  const detach = jobRunner.attachListener(req.params.id, send)
-  req.on('close', () => { clearInterval(heartbeat); if (detach) detach() })
+  detach = jobRunner.attachListener(req.params.id, send)
+  req.on('close', () => { clearInterval(heartbeat); if (detach) { detach(); detach = null } })
 })
 
 app.get('/api/admin/online', requireAdmin, (req, res) => {
@@ -1149,6 +1166,7 @@ app.get('/api/admin/online/stream', requireAdmin, (req, res) => {
   res.set('Connection', 'keep-alive')
   res.set('X-Accel-Buffering', 'no')
   res.flushHeaders()
+  res.on('error', () => {})
 
   const send = () => {
     try { res.write('data: ' + JSON.stringify({ online: live.snapshot() }) + '\n\n') } catch (e) {}

@@ -196,6 +196,12 @@ function emitJobEnd(job) {
   for (const send of job.listeners) {
     try { send(payload) } catch (_) {}
   }
+  // Belt-and-braces: drop all listeners now that the stream has signalled its
+  // end. Any future jobAppend (e.g. from a still-running onComplete callback,
+  // late cleanup write, or future code path) becomes a no-op for listeners,
+  // which means it can never trigger res.write-after-end on a closed SSE
+  // response. Output is still appended to job.output for the replay buffer.
+  job.listeners.clear()
 }
 
 // Sub-step parsing (printed by build-customer.js as [SUBSTEP_BEGIN] etc.)
@@ -387,8 +393,9 @@ function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete }) {
     } catch (e) {
       jobAppend(job, 'WORKSPACE ERROR: ' + e.message)
       job.failedStep = 'create workspace'
-      finishJob(job, -1)
+      // onComplete first, then finishJob — see comment in the success path.
       if (onComplete) try { onComplete(-1, job) } catch (_) {}
+      finishJob(job, -1)
       return
     }
     // Per-job dist output dirs INSIDE the workspace. These are passed to
@@ -439,8 +446,15 @@ function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete }) {
       jobAppend(job, 'CHAIN ERROR: ' + e.message)
       exitCode = -1
     }
-    finishJob(job, exitCode)
+    // Run onComplete BEFORE finishJob so any jobAppend() it does (cleanup
+    // summary, db record, [live-push] line) reaches the live SSE stream
+    // instead of being silently swallowed by the just-closed response.
+    // finishJob() emits the {end:true} event and clears all listeners, so
+    // doing this in the wrong order both (a) drops these lines from the live
+    // build console and (b) used to crash the process via an unhandled
+    // 'error' event on the now-ended ServerResponse.
     if (onComplete) try { onComplete(exitCode, job) } catch (_) {}
+    finishJob(job, exitCode)
   }
 
   QUEUE.push(job.id)

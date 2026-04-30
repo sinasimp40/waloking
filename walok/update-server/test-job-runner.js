@@ -186,6 +186,100 @@ async function testListenerReplay() {
   } catch (e) { fail(t, e) }
 }
 
+// === Test 6: write-after-end race — onComplete writes never reach a closed
+// listener and never throw. This locks in the fix for the multi-customer
+// build crash where jobAppend() inside onComplete (cleanup / db / live-push)
+// hit res.write on an already-ended SSE response and crashed Node via an
+// unhandled 'error' event. ===
+async function testWriteAfterEndRace() {
+  const t = 'write-after-end: onComplete writes never reach closed listener'
+  try {
+    let endSeen = false
+    let endSeenAt = 0
+    let postEndDeliveries = 0
+    let listenerCallCount = 0
+    let onCompleteRan = false
+    let onCompleteSawListenersStillAttached = null
+    let lateLineDelivered = false
+
+    const sseLikeListener = (entry) => {
+      listenerCallCount++
+      if (entry.end) {
+        endSeen = true
+        endSeenAt = listenerCallCount
+        return
+      }
+      if (endSeen) {
+        // Anything after end is the bug we're guarding against.
+        postEndDeliveries++
+        if (entry.line === 'late from outside') lateLineDelivered = true
+      }
+    }
+
+    let attachedJobId = null
+    const j = runner.enqueueBuildJob({
+      label: 'wae', channels: ['cwae'], projectRoot: PROJECT_ROOT,
+      steps: [sleepStep('wae', 100)],
+      onComplete: (exitCode, job) => {
+        onCompleteRan = true
+        // Snapshot listener-set size at the moment onComplete starts. The fix
+        // requires onComplete to run BEFORE finishJob/emitJobEnd, so the
+        // listener should still be attached here (so its writes can stream
+        // live) — and the live SSE listener should NOT have seen `end` yet.
+        onCompleteSawListenersStillAttached = job.listeners.size > 0 && !endSeen
+        // Simulate the real onComplete pattern: jobAppend a few post-build
+        // lines (cleanup / db / live-push). These MUST arrive at the live
+        // listener (test asserts via output buffer + listener call count
+        // delta after end).
+        runner.jobAppend(job, '[cleanup] cwae — removed: nothing')
+        runner.jobAppend(job, '[db] recorded version')
+        runner.jobAppend(job, '[live-push] cwae v1.0.0 -> 0 online client(s)')
+      },
+    })
+    attachedJobId = j.id
+    // Attach a fake SSE-style listener immediately (race the runner — the
+    // real admin UI does the same when an operator opens the build console
+    // mid-build).
+    runner.attachListener(j.id, sseLikeListener)
+    const finished = await jobDone(j.id, 15000)
+    assert.strictEqual(finished.status, 'success', 'job status was ' + finished.status)
+    assert.ok(onCompleteRan, 'onComplete should have run')
+    assert.strictEqual(onCompleteSawListenersStillAttached, true,
+      'onComplete must run BEFORE finishJob/emitJobEnd so its writes reach the live SSE stream')
+    assert.ok(endSeen, 'listener should have received an end event')
+    assert.strictEqual(postEndDeliveries, 0,
+      'no entries should be delivered to the listener after end (got ' + postEndDeliveries + ')')
+    // Belt-and-braces invariant: emitJobEnd must clear the listener set, so
+    // a late jobAppend from outside the runner (worst-case) is also a no-op.
+    assert.strictEqual(finished.listeners.size, 0,
+      'job.listeners should be empty after emitJobEnd, was ' + finished.listeners.size)
+    const callsBeforeLate = listenerCallCount
+    let threw = null
+    try {
+      runner.jobAppend(finished, 'late from outside')
+    } catch (e) {
+      threw = e
+    }
+    assert.strictEqual(threw, null,
+      'late jobAppend after job end must not throw, threw: ' + (threw && threw.message))
+    assert.strictEqual(listenerCallCount, callsBeforeLate,
+      'late jobAppend must NOT invoke any listener, but listener was called')
+    assert.strictEqual(lateLineDelivered, false,
+      'late line was delivered to listener — listeners not cleared on end')
+    // The replay buffer must still see the late line so a fresh subscriber
+    // gets the full history.
+    assert.ok(finished.output.some(e => e.line === 'late from outside'),
+      'late jobAppend should still append to job.output for replay buffer')
+    // And the cleanup / db / live-push lines from onComplete must be in the
+    // output buffer (they were appended before end).
+    assert.ok(finished.output.some(e => /\[cleanup\]/.test(e.line || '')),
+      'cleanup line missing from output buffer')
+    assert.ok(finished.output.some(e => /\[live-push\]/.test(e.line || '')),
+      'live-push line missing from output buffer')
+    ok(t)
+  } catch (e) { fail(t, e) }
+}
+
 ;(async () => {
   console.log('=== job-runner.js tests ===')
   console.log('  project root: ' + PROJECT_ROOT)
@@ -196,6 +290,7 @@ async function testListenerReplay() {
   await testCancelQueued()
   await testChannelConflict()
   await testListenerReplay()
+  await testWriteAfterEndRace()
   console.log('')
   if (failed === 0) {
     console.log('=== ALL TESTS PASSED ===')
