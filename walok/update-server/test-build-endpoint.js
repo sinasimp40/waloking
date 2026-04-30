@@ -292,23 +292,44 @@ async function run() {
     ok('both overlapping build requests returned 200 with jobs[] (elapsed=' + elapsed + 'ms)')
   } catch (e) { fail('overlapping build requests', e) }
 
-  // --- THE CORE ASSERTION: npm install never ran in parallel ---
+  // --- THE CORE ASSERTION: exactly ONE npm install ran across both requests ---
+  // For two overlapping POST /api/admin/build calls against a fresh tree,
+  // a healthy implementation must run npm install EXACTLY ONCE: spawnSync
+  // blocks the Node event loop while request #1's pre-flight runs, and by
+  // the time request #2's handler is scheduled the .bin sentinels exist
+  // and rootDepsInstalled() returns true. Anything other than 1 is the
+  // regression we are guarding against (2 = parallel installs racing
+  // node_modules; 0 = pre-flight bypassed entirely).
+  let observedEvents = []
+  let observedIntervals = []
   try {
-    const events = parseMarker()
-    const intervals = pairIntervals(events)
-    assert.ok(intervals.length >= 1,
-      'expected at least one npm-install invocation (marker had ' + events.length + ' events)')
-    for (let i = 0; i < intervals.length; i++) {
-      for (let j = i + 1; j < intervals.length; j++) {
-        const a = intervals[i], b = intervals[j]
+    observedEvents = parseMarker()
+    observedIntervals = pairIntervals(observedEvents)
+    const renderEvents = () =>
+      '\n        marker events:\n          ' +
+      observedEvents.map(e => e.kind + ' pid=' + e.pid + ' t=' + new Date(e.t).toISOString() + ' cwd=' + e.cwd).join('\n          ')
+    assert.strictEqual(
+      observedIntervals.length, 1,
+      'expected EXACTLY 1 npm-install invocation across both overlapping requests, got ' + observedIntervals.length +
+      ' — this is the regression we are guarding against' + renderEvents(),
+    )
+    ok('exactly 1 npm-install invocation observed across both overlapping requests (the install pre-flight serialized them via spawnSync)')
+  } catch (e) { fail('parallel-install safety: exactly-one invocation', e) }
+
+  // --- Defense-in-depth: even if a future refactor relaxes the
+  //     "exactly 1" guarantee (e.g. switches to async install with a
+  //     proper lock), the intervals must still never overlap. ---
+  try {
+    for (let i = 0; i < observedIntervals.length; i++) {
+      for (let j = i + 1; j < observedIntervals.length; j++) {
+        const a = observedIntervals[i], b = observedIntervals[j]
         assert.ok(!intervalsOverlap(a, b),
           'npm install ran CONCURRENTLY: pid=' + a.pid + ' [' + a.start + '..' + a.end + '] cwd=' + a.cwd +
-          ' overlaps pid=' + b.pid + ' [' + b.start + '..' + b.end + '] cwd=' + b.cwd +
-          ' — this is the regression we are guarding against')
+          ' overlaps pid=' + b.pid + ' [' + b.start + '..' + b.end + '] cwd=' + b.cwd)
       }
     }
-    ok('npm install never ran concurrently across overlapping requests (' + intervals.length + ' invocation(s) observed, all serialized)')
-  } catch (e) { fail('parallel-install safety', e) }
+    ok('defense-in-depth: no install intervals overlap (' + observedIntervals.length + ' invocation(s) checked)')
+  } catch (e) { fail('parallel-install safety: non-overlap', e) }
 
   // --- Cancel any jobs the requests enqueued so they don't run their
   //     (broken — no real build-customer.js in temp project root) steps. ---
