@@ -8,12 +8,10 @@ const state = {
   projectRoot: null,
   buildsAvailable: false,
   online: {},
-  currentJobEvtSrc: null,
   onlineEvtSrc: null,
-  currentJobKind: 'BUILD',
-  // The job currently bound to the BUILD CONSOLE / CANCEL JOB button.
-  // Tracked separately from the queue snapshot so the cancel button reflects
-  // exactly what the user sees in the console (which may be a finished job).
+  // Last fanned-out job id streamed — kept for legacy keyboard shortcuts /
+  // future UX, but the per-card CANCEL buttons in the consoles area are the
+  // primary cancel surface in the multi-console UI.
   currentJobId: null,
   // EventSource for /api/admin/jobs/stream — pushes queue+slots snapshots so
   // the BUILD QUEUE panel updates without polling.
@@ -324,7 +322,9 @@ async function bumpVersion(silent) {
     $('#current-version').textContent = v
     $('#version-input').value = ''
     $('#version-input').placeholder = bumpPatch(v)
-    if (!silent) appendConsole('[version] bumped to v' + v, 'success')
+    // Toast-via-window is fine for non-job context messages — no need for
+    // a job console card just to confirm a metadata-only mutation.
+    if (!silent) console.info('[version] bumped to v' + v)
     return v
   } catch (e) {
     if (!silent) alert('Bump failed: ' + e.message)
@@ -343,7 +343,19 @@ async function triggerBuild(opts) {
   const body = { ...opts, version }
   try {
     const res = await api('POST', '/api/admin/build', body)
-    streamJob(res.jobId, 'BUILD ' + (opts.all ? 'ALL' : opts.channel))
+    // Server now always returns a jobs[] array (one entry per fanned-out
+    // customer). Older single-channel callers still get jobId/status fields
+    // for back-compat, but jobs[] is the source of truth here.
+    const jobs = Array.isArray(res.jobs) ? res.jobs : (res.jobId ? [{
+      jobId: res.jobId,
+      channel: opts.channel,
+      version,
+      status: res.status,
+    }] : [])
+    if (jobs.length === 0) throw new Error('server returned no job ids')
+    for (const j of jobs) {
+      streamJob(j.jobId, 'BUILD ' + (j.channel || opts.channel || 'all'))
+    }
     if (version) {
       state.version = version
       $('#current-version').textContent = version
@@ -355,50 +367,89 @@ async function triggerBuild(opts) {
   }
 }
 
-function appendConsole(text, cls) {
-  const out = $('#console-output')
+// Per-job console card registry. Keys are jobId -> {card, output, status,
+// step, cancelBtn, banner, evt}. Used by streamJob to upsert cards and by
+// the CLEAR FINISHED button to drop terminated cards in one click.
+const consoleCards = new Map()
+
+function ensureConsoleCard(jobId, label) {
+  const empty = document.getElementById('consoles-empty')
+  if (empty) empty.classList.add('hidden')
+  const existing = consoleCards.get(jobId)
+  if (existing) return existing
+
+  const area = document.getElementById('consoles-area')
+  const card = document.createElement('div')
+  card.className = 'console-card'
+  card.id = 'console-card-' + jobId
+  card.innerHTML =
+    '<div class="console-card-head">' +
+      '<span class="console-card-title"></span>' +
+      '<span class="status-pill running">RUNNING</span>' +
+      '<button type="button" class="btn-secondary small console-card-cancel">CANCEL</button>' +
+      '<span class="console-card-step muted small"></span>' +
+    '</div>' +
+    '<div class="job-error-banner hidden">' +
+      '<div class="job-error-banner-title">!! BUILD FAILED</div>' +
+      '<div class="job-error-banner-body">' +
+        '<span class="job-error-label">Failing step:</span> ' +
+        '<span class="job-error-step-text">—</span> ' +
+        '<span class="job-error-divider">|</span> ' +
+        '<span class="job-error-label">Exit code:</span> ' +
+        '<span class="job-error-exit-text">—</span>' +
+      '</div>' +
+    '</div>' +
+    '<pre class="console"></pre>'
+  card.querySelector('.console-card-title').textContent = label + ' (job ' + jobId + ')'
+  const cancelBtn = card.querySelector('.console-card-cancel')
+  cancelBtn.addEventListener('click', () => cancelJob(jobId))
+  area.appendChild(card)
+
+  const rec = {
+    card,
+    output: card.querySelector('.console'),
+    statusPill: card.querySelector('.status-pill'),
+    stepEl: card.querySelector('.console-card-step'),
+    cancelBtn,
+    banner: card.querySelector('.job-error-banner'),
+    bannerStep: card.querySelector('.job-error-step-text'),
+    bannerExit: card.querySelector('.job-error-exit-text'),
+    evt: null,
+    finished: false,
+  }
+  consoleCards.set(jobId, rec)
+  updateClearFinishedButton()
+  return rec
+}
+
+function appendConsoleLine(rec, text, cls) {
   const line = document.createElement('div')
   if (cls) line.className = 'line-' + cls
   line.textContent = text
-  out.appendChild(line)
-  out.scrollTop = out.scrollHeight
+  rec.output.appendChild(line)
+  rec.output.scrollTop = rec.output.scrollHeight
 }
 
-function setJobStatus(text, cls) {
-  const pill = $('#job-status')
-  pill.textContent = text || ''
-  pill.className = 'status-pill' + (cls ? ' ' + cls : '')
-}
-
-function hideJobErrorBanner() {
-  const b = $('#job-error-banner')
-  if (b) b.classList.add('hidden')
-}
-function showJobErrorBanner(failedStep, exitCode) {
-  const b = $('#job-error-banner')
-  if (!b) return
-  const title = $('#job-error-banner-title')
-  if (title) title.textContent = '!! BUILD FAILED'
-  $('#job-error-step').textContent = failedStep || '(unknown — see console)'
-  $('#job-error-exit').textContent = String(exitCode == null ? '?' : exitCode)
-  b.classList.remove('hidden')
-  b.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function setCardStatus(rec, text, cls) {
+  rec.statusPill.textContent = text || ''
+  rec.statusPill.className = 'status-pill' + (cls ? ' ' + cls : '')
 }
 
 function streamJob(jobId, label) {
-  if (state.currentJobEvtSrc) {
-    try { state.currentJobEvtSrc.close() } catch (e) {}
-  }
-  state.currentJobKind = 'BUILD'
+  const rec = ensureConsoleCard(jobId, label)
+  // If we're already streaming this job (rare — operator double-clicks
+  // BUILD), keep the existing EventSource and skip rewiring.
+  if (rec.evt) return
+  // Track the most-recently-opened job so the keyboard shortcut (if any) and
+  // the legacy single-job CANCEL JOB header button keep working.
   state.currentJobId = jobId
-  hideJobErrorBanner()
-  const out = $('#console-output')
-  out.innerHTML = ''
-  appendConsole('=== ' + label + ' (job ' + jobId + ') ===', 'cmd')
-  setJobStatus('RUNNING', 'running')
-  showCancelButton(true)
+
+  appendConsoleLine(rec, '=== ' + label + ' (job ' + jobId + ') ===', 'cmd')
+  setCardStatus(rec, 'RUNNING', 'running')
+  rec.cancelBtn.classList.remove('hidden')
+
   const evt = new EventSource('/api/admin/jobs/' + jobId + '/stream')
-  state.currentJobEvtSrc = evt
+  rec.evt = evt
   evt.onmessage = (m) => {
     try {
       const data = JSON.parse(m.data)
@@ -409,24 +460,28 @@ function streamJob(jobId, label) {
         if (cancelled) { pillText = 'CANCELLED'; pillCls = 'failed' }
         else if (ok) { pillText = 'SUCCESS'; pillCls = 'success' }
         else { pillText = 'FAILED (' + data.exitCode + ')'; pillCls = 'failed' }
-        setJobStatus(pillText, pillCls)
-        appendConsole('', '')
+        setCardStatus(rec, pillText, pillCls)
+        appendConsoleLine(rec, '', '')
         if (cancelled) {
-          appendConsole('=== CANCELLED ===', 'error')
+          appendConsoleLine(rec, '=== CANCELLED ===', 'error')
         } else if (ok) {
-          appendConsole('=== SUCCESS (exit ' + data.exitCode + ') ===', 'success')
-          hideJobErrorBanner()
+          appendConsoleLine(rec, '=== SUCCESS (exit ' + data.exitCode + ') ===', 'success')
         } else {
-          appendConsole('=== FAILED (exit ' + data.exitCode + ') ===', 'error')
+          appendConsoleLine(rec, '=== FAILED (exit ' + data.exitCode + ') ===', 'error')
           if (data.failedStep) {
-            appendConsole('!! Failing step: ' + data.failedStep, 'error')
-            appendConsole('!! See the top-of-console banner for a quick summary, or scroll up for the exact error.', 'error')
+            appendConsoleLine(rec, '!! Failing step: ' + data.failedStep, 'error')
           }
-          showJobErrorBanner(data.failedStep, data.exitCode)
+          rec.bannerStep.textContent = data.failedStep || '(unknown — see console)'
+          rec.bannerExit.textContent = String(data.exitCode == null ? '?' : data.exitCode)
+          rec.banner.classList.remove('hidden')
         }
         evt.close()
-        state.currentJobEvtSrc = null
-        showCancelButton(false)
+        rec.evt = null
+        rec.finished = true
+        rec.card.classList.add('finished')
+        rec.cancelBtn.classList.add('hidden')
+        rec.stepEl.textContent = ''
+        updateClearFinishedButton()
         loadCustomers()
         return
       }
@@ -437,25 +492,43 @@ function streamJob(jobId, label) {
       else if (/^!!\s/.test(line)) cls = 'error'
       else if (/error|failed|fatal/i.test(line)) cls = 'error'
       else if (/^==\s|^=== DONE|success|\[OK\]/i.test(line)) cls = 'success'
-      appendConsole(line, cls)
+      appendConsoleLine(rec, line, cls)
     } catch (e) {}
   }
   evt.onerror = () => {
-    setJobStatus('STREAM ERROR', 'failed')
-    evt.close()
-    state.currentJobEvtSrc = null
-    showCancelButton(false)
+    if (rec.finished) return
+    setCardStatus(rec, 'STREAM ERROR', 'failed')
+    try { evt.close() } catch (_) {}
+    rec.evt = null
   }
 }
 
-// ---- BUILD QUEUE panel + CANCEL JOB button ----
-
-function showCancelButton(show) {
-  const b = $('#cancel-job-btn')
-  if (!b) return
-  if (show) b.classList.remove('hidden')
-  else b.classList.add('hidden')
+function updateClearFinishedButton() {
+  const btn = document.getElementById('clear-finished-consoles-btn')
+  if (!btn) return
+  const anyFinished = Array.from(consoleCards.values()).some(r => r.finished)
+  if (anyFinished) btn.classList.remove('hidden')
+  else btn.classList.add('hidden')
 }
+
+function clearFinishedConsoles() {
+  for (const [id, rec] of Array.from(consoleCards.entries())) {
+    if (rec.finished) {
+      rec.card.remove()
+      consoleCards.delete(id)
+    }
+  }
+  updateClearFinishedButton()
+  if (consoleCards.size === 0) {
+    const empty = document.getElementById('consoles-empty')
+    if (empty) empty.classList.remove('hidden')
+  }
+}
+
+// ---- BUILD QUEUE panel ----
+// Cancel buttons now live ON each console card (per-job) AND on each queue
+// row — there is no global CANCEL JOB button anymore, since the multi-console
+// fan-out makes "the current job" ambiguous.
 
 function openQueueStream() {
   closeQueueStream()
@@ -515,6 +588,29 @@ function renderQueue(snap) {
   list.querySelectorAll('.queue-row-cancel').forEach(btn => {
     btn.addEventListener('click', () => cancelJob(btn.getAttribute('data-job')))
   })
+  // Rehydrate console cards on page reload: any active/queued job without a
+  // console card yet (operator hit refresh mid-build) gets a fresh stream
+  // attached so the multi-console UI reflects in-flight work instead of
+  // looking idle while jobs are actually running. streamJob is idempotent
+  // via the consoleCards Map so this is safe to call repeatedly.
+  for (const id of [...queue.active, ...queue.queued]) {
+    if (!consoleCards.has(id)) {
+      const j = byId.get(id)
+      if (j) {
+        const chTag = (j.channels && j.channels.length === 1) ? j.channels[0] : 'all'
+        streamJob(id, 'BUILD ' + chTag.toUpperCase())
+      }
+    }
+  }
+  // Mirror each running job's current step onto its console card header so
+  // the operator sees "step: Build customer X v1.2.3" without scrolling
+  // through the streaming log to find the latest "$ command…" line.
+  for (const j of jobs) {
+    const rec = consoleCards.get(j.id)
+    if (rec && !rec.finished) {
+      rec.stepEl.textContent = j.currentStep ? ('step: ' + j.currentStep) : ''
+    }
+  }
 }
 
 function escapeHtml(s) {
@@ -528,20 +624,22 @@ async function cancelJob(jobId) {
   if (!confirm('Cancel job ' + jobId + '? If it is running this will kill the build process tree.')) return
   try {
     await api('POST', '/api/admin/jobs/' + encodeURIComponent(jobId) + '/cancel')
-    appendConsole('[cancel] requested cancellation of job ' + jobId, 'cmd')
+    // If we have a console card for this job, write a confirmation line so
+    // the operator sees the cancel-request immediately rather than waiting
+    // for the server's [cancel] log line to arrive over SSE.
+    const rec = consoleCards.get(jobId)
+    if (rec) appendConsoleLine(rec, '[cancel] requested cancellation of job ' + jobId, 'cmd')
   } catch (e) {
     alert('Cancel failed: ' + e.message)
   }
 }
 
-// Wire the BUILD CONSOLE's cancel button to cancel whichever job is currently
-// streaming. Kept separate from the per-row cancel buttons so the console's
-// "current job" can still be cancelled even after its row scrolled out.
+// Wire the global CLEAR FINISHED button (only visible when at least one
+// console card has reached a terminal state). Per-job cancel buttons are
+// wired in ensureConsoleCard.
 document.addEventListener('DOMContentLoaded', () => {
-  const b = document.getElementById('cancel-job-btn')
-  if (b) b.addEventListener('click', () => {
-    if (state.currentJobId) cancelJob(state.currentJobId)
-  })
+  const b = document.getElementById('clear-finished-consoles-btn')
+  if (b) b.addEventListener('click', clearFinishedConsoles)
 })
 
 // ---- Live online status (SSE) ----
@@ -701,7 +799,10 @@ async function submitUpload(e) {
   try {
     const r = await api('POST', '/api/admin/customers/' + encodeURIComponent(channel) + '/upload-update', fd, true)
     closeUploadModal()
-    appendConsole('[upload-update] ' + channel + ' v' + version + ' shipped — pushed to ' + (r.pushedTo || 0) + ' live install(s)', 'success')
+    // The bulk-upload route doesn't fan out per-customer (it accepts pre-built
+    // ZIPs for one channel) so its confirmation goes to the dev console plus
+    // the customer-list refresh.
+    console.info('[upload-update] ' + channel + ' v' + version + ' shipped — pushed to ' + (r.pushedTo || 0) + ' live install(s)')
     await loadCustomers()
   } catch (e) {
     $('#up-error').textContent = e.message

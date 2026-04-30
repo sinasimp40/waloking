@@ -124,25 +124,15 @@
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>BUILD CONSOLE</h2>
+        <h2>BUILD CONSOLES</h2>
         <div class="build-console-controls">
-          <span id="job-status" class="status-pill"></span>
-          <button id="cancel-job-btn" class="btn-secondary small hidden" type="button">CANCEL JOB</button>
+          <button id="clear-finished-consoles-btn" class="btn-secondary small hidden" type="button">CLEAR FINISHED</button>
         </div>
       </div>
       <div class="panel-body">
-        <div id="job-error-banner" class="job-error-banner hidden">
-          <div class="job-error-banner-title" id="job-error-banner-title">!! BUILD FAILED</div>
-          <div class="job-error-banner-body">
-            <span class="job-error-label">Failing step:</span>
-            <span id="job-error-step">—</span>
-            <span class="job-error-divider">|</span>
-            <span class="job-error-label">Exit code:</span>
-            <span id="job-error-exit">—</span>
-          </div>
-          <div class="job-error-banner-hint">Scroll down through the console to find the exact stderr from this step.</div>
+        <div id="consoles-area" class="consoles-area">
+          <div id="consoles-empty" class="muted small">Idle. Trigger a build to see live consoles here. Each running customer build gets its own console.</div>
         </div>
-        <pre id="console-output" class="console">Idle. Trigger a build to see output here.</pre>
       </div>
     </section>
   </main>

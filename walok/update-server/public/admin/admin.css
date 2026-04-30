@@ -231,6 +231,47 @@ button{cursor:pointer;font-family:inherit;border-radius:4px;border:none;letter-s
 .console .line-error{color:#ff8080}
 .console .line-success{color:#80ff80}
 .console .line-cmd{color:var(--orange);font-weight:700}
+
+/* === MULTI CONSOLES (per-customer fan-out) === */
+.consoles-area{
+  display:grid;
+  /* Two cards side-by-side on wide screens, full width on narrow ones.
+     The 2-slot worker pool means at most 2 actively-streaming consoles
+     plus any cancelled/finished cards still pinned for review. */
+  grid-template-columns:repeat(auto-fit, minmax(420px, 1fr));
+  gap:12px;
+}
+.console-card{
+  display:flex;flex-direction:column;
+  border:1px solid var(--border);
+  border-radius:4px;
+  background:#0a0604;
+  min-width:0; /* allow card to shrink in grid track */
+}
+.console-card .console-card-head{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 12px;
+  border-bottom:1px solid var(--border);
+  background:#15100a;
+  flex-wrap:wrap;
+}
+.console-card .console-card-title{
+  font-weight:700;color:var(--orange);
+  letter-spacing:1px;font-size:12px;
+  flex:1 1 auto;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.console-card .console-card-step{
+  color:var(--muted);font-size:10px;
+  flex:1 1 100%;
+}
+.console-card .console-card-cancel{margin-left:auto}
+.console-card .console{
+  border:0;border-radius:0 0 4px 4px;
+  max-height:320px;
+}
+.console-card.finished{opacity:.85}
+.console-card .job-error-banner{margin:8px 12px}
 .status-pill{
   font-size:10px;letter-spacing:2px;padding:4px 10px;border-radius:10px;
   background:#1a0e08;color:var(--muted);text-transform:uppercase;

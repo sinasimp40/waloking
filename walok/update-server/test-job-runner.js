@@ -280,6 +280,113 @@ async function testWriteAfterEndRace() {
   } catch (e) { fail(t, e) }
 }
 
+// === Test 7: onCancel hook fires exactly once when a RUNNING job is cancelled.
+// Locks in Task #4 acceptance: the per-customer cancel path must invoke its
+// cleanup hook AFTER the child has exited (so we don't race the live build
+// writing into the version dir we're about to delete). ===
+async function testOnCancelRunningHook() {
+  const t = 'onCancel: running-cancel fires hook exactly once after child exits'
+  try {
+    let calls = 0
+    let calledWithJob = null
+    let calledAfterStatusCancelled = false
+    let calledBeforeFinish = null
+    const j = runner.enqueueBuildJob({
+      label: 'oc-running', channels: ['oc-r'], projectRoot: PROJECT_ROOT,
+      steps: [sleepStep('oc-running', 60000)],
+      onCancel: (job) => {
+        calls++
+        calledWithJob = job
+        // By the time onCancel fires, finishJob should already have set
+        // status='cancelled' (so the hook sees a fully-quiesced job and the
+        // child is guaranteed to have exited).
+        calledAfterStatusCancelled = job.status === 'cancelled'
+        calledBeforeFinish = job.activeChild
+      },
+    })
+    await waitFor(() => runner.getJob(j.id).status === 'running', 5000, 'job to be running')
+    runner.cancelJob(j.id)
+    const finished = await jobDone(j.id, 5000)
+    assert.strictEqual(finished.status, 'cancelled')
+    assert.strictEqual(calls, 1, 'onCancel fired ' + calls + ' time(s), expected exactly 1')
+    assert.ok(calledWithJob && calledWithJob.id === j.id, 'onCancel called with wrong job')
+    assert.strictEqual(calledAfterStatusCancelled, true,
+      'onCancel must run AFTER status flips to cancelled (child exited)')
+    ok(t)
+  } catch (e) { fail(t, e) }
+}
+
+// === Test 8: onCancel hook fires for a QUEUED-cancelled job too. The
+// cleanup is a no-op for a job that never published anything, but the
+// hook must still be invoked so out-of-band staged files (if any) are
+// swept. ===
+async function testOnCancelQueuedHook() {
+  const t = 'onCancel: queued-cancel fires hook even though job never spawned'
+  try {
+    // Fill both slots with long-running jobs so the next one queues.
+    const fill1 = runner.enqueueBuildJob({ label: 'ocq-fill1', channels: ['ocq-f1'], projectRoot: PROJECT_ROOT, steps: [sleepStep('ocq-fill1', 60000)] })
+    const fill2 = runner.enqueueBuildJob({ label: 'ocq-fill2', channels: ['ocq-f2'], projectRoot: PROJECT_ROOT, steps: [sleepStep('ocq-fill2', 60000)] })
+    let calls = 0
+    let workspaceWasNull = null
+    let startedAtWasNull = null
+    const queued = runner.enqueueBuildJob({
+      label: 'ocq', channels: ['ocq'], projectRoot: PROJECT_ROOT,
+      steps: [sleepStep('ocq', 60000)],
+      onCancel: (job) => {
+        calls++
+        // If the queued-cancel branch never spawned the runner, the
+        // workspace should still be null when the hook fires.
+        workspaceWasNull = job.workspace === null
+        // CRITICAL discriminator the SERVER's onCancel uses to skip the
+        // filesystem sweep: a queued-cancel must surface job.startedAt===null
+        // so the cleanup hook can distinguish "never ran -> hands off the
+        // shared output dirs" from "actually started -> safe to delete".
+        startedAtWasNull = job.startedAt === null
+      },
+    })
+    await waitFor(() => runner.getQueueState().queued.includes(queued.id), 3000, 'job to be queued')
+    runner.cancelJob(queued.id)
+    const finished = await jobDone(queued.id, 3000)
+    assert.strictEqual(finished.status, 'cancelled')
+    assert.strictEqual(finished.startedAt, null, 'queued-cancel should never set startedAt')
+    assert.strictEqual(calls, 1, 'onCancel fired ' + calls + ' time(s), expected exactly 1')
+    assert.strictEqual(workspaceWasNull, true,
+      'queued-cancel must fire onCancel BEFORE any workspace would have been created')
+    assert.strictEqual(startedAtWasNull, true,
+      'queued-cancel hook MUST see job.startedAt===null so the server can skip rm of shared output dirs')
+    // Free the fillers so later tests don't slow down.
+    runner.cancelJob(fill1.id)
+    runner.cancelJob(fill2.id)
+    await jobDone(fill1.id, 5000)
+    await jobDone(fill2.id, 5000)
+    ok(t)
+  } catch (e) { fail(t, e) }
+}
+
+// === Test 9: cancelling a running job releases its slot so the next queued
+// job actually starts. Combined with the per-customer fan-out, this is what
+// makes "Cancel customer A" not block customer B from running. ===
+async function testCancelReleasesSlot() {
+  const t = 'cancel-running: queued sibling starts after slot frees'
+  try {
+    // Fill both slots, then queue one more.
+    const f1 = runner.enqueueBuildJob({ label: 'crs-f1', channels: ['crs-f1'], projectRoot: PROJECT_ROOT, steps: [sleepStep('crs-f1', 60000)] })
+    const f2 = runner.enqueueBuildJob({ label: 'crs-f2', channels: ['crs-f2'], projectRoot: PROJECT_ROOT, steps: [sleepStep('crs-f2', 60000)] })
+    const queued = runner.enqueueBuildJob({ label: 'crs-q', channels: ['crs-q'], projectRoot: PROJECT_ROOT, steps: [sleepStep('crs-q', 200)] })
+    await waitFor(() => runner.getQueueState().queued.includes(queued.id), 3000, 'queued sibling to enqueue')
+    // Cancel one of the active jobs — the queued one must take its slot.
+    runner.cancelJob(f1.id)
+    const queuedFinished = await jobDone(queued.id, 8000)
+    assert.strictEqual(queuedFinished.status, 'success',
+      'queued sibling should run + succeed after slot frees, got ' + queuedFinished.status)
+    // Tidy up the other filler.
+    runner.cancelJob(f2.id)
+    await jobDone(f1.id, 5000)
+    await jobDone(f2.id, 5000)
+    ok(t)
+  } catch (e) { fail(t, e) }
+}
+
 ;(async () => {
   console.log('=== job-runner.js tests ===')
   console.log('  project root: ' + PROJECT_ROOT)
@@ -291,6 +398,9 @@ async function testWriteAfterEndRace() {
   await testChannelConflict()
   await testListenerReplay()
   await testWriteAfterEndRace()
+  await testOnCancelRunningHook()
+  await testOnCancelQueuedHook()
+  await testCancelReleasesSlot()
   console.log('')
   if (failed === 0) {
     console.log('=== ALL TESTS PASSED ===')

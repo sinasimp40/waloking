@@ -8,7 +8,7 @@ const multer = require('multer')
 
 const dbApi = require('./db')
 const live = require('./live')
-const { cleanupAfterBuild } = require('./cleanup')
+const { cleanupAfterBuild, cleanupCancelledJob } = require('./cleanup')
 const jobRunner = require('./job-runner')
 
 const PORT = parseInt(process.env.OTA_PORT || '4231', 10)
@@ -701,36 +701,45 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
     return res.json({ dryRun: true, perChannelVersion })
   }
 
-  // Build steps run inside a per-job isolated workspace (job-runner.js
-  // copies the source tree under .build-jobs/<jobId>/ and junctions
-  // node_modules in). Step cwd values are RELATIVE to the workspace root.
-  // This isolation is what makes the 2-slot parallel queue safe — two
-  // builds for different customers can rebrand + vite + electron-builder
-  // concurrently without touching each other's files. Channel conflict
-  // avoidance in job-runner ensures we never publish the same channel
-  // from two parallel builds.
+  // Per-customer fan-out: each customer gets ITS OWN job, scoped to a single
+  // channel. The job-runner's 2-slot worker pool then runs up to MAX_CONCURRENT
+  // of these in parallel; channel-conflict avoidance (channels=[ch] declared on
+  // every job) ensures two independent customers can build simultaneously
+  // while a duplicate-channel resubmission would still serialize.
+  //
+  // Each job's onCancel fires cleanupCancelledJob to sweep any half-published
+  // payload + raw build output for THAT channel only — siblings are
+  // unaffected.
   const serverDir = path.join(PROJECT_ROOT, 'server')
-  const steps = [
-    {
-      label: 'Install root dependencies (npm install)',
-      cmd: NPM_CMD, args: ['install', '--no-audit', '--no-fund'],
-      cwd: '.', shell: true,
-      // skipIf inspects the MAIN project's node_modules — already populated
-      // means the workspace's junction will resolve everything; skip this
-      // slow step entirely.
-      skipIf: () => rootDepsInstalled(),
-    },
-  ]
-  if (fs.existsSync(serverDir)) {
-    steps.push({
-      label: 'Install server dependencies (npm install in server/)',
-      cmd: NPM_CMD, args: ['install', '--no-audit', '--no-fund'],
-      cwd: 'server', shell: true,
-      skipIf: () => serverDepsInstalled(),
-    })
+
+  // CRITICAL: when fanning out N parallel build jobs, all N junction the SAME
+  // PROJECT_ROOT/node_modules into their workspace. Putting `npm install` in
+  // every per-job step list would let two concurrent jobs run npm install
+  // against that one shared node_modules at the same time — npm is NOT
+  // concurrency-safe on a shared install target and you get nondeterministic
+  // EEXIST / partial-write failures. Solution: do the install ONCE here in
+  // the request handler before any job is enqueued. On the typical operator
+  // machine deps are already populated (rootDepsInstalled()===true) so this
+  // is a noop; on a truly fresh tree it blocks the request once.
+  if (!rootDepsInstalled() || (fs.existsSync(serverDir) && !serverDepsInstalled())) {
+    const installSteps = []
+    if (!rootDepsInstalled()) installSteps.push({ cwd: PROJECT_ROOT, label: 'root' })
+    if (fs.existsSync(serverDir) && !serverDepsInstalled()) installSteps.push({ cwd: serverDir, label: 'server' })
+    for (const s of installSteps) {
+      const r = require('child_process').spawnSync(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
+        cwd: s.cwd, shell: true, stdio: 'pipe', encoding: 'utf-8',
+      })
+      if (r.status !== 0) {
+        return res.status(503).json({
+          error: 'npm install failed for ' + s.label + ' deps (exit ' + r.status + '): ' + (r.stderr || r.stdout || '').slice(0, 800),
+        })
+      }
+    }
   }
-  for (const ch of targetChannels) {
+
+  function enqueueOneCustomerJob(ch) {
     const v = perChannelVersion[ch]
+    const steps = []
     steps.push({
       label: 'Build customer "' + ch + '" v' + v,
       cmd: process.execPath, args: ['scripts/build-customer.js', ch],
@@ -743,18 +752,14 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
       cwd: '.',
       env: { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR },
     })
-  }
 
-  const job = jobRunner.enqueueBuildJob({
-    label: all ? 'build-all' : 'build-' + channel,
-    channels: all ? [] : targetChannels,
-    projectRoot: PROJECT_ROOT,
-    steps,
-    onComplete: (exitCode, j) => {
-      if (exitCode !== 0) return
-      // Per-channel cleanup + db record + live-push (post-build).
-      for (const ch of targetChannels) {
-        const v = perChannelVersion[ch]
+    const job = jobRunner.enqueueBuildJob({
+      label: 'build-' + ch,
+      channels: [ch],
+      projectRoot: PROJECT_ROOT,
+      steps,
+      onComplete: (exitCode, j) => {
+        if (exitCode !== 0) return
         try {
           const summary = cleanupAfterBuild({
             projectRoot: PROJECT_ROOT,
@@ -785,38 +790,88 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
         const launcherCount = live.broadcast(ch, { type: 'update', version: v, role: 'launcher' })
         const serverCount = live.broadcast(ch, { type: 'update', version: v, role: 'server' })
         jobAppend(j, '[live-push] ' + ch + ' v' + v + ' -> ' + (launcherCount + serverCount) + ' online client(s)')
-      }
-    },
-  })
+      },
+      onCancel: (j) => {
+        // CRITICAL: only sweep filesystem state if THIS job actually ran a
+        // build step. If j.startedAt is null we cancelled while still queued —
+        // the job never produced anything, but a SIBLING job for the same
+        // (channel, version) might be actively writing into those exact
+        // dirs (e.g. operator double-submitted "build all" while a previous
+        // run is still in-flight, channel-conflict serializes the second
+        // pass; cancelling the queued one must NOT delete the running one's
+        // output). The hook still fires for traceability — just skips rm.
+        if (j.startedAt === null) {
+          jobAppend(j, '[cancel-cleanup] queued-cancel: skipping filesystem sweep (job never started — sibling job for same channel may still be writing)')
+          return
+        }
+        // Sweep this ONE channel's half-published payload + raw build output.
+        // Strict path-containment is enforced inside cleanupCancelledJob;
+        // siblings (other customers' jobs) are not touched even if they
+        // share PROJECT_ROOT and UPDATES_DIR.
+        try {
+          const result = cleanupCancelledJob({
+            projectRoot: PROJECT_ROOT,
+            updatesPublicDir: UPDATES_DIR,
+            channel: ch,
+            version: v,
+          })
+          if (result.removed.length > 0) {
+            jobAppend(j, '[cancel-cleanup] removed: ' + result.removed.join(', '))
+          } else {
+            jobAppend(j, '[cancel-cleanup] nothing to remove (no half-published files for ' + ch + ' v' + v + ')')
+          }
+          for (const sk of result.skipped) {
+            jobAppend(j, '[cancel-cleanup] SKIPPED ' + sk.path + ': ' + sk.reason)
+          }
+        } catch (e) {
+          jobAppend(j, '[cancel-cleanup] WARN: ' + e.message)
+        }
+      },
+    })
 
+    // Pre-pend per-job header lines so the SSE stream sees them as soon as
+    // it connects (they live on the job's output buffer, not stdout of any
+    // child process).
+    jobAppend(job, '== Customer "' + ch + '" -> v' + v)
+    const c = dbApi.getCustomer(ch)
+    if (c) {
+      const cls = classifyUpdateServerUrl(c.updateServer, reqIp)
+      if (cls === 'placeholder') {
+        jobAppend(job, '!! WARNING: customer "' + ch + '" still has a PLACEHOLDER updateServer (' + c.updateServer + ').')
+        jobAppend(job, '!! The launcher built from this config will NOT receive OTA updates until you set the URL to your real RDP IP.')
+      } else if (cls === 'loopback-when-remote') {
+        jobAppend(job, '!! WARNING: customer "' + ch + '" has updateServer = ' + c.updateServer + ' (loopback address).')
+        jobAppend(job, '!! You are accessing this admin panel REMOTELY — installed launchers will dial THEIR own loopback, not this server, and never receive updates.')
+      }
+    }
+    jobAppend(job, '')
+    return job
+  }
+
+  const jobs = targetChannels.map(enqueueOneCustomerJob)
   const queueState = jobRunner.getQueueState()
-  res.json({
+  const jobSummaries = jobs.map(job => ({
     jobId: job.id,
+    channel: job.channels[0],
+    version: perChannelVersion[job.channels[0]],
     status: job.status,
     queuePosition: job.status === 'queued' ? queueState.queued.indexOf(job.id) + 1 : null,
-  })
+  }))
 
-  // Pre-pend the resolved version map + URL warnings to the job log so the
-  // operator sees them as soon as the SSE stream connects.
-  jobAppend(job, '== Auto-bumped per-customer build versions:')
-  for (const ch of targetChannels) {
-    jobAppend(job, '   ' + ch + ' -> v' + perChannelVersion[ch])
+  // Response shape:
+  //   - all=true  -> {jobs: [...], jobIds: [...]} (new fan-out shape)
+  //   - single ch -> {jobId, status, queuePosition} for back-compat with any
+  //     scripted callers, plus jobs/jobIds for new callers.
+  const body = {
+    jobs: jobSummaries,
+    jobIds: jobSummaries.map(s => s.jobId),
   }
-  jobAppend(job, '')
-  for (const ch of targetChannels) {
-    const c = dbApi.getCustomer(ch)
-    if (!c) continue
-    const cls = classifyUpdateServerUrl(c.updateServer, reqIp)
-    if (cls === 'placeholder') {
-      jobAppend(job, '!! WARNING: customer "' + ch + '" still has a PLACEHOLDER updateServer (' + c.updateServer + ').')
-      jobAppend(job, '!! The launcher built from this config will NOT receive OTA updates until you set the URL to your real RDP IP.')
-      jobAppend(job, '')
-    } else if (cls === 'loopback-when-remote') {
-      jobAppend(job, '!! WARNING: customer "' + ch + '" has updateServer = ' + c.updateServer + ' (loopback address).')
-      jobAppend(job, '!! You are accessing this admin panel REMOTELY — installed launchers will dial THEIR own loopback, not this server, and never receive updates.')
-      jobAppend(job, '')
-    }
+  if (!all && jobs.length === 1) {
+    body.jobId = jobs[0].id
+    body.status = jobs[0].status
+    body.queuePosition = jobSummaries[0].queuePosition
   }
+  res.json(body)
 })
 
 // ============ MANUAL UPLOAD-PRE-BUILT-UPDATE ============

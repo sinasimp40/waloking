@@ -171,6 +171,11 @@ function newJob({ label, channels = [], kind = 'build' }) {
     activeChild: null,                   // current spawned child (so cancel can kill it)
     cancelRequested: false,
     runner: null,                        // the run() closure to invoke when a slot opens
+    onCancel: null,                      // optional callback fired AFTER finishJob runs
+                                         // when status === 'cancelled'. Used by the
+                                         // server to remove half-published payloads
+                                         // for that job's channel + version.
+    onCancelFired: false,                // idempotency guard so we never double-fire
   }
   JOBS.set(id, job)
   // Auto-evict completed jobs after 1 hour to avoid unbounded memory growth.
@@ -269,6 +274,23 @@ function drainQueue() {
   if (started || true) onSlotChange()
 }
 
+// Fire job.onCancel exactly once. Called from BOTH:
+//   * cancelJob, queued-cancel branch (no runner ever fired)
+//   * finishJob, when status ends up as 'cancelled' (runner ran + got killed)
+// Wrapped in try/catch — onCancel is operator-supplied and we never want a
+// cleanup miss to leak an exception into the runner.
+function fireOnCancelOnce(job) {
+  if (!job || job.onCancelFired) return
+  if (typeof job.onCancel !== 'function') {
+    job.onCancelFired = true
+    return
+  }
+  job.onCancelFired = true
+  try { job.onCancel(job) } catch (e) {
+    try { jobAppend(job, '[onCancel] WARN: ' + e.message) } catch (_) {}
+  }
+}
+
 function finishJob(job, exitCode) {
   job.exitCode = exitCode
   job.endedAt = nowMs()
@@ -283,6 +305,10 @@ function finishJob(job, exitCode) {
     jobAppend(job, '')
     jobAppend(job, '!! JOB FAILED at step: ' + (job.failedStep || job.currentStep || '?') + ' (exit ' + exitCode + ')')
   }
+  // Fire onCancel BEFORE emitJobEnd so any [cancel-cleanup] log lines the
+  // hook emits via jobAppend reach the live SSE listener (mirrors the
+  // onComplete-before-finishJob ordering rule for the same reason).
+  if (job.status === 'cancelled') fireOnCancelOnce(job)
   emitJobEnd(job)
   ACTIVE.delete(job.id)
 
@@ -377,8 +403,9 @@ function killChildTree(child) {
 
 // ============ public API ============
 
-function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete }) {
+function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete, onCancel }) {
   const job = newJob({ label, channels, kind: 'build' })
+  if (typeof onCancel === 'function') job.onCancel = onCancel
 
   // The runner closure: capture the workspace + steps and execute them in
   // sequence. Stops on first non-zero exit. Always calls finishJob and
@@ -497,6 +524,11 @@ function cancelJob(jobId) {
     job.status = 'cancelled'
     job.endedAt = nowMs()
     jobAppend(job, '== CANCELLED (was queued, never started) ==')
+    // Fire onCancel even on queued-cancel: the hook is a no-op for jobs
+    // that never published anything (cleanupCancelledJob skips a missing
+    // version dir silently), but if the operator pre-staged something
+    // out-of-band against the same channel/version, this still sweeps it.
+    fireOnCancelOnce(job)
     emitJobEnd(job)
     drainQueue()
     return { ok: true, status: 'cancelled' }
