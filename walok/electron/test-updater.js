@@ -1,13 +1,11 @@
 // Pure-JS regression tests for Task #3 (orphan-exe cleanup +
-// server.exe auto-restart on OTA). Mirrors the style of
-// walok/tests/test-rebrand-update.js: stubs the install layout and drives
+// server.exe auto-restart on OTA). Stubs the install layout and drives
 // the SAME functions production code calls, with no real Electron runtime.
 //
 // Why this lives in walok/electron/ instead of walok/tests/: Task #3
 // asked for `node walok/electron/test-updater.js` as the canonical
-// entrypoint matching walok/update-server/test-job-runner.js. The
-// existing tests/test-rebrand-update.js already covers the rebrand
-// happy-path; this file covers the four NEW behaviors:
+// entrypoint matching walok/update-server/test-job-runner.js. This file
+// covers these behaviors:
 //   1. listTopLevelExesInZip identifies *.exe entries from a payload
 //   2. scanForOrphanExes adds extras (not running, not new, not in payload)
 //   3. self-defense at init: marked-as-orphan triggers spawn-and-exit
@@ -27,8 +25,8 @@ function bad(msg) { fail++; console.log('  FAIL  ' + msg) }
 function assert(cond, msg) { cond ? ok(msg) : bad(msg) }
 function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }) } catch (_) {} }
 
-// Same minimal-zip helper as test-rebrand-update.js — a bare LFH stream is
-// enough for the updater's hand-rolled extractZip to walk.
+// Minimal-zip helper — a bare LFH stream is enough for the updater's
+// hand-rolled extractZip to walk.
 function makeMinimalZip(entries) {
   const parts = []
   for (const e of entries) {

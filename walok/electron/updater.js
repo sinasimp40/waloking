@@ -7,9 +7,9 @@ const crypto = require('crypto')
 const zlib = require('zlib')
 const { spawn } = require('child_process')
 // `require('electron')` returns a string path when this file is loaded by
-// plain Node (e.g. our pure-JS regression test in tests/test-rebrand-update.js).
+// plain Node (e.g. by tooling that only needs the helper functions).
 // Destructuring a string yields `undefined` for each field — fine, as long as
-// the helpers we test don't actually invoke `app.relaunch()` etc.
+// the loader doesn't actually invoke `app.relaunch()` etc.
 const { app, BrowserWindow } = require('electron')
 const otaLive = require('./ota-live')
 
@@ -957,164 +957,169 @@ async function downloadAndApply(manifest) {
   }
 }
 
-// Build the PowerShell phase-2 applier script. Runs OUTSIDE Electron so it
-// can overwrite app.asar (which the running process holds locked on Windows).
+// The Phase-2 applier is a plain Windows .bat file. PowerShell-based appliers
+// failed silently in the field — on customer machines we saw `.apply.lock`
+// present but no `apply.log`, meaning powershell.exe never executed even one
+// line of the script (group policy ExecutionPolicy override, antivirus block,
+// or detached-spawn race — impossible to diagnose remotely).
 //
-// Why PowerShell instead of cmd.exe:
-//   1. `powershell.exe -WindowStyle Hidden` reliably hides the console
-//      window. cmd.exe's window kept popping up in the field even with
-//      Node's windowsHide:true (cmd.exe is a console-subsystem app and the
-//      hide flag is unreliable when combined with detached:true).
-//   2. `Expand-Archive payload.zip -DestinationPath install -Force` lets us
-//      extract straight onto the install dir in one call — no need for the
-//      old "extract to staged/, then robocopy /MOVE" two-step.
-//   3. PID-reuse safety: we capture the parent's StartTime at script entry
-//      and break the wait loop the moment we see a different process under
-//      the same PID, so a recycled PID can never trap the script forever
-//      (the cmd.exe `tasklist | find PID` approach we shipped before could
-//      hang indefinitely if Windows reused the parent PID).
+// The .bat uses ONLY built-in Windows commands. tar.exe (bsdtar) ships with
+// every Windows 10 build 17063+ (Dec 2017), and handles .zip extraction with
+// `tar -xf payload.zip -C install_dir`. No PowerShell anywhere in the apply
+// path. The .bat is launched through wscript.exe + a tiny .vbs shim so the
+// console window is genuinely never visible (the standard Windows pattern
+// for hidden console execution — used in deployment tooling for 20+ years).
 //
-// SAFETY: every value interpolated into the script via param() comes from
-// Node-controlled sources (process.pid integer, our own pendingDir/appRoot
-// paths, the case-insensitive-resolved exe basename which already passed
-// isSafeExeBasename whitelist). The customer-specific bumped ota-config and
-// the .ota-cleanup marker are pre-written from Node as JSON files in the
-// pendingDir; PowerShell only Copy-Items them. No user-controlled string
-// ever ends up in a PowerShell expression context.
-//
-// Args: -ParentPid <int> -PendingDir <path> -InstallDir <path> -NewExe <name>
-function buildPhase2ApplierPs1() {
+// Brain-dead-simple flow per the field bug report:
+//   1. wait 4s for the OLD launcher to fully release file locks
+//   2. delete every file at the install-dir root, plus the resources/ folder
+//      (keep .ota-pending and any *-data folders so user data survives)
+//   3. tar -xf payload.zip into the install dir (a fresh copy of every file)
+//   4. copy the three overlay JSON files (cleanup marker, sidecar, merged
+//      ota-config) into their final locations
+//   5. start the new exe
+//   6. write SUCCESS, schedule background cleanup of .ota-pending + self,
+//      exit
+function buildPhase2ApplierBat() {
   return [
-    'param(',
-    '  [int]$ParentPid,',
-    '  [string]$PendingDir,',
-    '  [string]$InstallDir,',
-    '  [string]$NewExe',
+    '@echo off',
+    'setlocal EnableExtensions EnableDelayedExpansion',
+    'set "PARENT_PID=%~1"',
+    'set "INSTALL_DIR=%~2"',
+    'set "NEW_EXE=%~3"',
+    'set "PENDING_DIR=%INSTALL_DIR%\\.ota-pending"',
+    'set "APPLY_LOG=%PENDING_DIR%\\apply.log"',
+    '',
+    'rem -- Header so the user can confirm the bat is running even if a step fails',
+    'echo [%date% %time%] phase2 start pid=%PARENT_PID% install="%INSTALL_DIR%" newExe=%NEW_EXE% > "%APPLY_LOG%"',
+    '',
+    'rem -- Fixed 4s wait. We do NOT poll tasklist|find for parent exit because',
+    'rem -- (a) it can hang on PID reuse, and (b) the OLD launcher always calls',
+    'rem -- process.exit(0) right before this bat starts, so 4s is plenty for',
+    'rem -- Windows to release the asar / dll / pak handles.',
+    'timeout /t 4 /nobreak >NUL 2>&1',
+    'echo [%date% %time%] post-wait, beginning wipe >> "%APPLY_LOG%"',
+    '',
+    'rem -- Wipe every file at the install-dir root EXCEPT user-specific',
+    'rem -- state (denfi-settings.json, .ota-instance-id). Keep .ota-pending',
+    'rem -- (we are using it) and any *-data folders (chrome profile etc).',
+    'pushd "%INSTALL_DIR%" >NUL 2>&1',
+    'if errorlevel 1 (',
+    '  echo [%date% %time%] FAIL pushd "%INSTALL_DIR%" >> "%APPLY_LOG%"',
+    '  echo pushd > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
     ')',
-    '$ErrorActionPreference = "Continue"',
-    '$applyLog = Join-Path $PendingDir "apply.log"',
-    'function Log($msg) {',
-    '  $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg',
-    '  try { Add-Content -LiteralPath $applyLog -Value $line -Encoding utf8 -ErrorAction SilentlyContinue } catch {}',
-    '}',
-    'Log "phase2 start parent=$ParentPid install=$InstallDir newExe=$NewExe"',
+    'for %%F in (*) do (',
+    '  set "_FN=%%~nxF"',
+    '  set "_FKEEP="',
+    '  if /I "!_FN!"==".ota-instance-id" set "_FKEEP=1"',
+    '  if /I "!_FN:~-14!"=="-settings.json" set "_FKEEP=1"',
+    '  if defined _FKEEP (',
+    '    echo [keep file] %%F >> "%APPLY_LOG%"',
+    '  ) else (',
+    '    echo [del file] %%F >> "%APPLY_LOG%"',
+    '    del /F /Q "%%F" >NUL 2>&1',
+    '  )',
+    ')',
+    'for /D %%D in (*) do (',
+    '  set "_DN=%%~nxD"',
+    '  set "_DKEEP="',
+    '  if /I "!_DN!"==".ota-pending" set "_DKEEP=1"',
+    '  if /I "!_DN:~-5!"=="-data" set "_DKEEP=1"',
+    '  if defined _DKEEP (',
+    '    echo [keep dir] %%D >> "%APPLY_LOG%"',
+    '  ) else (',
+    '    echo [del dir] %%D >> "%APPLY_LOG%"',
+    '    rmdir /S /Q "%%D" >NUL 2>&1',
+    '  )',
+    ')',
+    'popd >NUL 2>&1',
     '',
-    '# Capture the parent process start time NOW so PID reuse cannot trap us.',
-    '# If Get-Process throws, the parent already died before we started; skip',
-    '# the wait loop entirely.',
-    '$origStart = $null',
-    'try {',
-    '  $p0 = Get-Process -Id $ParentPid -ErrorAction Stop',
-    '  $origStart = $p0.StartTime',
-    '  Log "parent alive at start, StartTime=$origStart"',
-    '} catch {',
-    '  Log "parent already gone at script start"',
-    '}',
+    'rem -- Extract payload.zip with built-in tar.exe (Win10 1803+).',
+    'echo [%date% %time%] tar -xf payload.zip >> "%APPLY_LOG%"',
+    'tar -xf "%PENDING_DIR%\\payload.zip" -C "%INSTALL_DIR%" >> "%APPLY_LOG%" 2>&1',
+    'if errorlevel 1 (',
+    '  echo [%date% %time%] FAIL tar exit %ERRORLEVEL% >> "%APPLY_LOG%"',
+    '  echo extract > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'echo [%date% %time%] tar ok >> "%APPLY_LOG%"',
     '',
-    '# Wait up to 60s for the parent (OLD launcher) to exit so file locks',
-    '# release (app.asar, ffmpeg.dll, icudtl.dat, snapshot blobs).',
-    '$waited = 0',
-    'while ($origStart -ne $null) {',
-    '  $stillAlive = $false',
-    '  try {',
-    '    $p = Get-Process -Id $ParentPid -ErrorAction Stop',
-    '    if ($p.StartTime -eq $origStart) { $stillAlive = $true }',
-    '    else { Log "PID $ParentPid was reused (StartTime differs); treating parent as gone" }',
-    '  } catch { }',
-    '  if (-not $stillAlive) { break }',
-    '  if ($waited -ge 60) {',
-    '    Log "timeout waiting for parent $ParentPid"',
-    '    "timeout" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
-    '    exit 1',
-    '  }',
-    '  Start-Sleep -Seconds 1',
-    '  $waited++',
-    '}',
-    'Log ("parent gone after " + $waited + "s, 3s grace before extract...")',
-    'Start-Sleep -Seconds 3',
+    'rem -- Apply overlay files. Node pre-wrote these as plain JSON in the',
+    'rem -- pending dir; we just copy them to their final locations.',
+    'if exist "%PENDING_DIR%\\merged-ota-config.json" (',
+    '  if exist "%INSTALL_DIR%\\resources" (',
+    '    copy /Y "%PENDING_DIR%\\merged-ota-config.json" "%INSTALL_DIR%\\resources\\ota-config.json" >NUL 2>&1',
+    '    echo [overlay] resources\\ota-config.json >> "%APPLY_LOG%"',
+    '  ) else (',
+    '    copy /Y "%PENDING_DIR%\\merged-ota-config.json" "%INSTALL_DIR%\\ota-config.json" >NUL 2>&1',
+    '    echo [overlay] ota-config.json >> "%APPLY_LOG%"',
+    '  )',
+    ')',
+    'if exist "%PENDING_DIR%\\cleanup-marker.json" (',
+    '  copy /Y "%PENDING_DIR%\\cleanup-marker.json" "%INSTALL_DIR%\\.ota-cleanup.json" >NUL 2>&1',
+    '  echo [overlay] .ota-cleanup.json >> "%APPLY_LOG%"',
+    ')',
+    'if exist "%PENDING_DIR%\\current-exe-sidecar.json" (',
+    '  copy /Y "%PENDING_DIR%\\current-exe-sidecar.json" "%INSTALL_DIR%\\.ota-current-exe.json" >NUL 2>&1',
+    '  echo [overlay] .ota-current-exe.json >> "%APPLY_LOG%"',
+    ')',
     '',
-    '# Extract payload.zip directly on top of install dir. -Force overwrites',
-    '# files that were locked a moment ago (app.asar etc.). Retry up to 5',
-    '# times with a 2s gap to ride out antivirus / handle-release lag.',
-    '$zip = Join-Path $PendingDir "payload.zip"',
-    '$attempt = 0',
-    '$maxAttempts = 5',
-    'while ($true) {',
-    '  $attempt++',
-    '  try {',
-    '    Expand-Archive -LiteralPath $zip -DestinationPath $InstallDir -Force -ErrorAction Stop',
-    '    Log "Expand-Archive ok on attempt $attempt"',
-    '    break',
-    '  } catch {',
-    '    $msg = $_.Exception.Message',
-    '    Log "Expand-Archive attempt $attempt failed: $msg"',
-    '    if ($attempt -ge $maxAttempts) {',
-    '      "extract" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
-    '      exit 1',
-    '    }',
-    '    Start-Sleep -Seconds 2',
-    '  }',
-    '}',
+    'rem -- Verify the new exe actually exists, then launch it.',
+    'if not exist "%INSTALL_DIR%\\%NEW_EXE%" (',
+    '  echo [%date% %time%] FAIL new exe missing: %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
+    '  echo missing-exe > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'echo [%date% %time%] launching %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
+    'start "" "%INSTALL_DIR%\\%NEW_EXE%"',
+    'echo done > "%PENDING_DIR%\\SUCCESS"',
+    'echo [%date% %time%] SUCCESS >> "%APPLY_LOG%"',
     '',
-    '# Apply post-extract overlays. Node pre-wrote two small JSON files into',
-    '# the pending dir: a merged ota-config.json (preserves customerId etc.,',
-    '# bumps version) and a .ota-cleanup.json marker (tells the next launch',
-    '# to delete the OLD exe). Copy them on top of the freshly-extracted',
-    '# tree so they win over anything the payload zip may have shipped.',
-    '$mergedCfg = Join-Path $PendingDir "merged-ota-config.json"',
-    'if (Test-Path -LiteralPath $mergedCfg) {',
-    '  $resDir = Join-Path $InstallDir "resources"',
-    '  if (Test-Path -LiteralPath $resDir) {',
-    '    $cfgTarget = Join-Path $resDir "ota-config.json"',
-    '  } else {',
-    '    $cfgTarget = Join-Path $InstallDir "ota-config.json"',
-    '  }',
-    '  try { Copy-Item -LiteralPath $mergedCfg -Destination $cfgTarget -Force; Log "merged ota-config.json -> $cfgTarget" }',
-    '  catch { Log "ota-config copy failed: $_" }',
-    '}',
-    '$cleanupSrc = Join-Path $PendingDir "cleanup-marker.json"',
-    'if (Test-Path -LiteralPath $cleanupSrc) {',
-    '  try { Copy-Item -LiteralPath $cleanupSrc -Destination (Join-Path $InstallDir ".ota-cleanup.json") -Force; Log "cleanup marker placed" }',
-    '  catch { Log "cleanup marker copy failed: $_" }',
-    '}',
-    '$sidecarSrc = Join-Path $PendingDir "current-exe-sidecar.json"',
-    'if (Test-Path -LiteralPath $sidecarSrc) {',
-    '  try { Copy-Item -LiteralPath $sidecarSrc -Destination (Join-Path $InstallDir ".ota-current-exe.json") -Force; Log "current-exe sidecar placed" }',
-    '  catch { Log "sidecar copy failed: $_" }',
-    '}',
+    'rem -- Schedule background self-cleanup. We use start /B (no window) and',
+    'rem -- a 5s sleep so this bat can exit before its file is deleted.',
+    'start "" /B cmd /c "timeout /t 5 /nobreak >NUL & rmdir /S /Q ""%PENDING_DIR%"" & del /F /Q ""%~f0"" & del /F /Q ""%~dpn0.vbs"""',
+    'exit /b 0',
     '',
-    '# Launch the NEW exe and write the SUCCESS marker.',
-    '$newExePath = Join-Path $InstallDir $NewExe',
-    'try {',
-    '  Start-Process -FilePath $newExePath -WorkingDirectory $InstallDir',
-    '  Log "launched $newExePath"',
-    '  "done" | Out-File -LiteralPath (Join-Path $PendingDir "SUCCESS") -Encoding utf8',
-    '} catch {',
-    '  Log "launch failed: $_"',
-    '  "launch" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
-    '  exit 1',
-    '}',
-    '',
-    '# Schedule pending-dir + self deletion via a hidden background powershell',
-    '# so this script can exit cleanly. The new exe also sweeps any leftover',
-    '# .ota-pending on its first init() pass, so a missed cleanup heals.',
-    '$selfPath = $PSCommandPath',
-    `$pdEsc = $PendingDir.Replace("'", "''")`,
-    `$spEsc = $selfPath.Replace("'", "''")`,
-    `$cleanupCmd = "Start-Sleep -Seconds 5; Remove-Item -LiteralPath '" + $pdEsc + "' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '" + $spEsc + "' -Force -ErrorAction SilentlyContinue"`,
-    'try {',
-    '  Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-Command",$cleanupCmd) -WindowStyle Hidden',
-    '} catch { Log "cleanup schedule failed: $_" }',
-    'exit 0',
+    ':schedule_cleanup_fail',
+    'rem -- On failure leave .ota-pending in place (so the user can see',
+    'rem -- apply.log + FAILED marker), but still self-delete the bat + vbs',
+    'rem -- so %TEMP% does not accumulate junk.',
+    'start "" /B cmd /c "timeout /t 5 /nobreak >NUL & del /F /Q ""%~f0"" & del /F /Q ""%~dpn0.vbs"""',
+    'exit /b 1',
     '',
   ].join('\r\n')
 }
 
-// Strict whitelist for an exe basename. We pass this through PowerShell as
-// `Start-Process -FilePath (Join-Path $InstallDir $NewExe)`. param() binding
-// already escapes the value safely, but the launcher exes we ship only ever
-// match `^[A-Za-z0-9._-]+\.exe$` so a defense-in-depth whitelist costs
-// nothing and rejects junk basenames at the door.
+// Tiny VBS shim that runs the .bat completely hidden. WScript.Shell.Run with
+// windowStyle=0 + waitOnReturn=False is the canonical Windows pattern for
+// "fire a console process truly invisibly." Without this shim, even with
+// `windowsHide:true` and `start /B`, a brief cmd flash can leak.
+function buildPhase2ApplierVbs(batRelative) {
+  // batRelative is the basename of the .bat file (same dir as the .vbs).
+  // We use Arguments to pass parentPid, installDir, newExe through to the bat.
+  return [
+    'Option Explicit',
+    'Dim sh, fso, scriptDir, batPath, args, i',
+    'Set sh = CreateObject("WScript.Shell")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)',
+    'batPath = fso.BuildPath(scriptDir, ' + JSON.stringify(batRelative) + ')',
+    'args = ""',
+    'For i = 0 To WScript.Arguments.Count - 1',
+    '  args = args & " """ & WScript.Arguments(i) & """"',
+    'Next',
+    "' Doubled-wrap quoting: cmd /c with more than 2 quotes strips only the",
+    "' leading + trailing quote, so we add an outer wrap pair to preserve",
+    "' the inner \"<batPath>\" \"<arg>\" \"<arg>\" structure.",
+    'sh.Run "cmd /c """ & """" & batPath & """" & args & """", 0, False',
+    '',
+  ].join('\r\n')
+}
+
+// Strict whitelist for an exe basename. The launcher exes we ship only ever
+// match `^[A-Za-z0-9._-]+\.exe$` so a defense-in-depth whitelist rejects
+// junk basenames at the door before we hand the value to the .bat applier.
 function isSafeExeBasename(name) {
   return typeof name === 'string'
     && name.length > 0
@@ -1123,29 +1128,30 @@ function isSafeExeBasename(name) {
 }
 
 // Pre-write the post-extract overlay files (merged ota-config + cleanup
-// marker + current-exe sidecar) into the pending dir, then write the
-// PowerShell applier to %TEMP% and spawn it detached. The applier runs
-// OUTSIDE Electron so it can overwrite app.asar (which the running process
-// holds locked on Windows).
+// marker + current-exe sidecar) into the pending dir, then write the .bat
+// applier + .vbs hidden-launcher shim to %TEMP% and spawn wscript.exe
+// detached. The applier runs OUTSIDE Electron so it can overwrite app.asar
+// (which the running process holds locked on Windows).
 //
 // Returns one of:
 //   { kind: 'spawned' }   — applier launched; caller MUST exit immediately.
 //   { kind: 'skipped', reason } — apply already in progress (lock present).
 //   { kind: 'error', error, diagnostics } — staging failed; caller records it.
 //
-// SAFETY CONTRACT: the values that end up in the PowerShell script come
-// only from Node-controlled sources — process.pid (integer), filesystem
+// SAFETY CONTRACT: the values that end up in the .bat / .vbs come only
+// from Node-controlled sources — process.pid (integer), filesystem
 // paths the caller already owns (pendingDir, appRoot), and the manifest
 // exeName which is whitelisted via isSafeExeBasename() before we proceed.
-// PowerShell `param()` binding handles all escaping for those four values.
+// VBS `WScript.Shell.Run`'s doubled-wrap quoting handles all escaping for
+// the path arguments (parentPid, installDir, newExe).
 // The customer-specific bumped ota-config.json and the .ota-cleanup marker
 // live as JSON files in the pending dir (JSON.stringify handles escaping);
-// PowerShell only Copy-Items them, never embeds their contents in any
-// expression context.
+// the .bat only `copy /Y`'s them into place, never embeds their contents
+// in any expression context.
 //
-// Test hooks (opts._spawnFn, opts._tmpDir, opts._ps1Script, opts._exitFn)
-// let unit tests drive the staging path on Linux without actually running
-// powershell.exe.
+// Test hooks (opts._spawnFn, opts._tmpDir, opts._batScript, opts._vbsScript,
+// opts._exitFn) let unit tests drive the staging path on Linux without
+// actually running wscript.exe.
 function stageOutOfProcessApply(appRoot, pendingDir, opts) {
   opts = opts || {}
   const zipPath = path.join(pendingDir, 'payload.zip')
@@ -1221,21 +1227,21 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     }
   }
   // Defense-in-depth: even after case-insensitive resolution against the
-  // payload zip, re-validate before we hand the name to PowerShell.
+  // payload zip, re-validate before we hand the name to the .bat / .vbs.
   if (!isSafeExeBasename(resolvedExeName)) {
     releaseLock()
     return { kind: 'error', error: 'resolved exe "' + resolvedExeName + '" is not a safe basename', diagnostics: { stage: 'verify' } }
   }
 
   // ---- Pre-write post-extract overlay files into the pending dir.
-  //      The PowerShell applier Copy-Items them on top of the freshly-
-  //      extracted tree. JSON.stringify handles all escaping of
-  //      user-controlled content (manifest.version, oldExe). ----
+  //      The .bat applier `copy /Y`'s them on top of the freshly-extracted
+  //      tree. JSON.stringify handles all escaping of user-controlled
+  //      content (manifest.version, oldExe). ----
   const oldExe = getCurrentExeBasename() || 'unknown.exe'
 
   // (1) Bumped ota-config.json. The OLD config holds customer-specific
   //     fields (channel, customer ID, server URL); we ONLY change version.
-  //     PowerShell will detect resources/ vs root layout at copy time.
+  //     The .bat copies into resources/ if present, else into root.
   try {
     const installResourcesCfg = path.join(appRoot, 'resources', 'ota-config.json')
     const installRootCfg      = path.join(appRoot, 'ota-config.json')
@@ -1290,45 +1296,58 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     return { kind: 'error', error: 'current-exe-sidecar.json write failed: ' + e.message, diagnostics: { stage: 'sidecar' } }
   }
 
+  // Write the .bat applier and the .vbs hidden-launcher shim side-by-side in
+  // %TEMP%. They share a basename so the .bat can self-delete the .vbs at
+  // the end via "%~dpn0.vbs".
   const tmpDir = opts._tmpDir || os.tmpdir()
-  const applierPath = path.join(tmpDir, 'walok-ota-apply-' + Date.now() + '-' + process.pid + '.ps1')
-  const script = opts._ps1Script || buildPhase2ApplierPs1()
+  const applierBase = 'walok-ota-apply-' + Date.now() + '-' + process.pid
+  const batPath = path.join(tmpDir, applierBase + '.bat')
+  const vbsPath = path.join(tmpDir, applierBase + '.vbs')
+  const batScript = opts._batScript || buildPhase2ApplierBat()
+  const vbsScript = opts._vbsScript || buildPhase2ApplierVbs(applierBase + '.bat')
   try {
-    fs.writeFileSync(applierPath, script, { encoding: 'utf-8' })
+    fs.writeFileSync(batPath, batScript, { encoding: 'utf-8' })
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'apply.ps1 write failed: ' + e.message, diagnostics: { stage: 'script', applierPath } }
+    return { kind: 'error', error: 'apply.bat write failed: ' + e.message, diagnostics: { stage: 'script', batPath } }
+  }
+  try {
+    fs.writeFileSync(vbsPath, vbsScript, { encoding: 'utf-8' })
+  } catch (e) {
+    releaseLock()
+    try { fs.rmSync(batPath, { force: true }) } catch (_) {}
+    return { kind: 'error', error: 'apply.vbs write failed: ' + e.message, diagnostics: { stage: 'script', vbsPath } }
   }
 
-  // Spawn powershell.exe. -WindowStyle Hidden + windowsHide:true reliably
-  // suppress the console (cmd.exe ignored windowsHide in the field). All
-  // four values pass through param() binding so PowerShell handles escaping.
+  // Spawn wscript.exe (windowless by nature) on the .vbs shim, which uses
+  // WScript.Shell.Run with windowStyle=0 to launch the .bat truly hidden.
+  // This is the canonical "launch a console process invisibly on Windows"
+  // pattern. The .bat receives parentPid, installDir, newExe as positional
+  // args; cmd.exe's argument splitting + the .bat's `set "X=%~1"` quote
+  // stripping handle escaping.
   const args = [
-    '-NoProfile',
-    '-WindowStyle', 'Hidden',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', applierPath,
-    '-ParentPid', String(process.pid),
-    '-PendingDir', pendingDir,
-    '-InstallDir', appRoot,
-    '-NewExe', resolvedExeName,
+    '//Nologo',
+    vbsPath,
+    String(process.pid),
+    appRoot,
+    resolvedExeName,
   ]
   const spawnFn = opts._spawnFn || ((cmd, sa, so) => spawn(cmd, sa, so))
   try {
-    const child = spawnFn('powershell.exe', args, {
+    const child = spawnFn('wscript.exe', args, {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
     })
     if (child && typeof child.unref === 'function') child.unref()
-    log('OOP applier spawned (powershell.exe ' + applierPath + '). Exiting so app.asar lock releases.')
+    log('OOP applier spawned (wscript.exe ' + vbsPath + ' -> ' + batPath + '). Exiting so app.asar lock releases.')
     // We DON'T release the lock here — the applier will tear down the
     // entire pendingDir on success (including the lock file) once the swap
     // is complete. The 5-min stale-lock fallback handles abnormal exits.
-    return { kind: 'spawned', applierPath, resolvedExeName, manifest }
+    return { kind: 'spawned', batPath, vbsPath, resolvedExeName, manifest }
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'powershell.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', applierPath } }
+    return { kind: 'error', error: 'wscript.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', vbsPath, batPath } }
   }
 }
 
@@ -1340,9 +1359,9 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
   const failedMarker = path.join(pendingDir, 'FAILED')
   const successMarker = path.join(pendingDir, 'SUCCESS')
 
-  // OOP success sweep: if the PowerShell applier wrote SUCCESS but its
-  // background self-cleanup didn't reach the pending dir before we booted,
-  // wipe it now so we don't re-apply the same payload on every launch.
+  // OOP success sweep: if the .bat applier wrote SUCCESS but its background
+  // self-cleanup didn't reach the pending dir before we booted, wipe it now
+  // so we don't re-apply the same payload on every launch.
   if (fs.existsSync(successMarker)) {
     log('Found .ota-pending/SUCCESS from a prior OOP apply — sweeping pending dir.')
     try { fs.rmSync(pendingDir, { recursive: true, force: true }) }
@@ -1368,7 +1387,7 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
     // entirely. We're called from pre-init (main.js line 67, before
     // app.whenReady), where app.exit() can no-op or hang because the
     // message loop / renderer aren't up yet. The hard kill releases all
-    // file handles synchronously so the PowerShell applier can extract
+    // file handles synchronously so the .bat applier can extract
     // over the (now-unlocked) app.asar / ffmpeg.dll / icudtl.dat.
     const oopExitFn = _opts._exitFn || ((code) => { process.exit(code) })
     const stageRes = stageOutOfProcessApply(appRoot, pendingDir, _opts)
@@ -1874,8 +1893,8 @@ function shutdown() {
 
 module.exports = {
   init, checkForUpdate, restartApp, applyPendingUpdateOnStartup,
-  // exported so tests/test-rebrand-update.js can drive the rebrand-style
-  // apply + cleanup-marker flow without a real electron build
+  // exported so external tooling can drive the rebrand-style apply +
+  // cleanup-marker flow without a real electron build
   sweepCleanupMarker, writeCleanupMarker, getCurrentExeBasename,
   // exported for Task #3 tests (orphan-exe scan + init-time self-defense)
   listTopLevelExesInZip, scanForOrphanExes, peekCleanupMarker, isSelfMarkedAsOrphan,
@@ -1889,6 +1908,6 @@ module.exports = {
   // partial-apply hardening (rebrand-cleanup bug fix): exposed for tests
   snapshotTopLevelExes, sweepPartialNewExes, recordApplyFailure,
   readPriorFailureCount, MAX_CONSECUTIVE_APPLY_FAILURES,
-  // out-of-process Windows applier (Task #18 — phase-2 PowerShell swap)
-  stageOutOfProcessApply, buildPhase2ApplierPs1,
+  // out-of-process Windows applier (Task #18 — phase-2 .bat + .vbs swap)
+  stageOutOfProcessApply, buildPhase2ApplierBat, buildPhase2ApplierVbs,
 }

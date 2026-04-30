@@ -13,7 +13,6 @@
     "dist:server": "cd server && npm run dist",
     "dist:server:fresh": "cd server && npm install && npm run dist",
     "dist:all": "npm run dist && npm run dist:server && node scripts/collect-builds.js",
-    "test:rebrand-update": "node tests/test-rebrand-update.js",
     "test:build-all-logos": "node tests/test-build-all-logo-isolation.js"
   },
   "keywords": [],

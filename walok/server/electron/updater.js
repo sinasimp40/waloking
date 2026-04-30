@@ -975,117 +975,118 @@ async function downloadAndApply(manifest) {
   }
 }
 
-// See walok/electron/updater.js for the full design rationale of the
-// out-of-process Windows applier — server-side mirror. PowerShell-based
-// applier: hides the console reliably (-WindowStyle Hidden), extracts
-// payload.zip directly via Expand-Archive, and uses StartTime to defeat
-// PID reuse in the parent-wait loop.
-function buildPhase2ApplierPs1() {
+// See walok/electron/updater.js for the full design rationale — this is a
+// 1:1 mirror. The Phase-2 applier is a plain Windows .bat run through a
+// .vbs hidden-launcher shim. No PowerShell anywhere in the apply path.
+// Uses Win10 1803+ built-in tar.exe for zip extraction.
+function buildPhase2ApplierBat() {
   return [
-    'param(',
-    '  [int]$ParentPid,',
-    '  [string]$PendingDir,',
-    '  [string]$InstallDir,',
-    '  [string]$NewExe',
+    '@echo off',
+    'setlocal EnableExtensions EnableDelayedExpansion',
+    'set "PARENT_PID=%~1"',
+    'set "INSTALL_DIR=%~2"',
+    'set "NEW_EXE=%~3"',
+    'set "PENDING_DIR=%INSTALL_DIR%\\.ota-pending"',
+    'set "APPLY_LOG=%PENDING_DIR%\\apply.log"',
+    '',
+    'echo [%date% %time%] phase2 start pid=%PARENT_PID% install="%INSTALL_DIR%" newExe=%NEW_EXE% > "%APPLY_LOG%"',
+    '',
+    'timeout /t 4 /nobreak >NUL 2>&1',
+    'echo [%date% %time%] post-wait, beginning wipe >> "%APPLY_LOG%"',
+    '',
+    'pushd "%INSTALL_DIR%" >NUL 2>&1',
+    'if errorlevel 1 (',
+    '  echo [%date% %time%] FAIL pushd "%INSTALL_DIR%" >> "%APPLY_LOG%"',
+    '  echo pushd > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
     ')',
-    '$ErrorActionPreference = "Continue"',
-    '$applyLog = Join-Path $PendingDir "apply.log"',
-    'function Log($msg) {',
-    '  $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg',
-    '  try { Add-Content -LiteralPath $applyLog -Value $line -Encoding utf8 -ErrorAction SilentlyContinue } catch {}',
-    '}',
-    'Log "phase2 start parent=$ParentPid install=$InstallDir newExe=$NewExe"',
+    'for %%F in (*) do (',
+    '  set "_FN=%%~nxF"',
+    '  set "_FKEEP="',
+    '  if /I "!_FN!"==".ota-instance-id" set "_FKEEP=1"',
+    '  if /I "!_FN:~-14!"=="-settings.json" set "_FKEEP=1"',
+    '  if defined _FKEEP (',
+    '    echo [keep file] %%F >> "%APPLY_LOG%"',
+    '  ) else (',
+    '    echo [del file] %%F >> "%APPLY_LOG%"',
+    '    del /F /Q "%%F" >NUL 2>&1',
+    '  )',
+    ')',
+    'for /D %%D in (*) do (',
+    '  set "_DN=%%~nxD"',
+    '  set "_DKEEP="',
+    '  if /I "!_DN!"==".ota-pending" set "_DKEEP=1"',
+    '  if /I "!_DN:~-5!"=="-data" set "_DKEEP=1"',
+    '  if defined _DKEEP (',
+    '    echo [keep dir] %%D >> "%APPLY_LOG%"',
+    '  ) else (',
+    '    echo [del dir] %%D >> "%APPLY_LOG%"',
+    '    rmdir /S /Q "%%D" >NUL 2>&1',
+    '  )',
+    ')',
+    'popd >NUL 2>&1',
     '',
-    '$origStart = $null',
-    'try {',
-    '  $p0 = Get-Process -Id $ParentPid -ErrorAction Stop',
-    '  $origStart = $p0.StartTime',
-    '  Log "parent alive at start, StartTime=$origStart"',
-    '} catch {',
-    '  Log "parent already gone at script start"',
-    '}',
+    'echo [%date% %time%] tar -xf payload.zip >> "%APPLY_LOG%"',
+    'tar -xf "%PENDING_DIR%\\payload.zip" -C "%INSTALL_DIR%" >> "%APPLY_LOG%" 2>&1',
+    'if errorlevel 1 (',
+    '  echo [%date% %time%] FAIL tar exit %ERRORLEVEL% >> "%APPLY_LOG%"',
+    '  echo extract > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'echo [%date% %time%] tar ok >> "%APPLY_LOG%"',
     '',
-    '$waited = 0',
-    'while ($origStart -ne $null) {',
-    '  $stillAlive = $false',
-    '  try {',
-    '    $p = Get-Process -Id $ParentPid -ErrorAction Stop',
-    '    if ($p.StartTime -eq $origStart) { $stillAlive = $true }',
-    '    else { Log "PID $ParentPid was reused (StartTime differs); treating parent as gone" }',
-    '  } catch { }',
-    '  if (-not $stillAlive) { break }',
-    '  if ($waited -ge 60) {',
-    '    Log "timeout waiting for parent $ParentPid"',
-    '    "timeout" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
-    '    exit 1',
-    '  }',
-    '  Start-Sleep -Seconds 1',
-    '  $waited++',
-    '}',
-    'Log ("parent gone after " + $waited + "s, 3s grace before extract...")',
-    'Start-Sleep -Seconds 3',
+    'if exist "%PENDING_DIR%\\merged-ota-config.json" (',
+    '  if exist "%INSTALL_DIR%\\resources" (',
+    '    copy /Y "%PENDING_DIR%\\merged-ota-config.json" "%INSTALL_DIR%\\resources\\ota-config.json" >NUL 2>&1',
+    '    echo [overlay] resources\\ota-config.json >> "%APPLY_LOG%"',
+    '  ) else (',
+    '    copy /Y "%PENDING_DIR%\\merged-ota-config.json" "%INSTALL_DIR%\\ota-config.json" >NUL 2>&1',
+    '    echo [overlay] ota-config.json >> "%APPLY_LOG%"',
+    '  )',
+    ')',
+    'if exist "%PENDING_DIR%\\cleanup-marker.json" (',
+    '  copy /Y "%PENDING_DIR%\\cleanup-marker.json" "%INSTALL_DIR%\\.ota-cleanup.json" >NUL 2>&1',
+    '  echo [overlay] .ota-cleanup.json >> "%APPLY_LOG%"',
+    ')',
+    'if exist "%PENDING_DIR%\\current-exe-sidecar.json" (',
+    '  copy /Y "%PENDING_DIR%\\current-exe-sidecar.json" "%INSTALL_DIR%\\.ota-current-exe.json" >NUL 2>&1',
+    '  echo [overlay] .ota-current-exe.json >> "%APPLY_LOG%"',
+    ')',
     '',
-    '$zip = Join-Path $PendingDir "payload.zip"',
-    '$attempt = 0',
-    '$maxAttempts = 5',
-    'while ($true) {',
-    '  $attempt++',
-    '  try {',
-    '    Expand-Archive -LiteralPath $zip -DestinationPath $InstallDir -Force -ErrorAction Stop',
-    '    Log "Expand-Archive ok on attempt $attempt"',
-    '    break',
-    '  } catch {',
-    '    $msg = $_.Exception.Message',
-    '    Log "Expand-Archive attempt $attempt failed: $msg"',
-    '    if ($attempt -ge $maxAttempts) {',
-    '      "extract" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
-    '      exit 1',
-    '    }',
-    '    Start-Sleep -Seconds 2',
-    '  }',
-    '}',
+    'if not exist "%INSTALL_DIR%\\%NEW_EXE%" (',
+    '  echo [%date% %time%] FAIL new exe missing: %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
+    '  echo missing-exe > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'echo [%date% %time%] launching %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
+    'start "" "%INSTALL_DIR%\\%NEW_EXE%"',
+    'echo done > "%PENDING_DIR%\\SUCCESS"',
+    'echo [%date% %time%] SUCCESS >> "%APPLY_LOG%"',
     '',
-    '$mergedCfg = Join-Path $PendingDir "merged-ota-config.json"',
-    'if (Test-Path -LiteralPath $mergedCfg) {',
-    '  $resDir = Join-Path $InstallDir "resources"',
-    '  if (Test-Path -LiteralPath $resDir) {',
-    '    $cfgTarget = Join-Path $resDir "ota-config.json"',
-    '  } else {',
-    '    $cfgTarget = Join-Path $InstallDir "ota-config.json"',
-    '  }',
-    '  try { Copy-Item -LiteralPath $mergedCfg -Destination $cfgTarget -Force; Log "merged ota-config.json -> $cfgTarget" }',
-    '  catch { Log "ota-config copy failed: $_" }',
-    '}',
-    '$cleanupSrc = Join-Path $PendingDir "cleanup-marker.json"',
-    'if (Test-Path -LiteralPath $cleanupSrc) {',
-    '  try { Copy-Item -LiteralPath $cleanupSrc -Destination (Join-Path $InstallDir ".ota-cleanup.json") -Force; Log "cleanup marker placed" }',
-    '  catch { Log "cleanup marker copy failed: $_" }',
-    '}',
-    '$sidecarSrc = Join-Path $PendingDir "current-exe-sidecar.json"',
-    'if (Test-Path -LiteralPath $sidecarSrc) {',
-    '  try { Copy-Item -LiteralPath $sidecarSrc -Destination (Join-Path $InstallDir ".ota-current-exe.json") -Force; Log "current-exe sidecar placed" }',
-    '  catch { Log "sidecar copy failed: $_" }',
-    '}',
+    'start "" /B cmd /c "timeout /t 5 /nobreak >NUL & rmdir /S /Q ""%PENDING_DIR%"" & del /F /Q ""%~f0"" & del /F /Q ""%~dpn0.vbs"""',
+    'exit /b 0',
     '',
-    '$newExePath = Join-Path $InstallDir $NewExe',
-    'try {',
-    '  Start-Process -FilePath $newExePath -WorkingDirectory $InstallDir',
-    '  Log "launched $newExePath"',
-    '  "done" | Out-File -LiteralPath (Join-Path $PendingDir "SUCCESS") -Encoding utf8',
-    '} catch {',
-    '  Log "launch failed: $_"',
-    '  "launch" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
-    '  exit 1',
-    '}',
+    ':schedule_cleanup_fail',
+    'start "" /B cmd /c "timeout /t 5 /nobreak >NUL & del /F /Q ""%~f0"" & del /F /Q ""%~dpn0.vbs"""',
+    'exit /b 1',
     '',
-    '$selfPath = $PSCommandPath',
-    `$pdEsc = $PendingDir.Replace("'", "''")`,
-    `$spEsc = $selfPath.Replace("'", "''")`,
-    `$cleanupCmd = "Start-Sleep -Seconds 5; Remove-Item -LiteralPath '" + $pdEsc + "' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '" + $spEsc + "' -Force -ErrorAction SilentlyContinue"`,
-    'try {',
-    '  Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-Command",$cleanupCmd) -WindowStyle Hidden',
-    '} catch { Log "cleanup schedule failed: $_" }',
-    'exit 0',
+  ].join('\r\n')
+}
+
+function buildPhase2ApplierVbs(batRelative) {
+  return [
+    'Option Explicit',
+    'Dim sh, fso, scriptDir, batPath, args, i',
+    'Set sh = CreateObject("WScript.Shell")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)',
+    'batPath = fso.BuildPath(scriptDir, ' + JSON.stringify(batRelative) + ')',
+    'args = ""',
+    'For i = 0 To WScript.Arguments.Count - 1',
+    '  args = args & " """ & WScript.Arguments(i) & """"',
+    'Next',
+    "' Doubled-wrap quoting (see walok/electron/updater.js for details).",
+    'sh.Run "cmd /c """ & """" & batPath & """" & args & """", 0, False',
     '',
   ].join('\r\n')
 }
@@ -1169,10 +1170,10 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
 
   const oldExe = getCurrentExeBasename() || 'unknown.exe'
 
-  // Pre-write overlay files at the pending-dir root. The PowerShell
-  // applier copies them into the install dir after Expand-Archive. No
-  // string interpolation of user content into the script — exeName,
-  // version, and customer ota-config fields all travel through JSON.
+  // Pre-write overlay files at the pending-dir root. The .bat applier
+  // `copy /Y`'s them into the install dir after `tar -xf`. No string
+  // interpolation of user content into the script — exeName, version,
+  // and customer ota-config fields all travel through JSON.
   try {
     const installResourcesCfg = path.join(appRoot, 'resources', 'ota-config.json')
     const installRootCfg      = path.join(appRoot, 'ota-config.json')
@@ -1225,38 +1226,45 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
   }
 
   const tmpDir = opts._tmpDir || os.tmpdir()
-  const applierPath = path.join(tmpDir, 'walok-ota-srv-apply-' + Date.now() + '-' + process.pid + '.ps1')
-  const script = opts._ps1Script || buildPhase2ApplierPs1()
+  const applierBase = 'walok-ota-srv-apply-' + Date.now() + '-' + process.pid
+  const batPath = path.join(tmpDir, applierBase + '.bat')
+  const vbsPath = path.join(tmpDir, applierBase + '.vbs')
+  const batScript = opts._batScript || buildPhase2ApplierBat()
+  const vbsScript = opts._vbsScript || buildPhase2ApplierVbs(applierBase + '.bat')
   try {
-    fs.writeFileSync(applierPath, script, { encoding: 'utf-8' })
+    fs.writeFileSync(batPath, batScript, { encoding: 'utf-8' })
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'apply.ps1 write failed: ' + e.message, diagnostics: { stage: 'script', applierPath } }
+    return { kind: 'error', error: 'apply.bat write failed: ' + e.message, diagnostics: { stage: 'script', batPath } }
+  }
+  try {
+    fs.writeFileSync(vbsPath, vbsScript, { encoding: 'utf-8' })
+  } catch (e) {
+    releaseLock()
+    try { fs.rmSync(batPath, { force: true }) } catch (_) {}
+    return { kind: 'error', error: 'apply.vbs write failed: ' + e.message, diagnostics: { stage: 'script', vbsPath } }
   }
 
   const args = [
-    '-NoProfile',
-    '-WindowStyle', 'Hidden',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', applierPath,
-    '-ParentPid', String(process.pid),
-    '-PendingDir', pendingDir,
-    '-InstallDir', appRoot,
-    '-NewExe', resolvedExeName,
+    '//Nologo',
+    vbsPath,
+    String(process.pid),
+    appRoot,
+    resolvedExeName,
   ]
   const spawnFn = opts._spawnFn || ((cmd, sa, so) => spawn(cmd, sa, so))
   try {
-    const child = spawnFn('powershell.exe', args, {
+    const child = spawnFn('wscript.exe', args, {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
     })
     if (child && typeof child.unref === 'function') child.unref()
-    log('OOP applier spawned (powershell.exe ' + applierPath + '). Exiting so app.asar lock releases.')
-    return { kind: 'spawned', applierPath, resolvedExeName, manifest }
+    log('OOP applier spawned (wscript.exe ' + vbsPath + ' -> ' + batPath + '). Exiting so app.asar lock releases.')
+    return { kind: 'spawned', batPath, vbsPath, resolvedExeName, manifest }
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'powershell.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', applierPath } }
+    return { kind: 'error', error: 'wscript.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', vbsPath, batPath } }
   }
 }
 
@@ -1268,8 +1276,8 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
   const failedMarker = path.join(pendingDir, 'FAILED')
   const successMarker = path.join(pendingDir, 'SUCCESS')
 
-  // OOP success sweep: if a prior PowerShell applier wrote SUCCESS but
-  // its background self-cleanup didn't sweep the pending dir before we
+  // OOP success sweep: if a prior .bat applier wrote SUCCESS but its
+  // background self-cleanup didn't sweep the pending dir before we
   // booted, wipe it now so we don't re-apply on every launch.
   if (fs.existsSync(successMarker)) {
     log('Found .ota-pending/SUCCESS from a prior OOP apply — sweeping pending dir.')
@@ -1899,6 +1907,6 @@ module.exports = {
   // partial-apply hardening (rebrand-cleanup bug fix): exposed for tests
   snapshotTopLevelExes, sweepPartialNewExes, recordApplyFailure,
   readPriorFailureCount, MAX_CONSECUTIVE_APPLY_FAILURES,
-  // out-of-process Windows applier (Task #18 — phase-2 cmd.exe swap)
-  stageOutOfProcessApply, buildPhase2ApplierPs1,
+  // out-of-process Windows applier (Task #18 — phase-2 .bat + .vbs swap)
+  stageOutOfProcessApply, buildPhase2ApplierBat, buildPhase2ApplierVbs,
 }

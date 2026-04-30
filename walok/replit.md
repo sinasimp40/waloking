@@ -284,6 +284,7 @@ several defensive features that operators should know about:
   skip the handoff. The sidecar tier exists specifically to close that
   gap. Test hook for the degraded path: `OTA_TEST_BUNDLED_VERSION`.
 - **Test coverage.** `node walok/electron/test-updater.js` runs 203 pure-Node
-  tests covering all of the above; `walok/tests/test-rebrand-update.js` (32)
-  and `walok/tests/test-server-rebrand.js` (35) cover the rebrand sweep
-  flow plus end-to-end sidecar assertions. Total: 270 OTA tests passing.
+  tests covering all of the above. The earlier rebrand-flow tests
+  (`tests/test-rebrand-update.js`, `tests/test-server-rebrand.js`) were
+  removed at the user's request after a field bug shipped through them —
+  unit tests that pass while production fails are worse than no tests.
