@@ -144,7 +144,41 @@ console.log('=== install-lock.js tests ===')
   }
 })()
 
-// --- Test 6: stale-reclaim release safety (the architect-flagged
+// --- Test 6 (a): touch() refreshes mtime so a long-running holder
+// is not reclaimed as stale. Touching after a backdate must restore
+// a fresh mtime, and a touch on a foreign-owned lock must NOT update
+// the file (would clobber the legitimate owner). ---
+;(function test_touch() {
+  const root = makeTempRoot()
+  const lockPath = path.join(root, LOCK_FILENAME)
+  try {
+    const lock = acquireInstallLock(root)
+    // Backdate to simulate "we've been holding for a long time".
+    const long = (Date.now() - 60 * 60 * 1000) / 1000
+    fs.utimesSync(lockPath, long, long)
+    const beforeTouch = fs.statSync(lockPath).mtimeMs
+    assert.strictEqual(lock.touch(), true, 'touch() returns true while we own the lock')
+    const afterTouch = fs.statSync(lockPath).mtimeMs
+    assert.ok(afterTouch > beforeTouch + 1000, 'mtime moved forward after touch()')
+
+    // Force a reclaim by another process: backdate again, then have a
+    // second acquire kick in.
+    fs.utimesSync(lockPath, long, long)
+    const lock2 = acquireInstallLock(root, { staleAfterMs: 1000, maxWaitMs: 500, pollMs: 25 })
+    const m2 = fs.statSync(lockPath).mtimeMs
+    // Original lock no longer owns the file. touch() must report false
+    // and must NOT update the mtime (no clobbering the new owner).
+    assert.strictEqual(lock.touch(), false, 'touch() returns false after foreign reclaim')
+    assert.strictEqual(fs.statSync(lockPath).mtimeMs, m2, 'mtime unchanged when touched by non-owner')
+    lock2.release()
+    lock.release() // also a no-op for the file (token mismatch)
+    ok('touch(): refreshes mtime for owner; refuses to clobber foreign reclaimer')
+  } catch (e) { fail('touch', e) } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})()
+
+// --- Test 6 (b): stale-reclaim release safety (the architect-flagged
 // edge case). If holder A's install runs longer than staleAfterMs,
 // holder B will reclaim the stale lockfile and acquire a fresh lock.
 // When A finally calls release(), it MUST NOT delete B's lock — the

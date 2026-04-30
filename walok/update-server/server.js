@@ -787,6 +787,10 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
       if (!rootDepsInstalled()) installSteps.push({ cwd: PROJECT_ROOT, label: 'root' })
       if (fs.existsSync(serverDir) && !serverDepsInstalled()) installSteps.push({ cwd: serverDir, label: 'server' })
       for (const s of installSteps) {
+        // Refresh the lockfile mtime before each step so a multi-step
+        // install (root + server) cannot accumulate enough wall-clock
+        // age to be mistaken for a stale crash by another instance.
+        lock.touch()
         const r = require('child_process').spawnSync(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
           cwd: s.cwd, shell: true, stdio: 'pipe', encoding: 'utf-8',
         })

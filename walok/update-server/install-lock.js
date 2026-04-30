@@ -65,12 +65,18 @@ function tryUnlink(lockPath) {
 // Options (all optional):
 //   maxWaitMs     — give up after this long (default 120000 = 2 min).
 //   staleAfterMs  — treat lockfile as stale if mtime older than this
-//                   (default 600000 = 10 min). Set to 0 to disable.
+//                   (default 1800000 = 30 min, comfortably above any
+//                   realistic npm-install duration on this project).
+//                   Set to 0 to disable stale reclaim entirely.
 //   pollMs        — wait between EEXIST retries (default 250).
 //
-// Returns: { release(): void, lockPath: string, acquiredAt: number }.
+// Returns: { release(): void, touch(): void, lockPath: string, acquiredAt: number }.
 //   release() is idempotent — safe to call from a finally even if the
 //   lock was already released or the file disappeared from underneath.
+//   touch() refreshes the lockfile mtime so a long-running holder is
+//   not mistaken for a stale crash. The release() path also writes
+//   our token, so an "old A's late release" can never delete a newer
+//   B's reclaimed lock — see the inline notes below.
 //
 // Throws on:
 //   - EINSTALLLOCKED  — couldn't acquire within maxWaitMs (err.owner
@@ -82,7 +88,7 @@ function acquireInstallLock(projectRoot, opts) {
   }
   const o = opts || {}
   const maxWaitMs = Number.isFinite(o.maxWaitMs) ? o.maxWaitMs : 120000
-  const staleAfterMs = Number.isFinite(o.staleAfterMs) ? o.staleAfterMs : 600000
+  const staleAfterMs = Number.isFinite(o.staleAfterMs) ? o.staleAfterMs : 1800000
   const pollMs = Number.isFinite(o.pollMs) ? o.pollMs : 250
   const lockPath = path.join(projectRoot, LOCK_FILENAME)
 
@@ -157,6 +163,24 @@ function acquireInstallLock(projectRoot, opts) {
     return {
       lockPath,
       acquiredAt: Date.now(),
+      // Refresh the lockfile mtime so a long-running holder is not
+      // mistaken for a stale crash by another process. Best-effort —
+      // if the file has been forcibly reclaimed (token mismatch) we
+      // intentionally do NOT touch it (would clobber the new owner's
+      // mtime). Returns true if our mtime was refreshed, false if we
+      // no longer own the lock.
+      touch() {
+        if (released) return false
+        let current = null
+        try { current = fs.readFileSync(lockPath, 'utf-8') }
+        catch (e) { return false }
+        let parsed = null
+        try { parsed = JSON.parse(current) } catch (e) { return false }
+        if (!parsed || parsed.token !== ownerToken) return false
+        const now = Date.now() / 1000
+        try { fs.utimesSync(lockPath, now, now); return true }
+        catch (e) { return false }
+      },
       release() {
         if (released) return
         released = true
