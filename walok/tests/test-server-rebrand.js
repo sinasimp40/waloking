@@ -296,6 +296,12 @@ function main() {
       try {
         fs.writeFileSync(path.join(tmp2, 'OLD-server.exe'), 'old-server-binary')
         fs.writeFileSync(path.join(tmp2, 'app.asar'), 'OLD server asar v1')
+        // Field-reported regression mirror: an UNLOCKED file that gets
+        // replaced during the failed apply must be RESTORED to its OLD
+        // content via rollback, not left at NEW content (which would
+        // produce a black/violet screen the next time the server window
+        // opens).
+        fs.writeFileSync(path.join(tmp2, 'chrome.pak'), 'OLD chrome pak v1')
         fs.writeFileSync(path.join(tmp2, 'ota-config.json'), JSON.stringify({
           enabled: true, channel: 'rebrand-test-server', version: '1.0.0',
           updateServer: 'http://example.test',
@@ -305,6 +311,7 @@ function main() {
         fs.mkdirSync(pd)
         fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
           { name: 'NEW-server.exe', data: Buffer.from('new-server-binary-v2') },
+          { name: 'chrome.pak', data: Buffer.from('NEW chrome pak v2') },
           { name: 'app.asar', data: Buffer.from('NEW server asar v2') },
         ]))
         fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
@@ -348,6 +355,14 @@ function main() {
           fs.readFileSync(path.join(tmp2, 'app.asar'), 'utf-8') === 'OLD server asar v1',
           'server partial-extract failure: app.asar was NOT replaced',
         )
+        // CRITICAL: chrome.pak gets RESTORED to OLD content via rollback.
+        assert(
+          fs.readFileSync(path.join(tmp2, 'chrome.pak'), 'utf-8') === 'OLD chrome pak v1',
+          'server partial-extract failure: chrome.pak was RESTORED to OLD content via rollback (not left at NEW content -> would cause black-screen mismatch)',
+        )
+        const leftoverTmp = fs.readdirSync(tmp2).filter(n => n.endsWith('.ota-tmp') || n.endsWith('.ota-bak'))
+        assert(leftoverTmp.length === 0,
+          'server partial-extract failure: no .ota-tmp / .ota-bak scratch files left in the install dir after rollback')
 
         const failedMarkerPath = path.join(pd, 'FAILED')
         assert(fs.existsSync(failedMarkerPath),
@@ -357,8 +372,11 @@ function main() {
           'server partial-extract failure: consecutiveFailures = 1 on first attempt')
         assert(failedDoc.gaveUp === false,
           'server partial-extract failure: gaveUp = false on first attempt')
-        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW-server.exe'),
-          'server partial-extract failure: FAILED records which partial exes were swept')
+        assert(failedDoc.rolledBack && typeof failedDoc.rolledBack.removed === 'number'
+          && typeof failedDoc.rolledBack.restored === 'number',
+          'server partial-extract failure: FAILED diagnostics records rollback counts')
+        assert(failedDoc.rolledBack.removed >= 1 && failedDoc.rolledBack.restored >= 1,
+          'server partial-extract failure: rollback removed at least 1 new file (NEW-server.exe) AND restored at least 1 replaced file (chrome.pak)')
 
         // Runaway-retry guard: 5 consecutive failures must drop READY.
         for (let i = 2; i <= 5; i++) {
@@ -437,8 +455,10 @@ function main() {
         const failedDoc = JSON.parse(fs.readFileSync(failedMarker, 'utf-8'))
         assert(failedDoc.consecutiveFailures === 1,
           'server mid-extract throw: consecutiveFailures = 1')
-        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW-server.exe'),
-          'server mid-extract throw: outer-catch FAILED records the swept exe')
+        assert(failedDoc.rolledBack && typeof failedDoc.rolledBack.removed === 'number',
+          'server mid-extract throw: outer-catch FAILED records rollback counts')
+        assert(failedDoc.rolledBack.removed >= 1,
+          'server mid-extract throw: rollback removed at least 1 new file (NEW-server.exe) before the throw was handled')
       } finally {
         rmrf(tmp3)
       }

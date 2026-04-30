@@ -292,7 +292,13 @@ function detectVersionMismatch(appRoot, currentBasename) {
   return { stale: true, candidate, reason: 'older-than-advertised', bundled, advertised }
 }
 
-function extractZip(zipBuffer, destDir) {
+// Transactional ZIP extraction. See walok/electron/updater.js for the long
+// rationale; mirrored here so the embedded server binary has the same
+// rollback-on-partial-failure semantics as the launcher.
+function extractZip(zipBuffer, destDir, opts) {
+  opts = opts || {}
+  const backupDir = opts.backupDir || null
+  const successfulEntries = opts.successfulEntries || []
   let pos = 0
   let extracted = 0
   let failed = 0
@@ -333,6 +339,23 @@ function extractZip(zipBuffer, destDir) {
       failedFiles.push(name + ' (decompress: ' + e.message + ')')
       continue
     }
+    const wasReplacement = fs.existsSync(targetPath)
+    let backupPath = null
+    if (backupDir && wasReplacement) {
+      const relForBackup = path.relative(destDir, targetPath)
+      backupPath = path.join(backupDir, relForBackup)
+      try {
+        const backupParent = path.dirname(backupPath)
+        if (!fs.existsSync(backupParent)) fs.mkdirSync(backupParent, { recursive: true })
+      } catch (_) {}
+      try {
+        fs.renameSync(targetPath, backupPath)
+      } catch (e) {
+        failed++
+        failedFiles.push(name + ' (backup: ' + e.message + ')')
+        continue
+      }
+    }
     try {
       const tmpPath = targetPath + '.ota-tmp'
       fs.writeFileSync(tmpPath, content)
@@ -340,22 +363,94 @@ function extractZip(zipBuffer, destDir) {
       try {
         fs.renameSync(tmpPath, targetPath)
         extracted++
+        successfulEntries.push({ target: targetPath, backupPath, wasReplacement })
       } catch (e) {
         try { fs.copyFileSync(tmpPath, targetPath) } catch (e2) {
           failed++
           failedFiles.push(name + ' (write: ' + e2.message + ')')
           try { fs.unlinkSync(tmpPath) } catch (_) {}
+          if (backupPath) {
+            try { fs.renameSync(backupPath, targetPath) } catch (_) {}
+          }
           continue
         }
         try { fs.unlinkSync(tmpPath) } catch (_) {}
         extracted++
+        successfulEntries.push({ target: targetPath, backupPath, wasReplacement })
       }
     } catch (e) {
       failed++
       failedFiles.push(name + ' (write: ' + e.message + ')')
+      if (backupPath) {
+        try { fs.renameSync(backupPath, targetPath) } catch (_) {}
+      }
     }
   }
-  return { extracted, failed, totalEntries, failedFiles }
+  return { extracted, failed, totalEntries, failedFiles, successfulEntries }
+}
+
+// See walok/electron/updater.js rollbackExtract for the rationale. Mirrored.
+// Critical: NEVER unlink a replacement target without a backupPath — that
+// would destroy the only copy of the file. The architect flagged this as a
+// data-loss path; entries in that state are recorded as "skipped" instead.
+function rollbackExtract(successfulEntries) {
+  const restored = []
+  const removed = []
+  const skipped = []
+  for (let i = successfulEntries.length - 1; i >= 0; i--) {
+    const e = successfulEntries[i]
+    if (e.wasReplacement) {
+      if (!e.backupPath) {
+        skipped.push(path.basename(e.target))
+        continue
+      }
+      try { fs.unlinkSync(e.target) } catch (_) {}
+      try {
+        fs.renameSync(e.backupPath, e.target)
+        restored.push(path.basename(e.target))
+      } catch (_) {
+        skipped.push(path.basename(e.target))
+      }
+    } else {
+      try { fs.unlinkSync(e.target) } catch (_) {}
+      removed.push(path.basename(e.target))
+    }
+  }
+  return { restored, removed, skipped }
+}
+
+// See walok/electron/updater.js recoverFromLeftoverBackup for the rationale.
+// Mirrored. Restores OLD bytes left behind by a previous apply attempt that
+// was killed AFTER moving originals into backup but BEFORE either committing
+// new content or completing rollback.
+function recoverFromLeftoverBackup(backupDir, destDir) {
+  const restored = []
+  const failed = []
+  const walk = (dir) => {
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (_) { return }
+    for (const ent of entries) {
+      const abs = path.join(dir, ent.name)
+      if (ent.isDirectory()) {
+        walk(abs)
+        try { fs.rmdirSync(abs) } catch (_) {}
+      } else if (ent.isFile()) {
+        const rel = path.relative(backupDir, abs)
+        const target = path.join(destDir, rel)
+        try {
+          const targetParent = path.dirname(target)
+          if (!fs.existsSync(targetParent)) fs.mkdirSync(targetParent, { recursive: true })
+          try { fs.unlinkSync(target) } catch (_) {}
+          fs.renameSync(abs, target)
+          restored.push(rel)
+        } catch (e) {
+          failed.push(rel + ' (' + e.message + ')')
+        }
+      }
+    }
+  }
+  walk(backupDir)
+  return { restored, failed }
 }
 
 // Read-only walk of an OTA payload zip — returns the basenames of any
@@ -892,35 +987,79 @@ function applyPendingUpdateOnStartup(appRoot) {
   if (!fs.existsSync(readyMarker) || !fs.existsSync(zipPath)) return false
   log('Found pending server update — applying...')
   let stagedManifest = null
-  // Hoisted so the outer catch can also sweep when extractZip itself throws
-  // mid-stream (corrupt zip header, disk-full, etc.) — not just when it
-  // returns result.failed > 0.
+  // Hoisted so the outer catch can also roll back when extractZip itself
+  // throws mid-stream. successfulEntries is the out-array extractZip pushes
+  // a record into for each entry it commits to disk.
   let payloadExeNames = null
-  let preExtractExes = null
+  const successfulEntries = []
+  let backupDir = null
   try {
     const buf = fs.readFileSync(zipPath)
     payloadExeNames = listTopLevelExesInZip(buf)
-    // Snapshot existing top-level exes BEFORE extract so the failure-cleanup
-    // step can identify newly-dropped exes that are now mismatched with
-    // their (still-old) sibling resources/app.asar.
-    preExtractExes = snapshotTopLevelExes(appRoot)
-    const result = extractZip(buf, appRoot)
-    log('Extraction: ' + result.extracted + '/' + result.totalEntries + ' files OK, ' + result.failed + ' failed.')
-    if (result.failed > 0 || result.extracted === 0) {
-      log('UPDATE INCOMPLETE — refusing to mark as applied.')
-      result.failedFiles.slice(0, 10).forEach(f => log('  failed: ' + f))
-      // Sweep partially-extracted new exes so the user can't double-click an
-      // integrity-failing binary. The classic "asar locked by the running
-      // server" case lands here.
-      const removedPartialExes = sweepPartialNewExes(
-        appRoot, preExtractExes, payloadExeNames, getCurrentExeBasename(),
-      )
-      if (removedPartialExes.length) {
-        log('Removed ' + removedPartialExes.length + ' partially-extracted new server exe(s) to prevent integrity-error popups: ' + removedPartialExes.join(', '))
+    backupDir = path.join(pendingDir, '.ota-bak')
+    // STEP 1 — recover from any leftover .ota-bak (previous attempt killed
+    // mid-apply). Backup files are the LAST good copy of the originals;
+    // restore them in place BEFORE wiping. Mirrors launcher updater.
+    if (fs.existsSync(backupDir)) {
+      try {
+        const rec = recoverFromLeftoverBackup(backupDir, appRoot)
+        if (rec.restored.length > 0 || rec.failed.length > 0) {
+          log('Recovered ' + rec.restored.length + ' file(s) from leftover backup at ' +
+            backupDir + (rec.failed.length > 0 ? '; ' + rec.failed.length + ' failed: ' + rec.failed.slice(0, 5).join(', ') : '') + '.')
+        }
+        if (rec.failed.length > 0) {
+          log('UPDATE BLOCKED — leftover backup at ' + backupDir + ' could not be fully recovered. Manual intervention required.')
+          recordApplyFailure({
+            readyMarker, failedMarker,
+            diagnostics: {
+              error: 'leftover backup recovery failed',
+              backupDir,
+              recovered: rec.restored.length,
+              failed: rec.failed,
+            },
+          })
+          return false
+        }
+        try { fs.rmSync(backupDir, { recursive: true, force: true }) } catch (_) {}
+      } catch (e) {
+        log('UPDATE BLOCKED — could not inspect leftover backup at ' + backupDir + ': ' + e.message)
+        recordApplyFailure({
+          readyMarker, failedMarker,
+          diagnostics: { error: 'leftover backup inspect failed: ' + e.message, backupDir },
+        })
+        return false
       }
+    }
+    // STEP 2 — create the backup dir for THIS attempt. If we cannot, REFUSE
+    // to extract; running extractZip without a backupDir would replace files
+    // we can no longer roll back (data loss).
+    try {
+      fs.mkdirSync(backupDir, { recursive: true })
+    } catch (e) {
+      log('UPDATE BLOCKED — could not create backup dir at ' + backupDir + ': ' + e.message + '. Refusing to extract without transactional rollback.')
       recordApplyFailure({
         readyMarker, failedMarker,
-        diagnostics: Object.assign({}, result, { removedPartialExes }),
+        diagnostics: { error: 'backup dir create failed: ' + e.message, backupDir },
+      })
+      backupDir = null
+      return false
+    }
+    const result = extractZip(buf, appRoot, { backupDir, successfulEntries })
+    log('Extraction: ' + result.extracted + '/' + result.totalEntries + ' files OK, ' + result.failed + ' failed.')
+    if (result.failed > 0 || result.extracted === 0) {
+      log('UPDATE INCOMPLETE — rolling back to pre-apply state.')
+      result.failedFiles.slice(0, 10).forEach(f => log('  failed: ' + f))
+      // Full rollback: restores every replaced file from backup and deletes
+      // every newly-added file (incl. the new server exe), so the install
+      // ends up exactly where it started. Prevents the "OLD server.exe + NEW
+      // chrome paks" mismatch that produces a black/violet window on launch.
+      const rb = rollbackExtract(successfulEntries)
+      log('Rollback: restored ' + rb.restored.length + ' file(s), removed ' + rb.removed.length + ' new file(s).')
+      recordApplyFailure({
+        readyMarker, failedMarker,
+        diagnostics: Object.assign({}, result, {
+          rolledBack: { restored: rb.restored.length, removed: rb.removed.length },
+        }),
       })
       return false
     }
@@ -1040,28 +1179,27 @@ function applyPendingUpdateOnStartup(appRoot) {
     return true
   } catch (e) {
     log('Failed to apply pending update: ' + e.message)
-    // If extractZip threw mid-stream, the partial NEW server exe could still
-    // be on disk. Sweep it for the same reason as the result.failed > 0
-    // branch: prevent the user from double-clicking an integrity-failing
-    // server binary.
-    let removedPartialExes = []
-    if (preExtractExes && payloadExeNames) {
+    // If extractZip threw mid-stream, every entry committed before the throw
+    // lives in successfulEntries. Roll them back so the install ends up at
+    // its pre-extract state instead of a half-replaced black-screen mess.
+    let rb = { restored: [], removed: [] }
+    if (successfulEntries.length > 0) {
       try {
-        removedPartialExes = sweepPartialNewExes(
-          appRoot, preExtractExes, payloadExeNames, getCurrentExeBasename(),
-        )
-        if (removedPartialExes.length) {
-          log('Removed ' + removedPartialExes.length + ' partially-extracted new server exe(s) after exception: ' + removedPartialExes.join(', '))
-        }
+        rb = rollbackExtract(successfulEntries)
+        log('Rollback after exception: restored ' + rb.restored.length + ' file(s), removed ' + rb.removed.length + ' new file(s).')
       } catch (e2) {
-        log('Sweep after exception itself failed: ' + e2.message)
+        log('Rollback after exception itself failed: ' + e2.message)
       }
     }
     // Same retry-with-cap policy as the partial-extract branch: keep READY
     // for retry on the next launch, capped by MAX_CONSECUTIVE_APPLY_FAILURES.
     recordApplyFailure({
       readyMarker, failedMarker,
-      diagnostics: { error: e.message, stack: e.stack, removedPartialExes },
+      diagnostics: {
+        error: e.message,
+        stack: e.stack,
+        rolledBack: { restored: rb.restored.length, removed: rb.removed.length },
+      },
     })
     return false
   }

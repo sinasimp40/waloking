@@ -280,6 +280,13 @@ function main() {
       try {
         fs.writeFileSync(path.join(tmp2, 'OLD.exe'), 'old-binary')
         fs.writeFileSync(path.join(tmp2, 'app.asar'), 'OLD asar v1')
+        // Field-reported regression: a NON-locked file (e.g. a chrome pak
+        // sitting next to the launcher) used to get replaced with NEW
+        // content while the locked asar stayed OLD — leaving the user with
+        // OLD launcher + NEW chrome paks = black/violet screen on launch.
+        // This test now asserts that chrome.pak is RESTORED to its OLD
+        // content during rollback.
+        fs.writeFileSync(path.join(tmp2, 'chrome.pak'), 'OLD chrome pak v1')
         fs.writeFileSync(path.join(tmp2, 'ota-config.json'), JSON.stringify({
           enabled: true, channel: 'rebrand-test', version: '1.0.0', updateServer: 'http://example.test',
         }, null, 2))
@@ -288,6 +295,7 @@ function main() {
         fs.mkdirSync(pd)
         fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
           { name: 'NEW.exe', data: Buffer.from('new-binary-v2') },
+          { name: 'chrome.pak', data: Buffer.from('NEW chrome pak v2') },
           { name: 'app.asar', data: Buffer.from('NEW asar v2') },
         ]))
         fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
@@ -330,8 +338,20 @@ function main() {
           fs.readFileSync(path.join(tmp2, 'app.asar'), 'utf-8') === 'OLD asar v1',
           'partial-extract failure: app.asar was NOT replaced (still has OLD contents)',
         )
+        // CRITICAL: chrome.pak (which extractZip CAN replace because it isn't
+        // locked) must be RESTORED to its OLD content by rollback. Without
+        // this restoration, the OLD launcher loads OLD asar against NEW
+        // chrome paks -> black/violet screen (the field-reported bug).
+        assert(
+          fs.readFileSync(path.join(tmp2, 'chrome.pak'), 'utf-8') === 'OLD chrome pak v1',
+          'partial-extract failure: chrome.pak was RESTORED to OLD content via rollback (not left at NEW content -> would cause black-screen mismatch)',
+        )
         assert(!fs.existsSync(path.join(tmp2, '.ota-cleanup.json')),
           'partial-extract failure: no cleanup marker is written when the apply did not succeed')
+        // No leftover backup/tmp scratch files in the install dir.
+        const leftoverTmp = fs.readdirSync(tmp2).filter(n => n.endsWith('.ota-tmp') || n.endsWith('.ota-bak'))
+        assert(leftoverTmp.length === 0,
+          'partial-extract failure: no .ota-tmp / .ota-bak scratch files left in the install dir after rollback')
 
         const failedMarkerPath = path.join(pd, 'FAILED')
         assert(fs.existsSync(failedMarkerPath),
@@ -341,8 +361,11 @@ function main() {
           'partial-extract failure: consecutiveFailures = 1 on first attempt')
         assert(failedDoc.gaveUp === false,
           'partial-extract failure: gaveUp = false on first attempt')
-        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW.exe'),
-          'partial-extract failure: FAILED diagnostics records which partial exes were swept')
+        assert(failedDoc.rolledBack && typeof failedDoc.rolledBack.removed === 'number'
+          && typeof failedDoc.rolledBack.restored === 'number',
+          'partial-extract failure: FAILED diagnostics records rollback counts (restored / removed)')
+        assert(failedDoc.rolledBack.removed >= 1 && failedDoc.rolledBack.restored >= 1,
+          'partial-extract failure: rollback removed at least 1 new file (NEW.exe) AND restored at least 1 replaced file (chrome.pak)')
 
         // ---- Runaway-retry guard: 5 consecutive failures must drop READY ----
         // Re-trigger the same failure path 4 more times (we already have 1).
@@ -428,10 +451,144 @@ function main() {
         const failedDoc = JSON.parse(fs.readFileSync(failedMarker, 'utf-8'))
         assert(failedDoc.consecutiveFailures === 1,
           'mid-extract throw: consecutiveFailures = 1')
-        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW.exe'),
-          'mid-extract throw: outer-catch FAILED diagnostics record the swept partial exe')
+        assert(failedDoc.rolledBack && typeof failedDoc.rolledBack.removed === 'number',
+          'mid-extract throw: outer-catch FAILED diagnostics record rollback counts')
+        assert(failedDoc.rolledBack.removed >= 1,
+          'mid-extract throw: rollback removed at least 1 new file (NEW.exe) before the throw was handled')
       } finally {
         rmrf(tmp3)
+      }
+    }
+
+    // ---- Regression (architect-flagged data-loss path): if the .ota-bak
+    //      backup directory cannot be created (e.g. EACCES), the apply MUST
+    //      refuse to extract instead of running without rollback. Otherwise
+    //      a subsequent failure would call rollbackExtract on entries with no
+    //      backupPath and unconditionally unlink them — destroying the only
+    //      copy of the file. Verifies pre-existing files are NEVER deleted
+    //      when transactional rollback is unavailable. ----
+    {
+      const tmp4 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-no-backup-'))
+      try {
+        fs.writeFileSync(path.join(tmp4, 'OLD.exe'), 'old-binary-must-survive')
+        fs.writeFileSync(path.join(tmp4, 'app.asar'), 'OLD asar must survive')
+        fs.writeFileSync(path.join(tmp4, 'chrome.pak'), 'OLD chrome pak must survive')
+        fs.writeFileSync(path.join(tmp4, 'ota-config.json'), JSON.stringify({
+          enabled: true, channel: 'rebrand-test', version: '1.0.0', updateServer: 'http://example.test',
+        }, null, 2))
+
+        const pd = path.join(tmp4, '.ota-pending')
+        fs.mkdirSync(pd)
+        fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
+          { name: 'NEW.exe', data: Buffer.from('new-binary') },
+          { name: 'chrome.pak', data: Buffer.from('NEW chrome pak') },
+          { name: 'app.asar', data: Buffer.from('NEW asar v2') },
+        ]))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'NEW.exe',
+        }, null, 2))
+        const readyPath = path.join(pd, 'READY')
+        fs.writeFileSync(readyPath, new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater4 = require('../electron/updater.js')
+
+        // Force backup-dir creation to fail by replacing fs.mkdirSync for the
+        // .ota-bak path only. mkdirSync is invoked from STEP 2 of apply with
+        // the backupDir path; throwing simulates EACCES / read-only volume.
+        const realMkdir = fs.mkdirSync
+        const targetBak = path.join(pd, '.ota-bak')
+        fs.mkdirSync = function (p, opts) {
+          if (typeof p === 'string' && path.resolve(p) === path.resolve(targetBak)) {
+            const err = new Error('EACCES: permission denied (test injection)')
+            err.code = 'EACCES'
+            throw err
+          }
+          return realMkdir.call(this, p, opts)
+        }
+        let appliedNoBackup
+        try {
+          appliedNoBackup = updater4.applyPendingUpdateOnStartup(tmp4)
+        } finally {
+          fs.mkdirSync = realMkdir
+        }
+
+        assert(appliedNoBackup === false,
+          'no-backup refusal: applyPendingUpdateOnStartup returns false when backup dir cannot be created')
+        // CRITICAL safety property: nothing in the install dir was touched
+        // because extract was refused before it could run.
+        assert(fs.readFileSync(path.join(tmp4, 'OLD.exe'), 'utf-8') === 'old-binary-must-survive',
+          'no-backup refusal: pre-existing OLD.exe is untouched (extract was refused, not run-without-backup)')
+        assert(fs.readFileSync(path.join(tmp4, 'app.asar'), 'utf-8') === 'OLD asar must survive',
+          'no-backup refusal: pre-existing app.asar is untouched')
+        assert(fs.readFileSync(path.join(tmp4, 'chrome.pak'), 'utf-8') === 'OLD chrome pak must survive',
+          'no-backup refusal: pre-existing chrome.pak is untouched')
+        assert(!fs.existsSync(path.join(tmp4, 'NEW.exe')),
+          'no-backup refusal: NEW.exe never landed (extract was refused)')
+        const failedMarker = path.join(pd, 'FAILED')
+        assert(fs.existsSync(failedMarker),
+          'no-backup refusal: FAILED diagnostics marker written')
+        const failedDoc = JSON.parse(fs.readFileSync(failedMarker, 'utf-8'))
+        assert(typeof failedDoc.error === 'string' && /backup dir create failed/i.test(failedDoc.error),
+          'no-backup refusal: FAILED diagnostics record reason "backup dir create failed"')
+      } finally {
+        rmrf(tmp4)
+      }
+    }
+
+    // ---- Regression (architect-flagged crash-recovery path): if a previous
+    //      apply attempt was killed AFTER moving originals into .ota-bak but
+    //      BEFORE either committing new content or rolling back, the next
+    //      apply MUST recover those backup files in place BEFORE wiping the
+    //      directory. Otherwise the OLD bytes are lost forever. ----
+    {
+      const tmp5 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-leftover-bak-'))
+      try {
+        fs.writeFileSync(path.join(tmp5, 'OLD.exe'), 'old-binary')
+        // Note: app.asar and chrome.pak are MISSING from the install dir to
+        // simulate the previous-attempt-killed-mid-flight scenario where
+        // those files were already moved into .ota-bak and never restored.
+        fs.writeFileSync(path.join(tmp5, 'ota-config.json'), JSON.stringify({
+          enabled: true, channel: 'rebrand-test', version: '1.0.0', updateServer: 'http://example.test',
+        }, null, 2))
+
+        const pd = path.join(tmp5, '.ota-pending')
+        fs.mkdirSync(pd)
+        // Pre-populate .ota-bak as if a previous attempt had moved originals
+        // there and was killed. These bytes are the LAST good copy.
+        const leftoverBak = path.join(pd, '.ota-bak')
+        fs.mkdirSync(leftoverBak, { recursive: true })
+        fs.writeFileSync(path.join(leftoverBak, 'app.asar'), 'OLD asar (last good copy)')
+        fs.writeFileSync(path.join(leftoverBak, 'chrome.pak'), 'OLD chrome pak (last good copy)')
+
+        // Now stage a fresh, INVALID payload so apply tries to extract,
+        // fails, and we can confirm the leftover backup was recovered first
+        // (independent of whether the new attempt itself succeeds).
+        fs.writeFileSync(path.join(pd, 'payload.zip'), Buffer.from('not-a-zip'))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'NEW.exe',
+        }, null, 2))
+        fs.writeFileSync(path.join(pd, 'READY'), new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater5 = require('../electron/updater.js')
+
+        updater5.applyPendingUpdateOnStartup(tmp5)
+
+        // CRITICAL: the leftover backup bytes were restored BEFORE anything
+        // else ran. Without this, those files would be lost forever.
+        assert(fs.existsSync(path.join(tmp5, 'app.asar'))
+          && fs.readFileSync(path.join(tmp5, 'app.asar'), 'utf-8') === 'OLD asar (last good copy)',
+          'leftover backup recovery: app.asar was restored from .ota-bak before the new attempt began')
+        assert(fs.existsSync(path.join(tmp5, 'chrome.pak'))
+          && fs.readFileSync(path.join(tmp5, 'chrome.pak'), 'utf-8') === 'OLD chrome pak (last good copy)',
+          'leftover backup recovery: chrome.pak was restored from .ota-bak before the new attempt began')
+      } finally {
+        rmrf(tmp5)
       }
     }
   } finally {
