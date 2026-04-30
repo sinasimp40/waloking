@@ -217,6 +217,44 @@ console.log('=== install-lock.js tests ===')
   }
 })()
 
+// --- Test 6 (c): open-before-write race. The architect-flagged
+// scenario: holder B has just created the lockfile via openSync('wx')
+// but is in the microscopic window BEFORE writing its ownership
+// token. If a stale holder A's late release() reads at exactly that
+// moment, it sees an empty/unparseable file. A must NOT unlink — that
+// would silently delete B's freshly-acquired lock and re-open the
+// mutual-exclusion race we are paid to close. ---
+;(function test_release_during_partial_write() {
+  const root = makeTempRoot()
+  const lockPath = path.join(root, LOCK_FILENAME)
+  try {
+    // A acquires normally.
+    const lockA = acquireInstallLock(root)
+    // Simulate B's stale-reclaim by force-removing A's lockfile and
+    // creating a NEW empty lockfile (modelling B mid-acquire: openSync
+    // succeeded, writeSync hasn't happened yet).
+    fs.unlinkSync(lockPath)
+    const fdB = fs.openSync(lockPath, 'wx') // B creates, doesn't write
+    const before = fs.readFileSync(lockPath, 'utf-8')
+    assert.strictEqual(before, '', 'B has not yet written token')
+
+    // A's late release runs. Strict release must refuse to unlink
+    // because the on-disk content does not contain A's token (it's
+    // empty — could be ANY other process mid-acquire, B included).
+    lockA.release()
+    assert.strictEqual(fs.existsSync(lockPath), true, "A.release() must NOT delete B's mid-acquire lockfile")
+    assert.strictEqual(fs.readFileSync(lockPath, 'utf-8'), '', 'lockfile content unchanged')
+
+    // B finishes its acquire (write token, close fd) and releases.
+    fs.writeSync(fdB, JSON.stringify({ token: 'fake-b', pid: 0, host: 'x', acquiredAt: '' }))
+    fs.closeSync(fdB)
+    fs.unlinkSync(lockPath)
+    ok('release-during-partial-write: A refuses to unlink an empty/partial lockfile')
+  } catch (e) { fail('release-during-partial-write', e) } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})()
+
 // --- Test 7: cross-PROCESS contention (the actual scenario the lock
 // exists for: two OTA server instances racing). Spawns two short Node
 // child processes that BOTH try to acquire and hold for ~400ms. One

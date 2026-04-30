@@ -145,19 +145,36 @@ function acquireInstallLock(projectRoot, opts) {
     //        concurrent install
     //
     //   With a token, A's release() reads the lockfile, sees B's
-    //   token instead of A's own, and refuses to unlink. The race is
-    //   closed: only the current owner can delete their own lock.
+    //   token (or, mid-stale-reclaim, sees an empty/partial file
+    //   because B has openSync'd but not yet written its token) and
+    //   refuses to unlink. The race is closed: ONLY the explicit
+    //   ownerToken match permits unlink — anything else (empty,
+    //   corrupted, foreign token, ENOENT) is a no-op.
+    //
+    // Token must be DURABLY present in the file before this function
+    // returns. If we can't write+sync the token, fail the acquire and
+    // unlink our half-written lockfile so the next caller can try.
+    // (Without this, a writeSync failure would leave a tokenless
+    // lockfile that could later be misclassified by a token-strict
+    // release() on a different process.)
     const ownerToken = crypto.randomBytes(16).toString('hex')
+    const meta = JSON.stringify({
+      token: ownerToken,
+      pid: process.pid,
+      host: os.hostname(),
+      acquiredAt: new Date().toISOString(),
+    })
     try {
-      const meta = JSON.stringify({
-        token: ownerToken,
-        pid: process.pid,
-        host: os.hostname(),
-        acquiredAt: new Date().toISOString(),
-      })
       fs.writeSync(fd, meta)
-    } catch (e) { /* metadata is advisory; token presence is the gate */ }
-    try { fs.closeSync(fd) } catch (e) { /* ditto */ }
+      try { fs.fsyncSync(fd) } catch (e) { /* fsync is best-effort across FS */ }
+      fs.closeSync(fd)
+    } catch (writeErr) {
+      try { fs.closeSync(fd) } catch (e) { /* ignore */ }
+      tryUnlink(lockPath)
+      const err = new Error('failed to write install-lock token: ' + writeErr.message)
+      err.code = 'EINSTALLLOCKWRITE'
+      throw err
+    }
 
     let released = false
     return {
@@ -184,31 +201,37 @@ function acquireInstallLock(projectRoot, opts) {
       release() {
         if (released) return
         released = true
-        // Token-checked unlink: read the current lockfile and only
-        // remove it if the embedded token still matches ours. This is
-        // best-effort (no kernel-level atomicity between read+unlink),
-        // but the window is microscopic and any concurrent reclaimer
-        // that sneaks in afterwards will also be token-protected.
-        let current = null
+        // STRICT token-checked unlink. The ONLY case in which we
+        // unlink is when the on-disk lockfile contains our exact
+        // ownerToken. Every other case is a no-op:
+        //
+        //   - ENOENT     → lockfile already gone (force-reclaimed
+        //                  earlier as stale by another process); we
+        //                  do not own it any more.
+        //   - empty/partial read → another process is in the
+        //                  microscopic window between openSync('wx')
+        //                  and writeSync(token). They are the new
+        //                  owner. Deleting the file would re-open the
+        //                  full mutual-exclusion race the task exists
+        //                  to close. Refuse to unlink.
+        //   - JSON parse fail / missing token / token mismatch →
+        //                  some other process owns this file (or the
+        //                  metadata is corrupted). Not ours to delete.
+        //                  Stale recovery (mtime > staleAfterMs in a
+        //                  later acquire()) will eventually reclaim
+        //                  any genuinely abandoned tokenless file.
+        //
+        // The cost of this strictness is a possible lockfile leak in
+        // the rare write-failure path. That's acceptable: the next
+        // acquire() will reclaim it via the stale-mtime path. The
+        // benefit is that mutual exclusion is preserved even under
+        // the open-before-write reclaim race.
+        let current
         try { current = fs.readFileSync(lockPath, 'utf-8') }
-        catch (e) {
-          // ENOENT: lock file is already gone (someone reclaimed us as
-          // stale, or it was never written). Nothing to release.
-          return
-        }
-        let parsed = null
-        try { parsed = JSON.parse(current) } catch (e) { /* corrupted */ }
-        if (parsed && parsed.token && parsed.token !== ownerToken) {
-          // Lock has been forcibly reclaimed by another process — DO
-          // NOT delete their lock. Just return; we no longer own it.
-          return
-        }
-        // Either the lockfile is ours (token matches) or we cannot
-        // identify the owner (corrupted or missing token). In both
-        // cases unlinking is the right thing — if it's ours we want it
-        // gone, and if metadata is corrupted we're recovering toward a
-        // clean state. Use unlink-by-name (not by-fd) so we can't race
-        // ourselves into double-deletion.
+        catch (e) { return /* ENOENT or unreadable — not ours */ }
+        let parsed
+        try { parsed = JSON.parse(current) } catch (e) { return /* not ours */ }
+        if (!parsed || parsed.token !== ownerToken) return
         tryUnlink(lockPath)
       },
     }
