@@ -505,7 +505,19 @@ function streamJob(jobId, label) {
   // the legacy single-job CANCEL JOB header button keep working.
   state.currentJobId = jobId
 
-  appendConsoleLine(rec, '=== ' + label + ' (job ' + jobId + ') ===', 'cmd')
+  // Only print the per-card header line if the console doesn't already have
+  // one. After a mid-build page refresh the queue snapshot rehydrates this
+  // card by calling streamJob again; without this guard each refresh would
+  // tack on another '=== BUILD <channel> (job …) ===' line on top of the
+  // one already shown. A brand-new card has an empty <pre>, so the header
+  // is still printed in the common (non-rehydrate) case.
+  const headerText = '=== ' + label + ' (job ' + jobId + ') ==='
+  const alreadyHasHeader = Array.from(rec.output.children).some(
+    child => child.textContent === headerText
+  )
+  if (!alreadyHasHeader) {
+    appendConsoleLine(rec, headerText, 'cmd')
+  }
   setCardStatus(rec, 'RUNNING', 'running')
   rec.cancelBtn.classList.remove('hidden')
 
