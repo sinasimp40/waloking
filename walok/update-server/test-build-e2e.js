@@ -362,6 +362,22 @@ async function testSingleCustomerBuild() {
     assert.ok(c._serverVersion, '_serverVersion should be set after a build')
     ok('customer card: both versions populated (launcher=' + c._launcherVersion + ', server=' + c._serverVersion + ')')
   } catch (e) { fail('versions populated', e) }
+
+  // DB-backed publish timestamps. These come from the customers table
+  // (launcher_published_at / server_published_at) via dbApi.listCustomers
+  // and are spread into the response by /api/admin/customers. They're a
+  // distinct signal from _launcherReleased (which is read off the on-disk
+  // manifest) — guarding both prevents a future regression where the
+  // build succeeds but the DB write step is skipped or reordered.
+  try {
+    assert.ok(c.launcherPublishedAt,
+      'launcherPublishedAt (DB column) must be populated after a successful build (was: ' +
+      JSON.stringify(c.launcherPublishedAt) + ')')
+    assert.ok(c.serverPublishedAt,
+      'serverPublishedAt (DB column) must be populated after a successful build (was: ' +
+      JSON.stringify(c.serverPublishedAt) + ')')
+    ok('customer row: DB publish timestamps populated (launcherPublishedAt + serverPublishedAt)')
+  } catch (e) { fail('DB publish timestamps', e) }
 }
 
 // ---- test 2: build all → both customers show working links ----
@@ -419,7 +435,10 @@ async function testBuildAllTwoCustomers() {
       assert.strictEqual(c._launcherFileExists, true, ch + '._launcherFileExists must be true (was ' + JSON.stringify(c._launcherFileExists) + ')')
       assert.strictEqual(c._serverFileExists, true, ch + '._serverFileExists must be true (was ' + JSON.stringify(c._serverFileExists) + ')')
       assert.ok(c._launcherReleased, ch + '._launcherReleased must be set (was ' + JSON.stringify(c._launcherReleased) + ')')
-      ok(ch + ': card shows real download links + last-release timestamp')
+      // DB-backed publish timestamps (see single-customer test for rationale).
+      assert.ok(c.launcherPublishedAt, ch + '.launcherPublishedAt (DB) must be set (was ' + JSON.stringify(c.launcherPublishedAt) + ')')
+      assert.ok(c.serverPublishedAt, ch + '.serverPublishedAt (DB) must be set (was ' + JSON.stringify(c.serverPublishedAt) + ')')
+      ok(ch + ': card shows real download links + last-release timestamp + DB publish timestamps')
     } catch (e) { fail(ch + ': customer card after build all', e) }
   }
 }
