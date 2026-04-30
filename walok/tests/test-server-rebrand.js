@@ -284,6 +284,165 @@ function main() {
       'our in-tree shortcut for OLD-server.exe was deleted')
     assert(fs.existsSync(unrelatedShortcut),
       'unrelated shortcut with a foreign-install-dir target was preserved')
+
+    // ---- Regression: partial-extract failure must clean up the new server
+    //      exe AND preserve READY for retry (mirrors the launcher test).
+    //      Without this fix, the partially-dropped DENFING-server.exe sits
+    //      on disk with stale resources/app.asar, and double-clicking it
+    //      shows "Application Integrity Error" — exactly the bug the field
+    //      reported on the per-customer rebrand. ----
+    {
+      const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-srv-partial-fail-'))
+      try {
+        fs.writeFileSync(path.join(tmp2, 'OLD-server.exe'), 'old-server-binary')
+        fs.writeFileSync(path.join(tmp2, 'app.asar'), 'OLD server asar v1')
+        fs.writeFileSync(path.join(tmp2, 'ota-config.json'), JSON.stringify({
+          enabled: true, channel: 'rebrand-test-server', version: '1.0.0',
+          updateServer: 'http://example.test',
+        }, null, 2))
+
+        const pd = path.join(tmp2, '.ota-pending')
+        fs.mkdirSync(pd)
+        fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
+          { name: 'NEW-server.exe', data: Buffer.from('new-server-binary-v2') },
+          { name: 'app.asar', data: Buffer.from('NEW server asar v2') },
+        ]))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test-server', exeName: 'NEW-server.exe',
+        }, null, 2))
+        const readyPath = path.join(pd, 'READY')
+        fs.writeFileSync(readyPath, new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD-server.exe'
+        delete require.cache[require.resolve('../server/electron/updater.js')]
+        delete require.cache[require.resolve('../server/electron/ota-live.js')]
+        const srvUpdater = require('../server/electron/updater.js')
+
+        // Patch fs.writeFileSync to fail just the asar tmp write — simulates
+        // the running server holding resources/app.asar mmap'd on Windows.
+        const origWFS = fs.writeFileSync
+        fs.writeFileSync = function (p, data, opts) {
+          if (typeof p === 'string' && p.endsWith('app.asar.ota-tmp')) {
+            const err = new Error('SIMULATED: server app.asar tmp write failed (mimicking Windows asar file lock)')
+            err.code = 'EBUSY'
+            throw err
+          }
+          return origWFS(p, data, opts)
+        }
+        let appliedFail
+        try {
+          appliedFail = srvUpdater.applyPendingUpdateOnStartup(tmp2)
+        } finally {
+          fs.writeFileSync = origWFS
+        }
+
+        assert(appliedFail === false,
+          'server partial-extract failure: applyPendingUpdateOnStartup returns false')
+        assert(fs.existsSync(readyPath),
+          'server partial-extract failure: READY is preserved for retry on the next launch')
+        assert(!fs.existsSync(path.join(tmp2, 'NEW-server.exe')),
+          'server partial-extract failure: the partially-dropped NEW-server.exe was swept (would otherwise show "Application Integrity Error" on double-click)')
+        assert(fs.existsSync(path.join(tmp2, 'OLD-server.exe')),
+          'server partial-extract failure: pre-existing OLD-server.exe is preserved')
+        assert(
+          fs.readFileSync(path.join(tmp2, 'app.asar'), 'utf-8') === 'OLD server asar v1',
+          'server partial-extract failure: app.asar was NOT replaced',
+        )
+
+        const failedMarkerPath = path.join(pd, 'FAILED')
+        assert(fs.existsSync(failedMarkerPath),
+          'server partial-extract failure: FAILED diagnostics marker written')
+        const failedDoc = JSON.parse(fs.readFileSync(failedMarkerPath, 'utf-8'))
+        assert(failedDoc.consecutiveFailures === 1,
+          'server partial-extract failure: consecutiveFailures = 1 on first attempt')
+        assert(failedDoc.gaveUp === false,
+          'server partial-extract failure: gaveUp = false on first attempt')
+        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW-server.exe'),
+          'server partial-extract failure: FAILED records which partial exes were swept')
+
+        // Runaway-retry guard: 5 consecutive failures must drop READY.
+        for (let i = 2; i <= 5; i++) {
+          fs.writeFileSync(readyPath, new Date().toISOString())
+          fs.writeFileSync = function (p, data, opts) {
+            if (typeof p === 'string' && p.endsWith('app.asar.ota-tmp')) {
+              const err = new Error('SIMULATED locked asar')
+              err.code = 'EBUSY'
+              throw err
+            }
+            return origWFS(p, data, opts)
+          }
+          try {
+            srvUpdater.applyPendingUpdateOnStartup(tmp2)
+          } finally {
+            fs.writeFileSync = origWFS
+          }
+        }
+        const finalFailed = JSON.parse(fs.readFileSync(failedMarkerPath, 'utf-8'))
+        assert(finalFailed.consecutiveFailures === 5,
+          'server runaway-retry guard: consecutiveFailures climbs to 5')
+        assert(finalFailed.gaveUp === true,
+          'server runaway-retry guard: gaveUp = true once the cap is hit')
+        assert(!fs.existsSync(readyPath),
+          'server runaway-retry guard: READY is dropped after MAX_CONSECUTIVE_APPLY_FAILURES')
+      } finally {
+        rmrf(tmp2)
+      }
+    }
+
+    // ---- Regression (architect nit): hard throw MID-extract on the server
+    //      side must also sweep the partially-dropped server exe via the
+    //      outer catch. ----
+    {
+      const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-srv-mid-throw-'))
+      try {
+        fs.writeFileSync(path.join(tmp3, 'OLD-server.exe'), 'old-server-binary')
+        fs.writeFileSync(path.join(tmp3, 'app.asar'), 'OLD server asar v1')
+        fs.writeFileSync(path.join(tmp3, 'ota-config.json'), JSON.stringify({
+          enabled: true, channel: 'rebrand-test-server', version: '1.0.0',
+          updateServer: 'http://example.test',
+        }, null, 2))
+
+        const pd = path.join(tmp3, '.ota-pending')
+        fs.mkdirSync(pd)
+        const validZip = makeMinimalZip([
+          { name: 'NEW-server.exe', data: Buffer.from('new-server-binary-mid-throw') },
+        ])
+        const truncatedTail = Buffer.from([0x50, 0x4B, 0x03, 0x04])
+        fs.writeFileSync(path.join(pd, 'payload.zip'), Buffer.concat([validZip, truncatedTail]))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test-server', exeName: 'NEW-server.exe',
+        }, null, 2))
+        const readyPath = path.join(pd, 'READY')
+        fs.writeFileSync(readyPath, new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD-server.exe'
+        delete require.cache[require.resolve('../server/electron/updater.js')]
+        delete require.cache[require.resolve('../server/electron/ota-live.js')]
+        const srvUpdater3 = require('../server/electron/updater.js')
+
+        const appliedThrow = srvUpdater3.applyPendingUpdateOnStartup(tmp3)
+
+        assert(appliedThrow === false,
+          'server mid-extract throw: applyPendingUpdateOnStartup returns false')
+        assert(fs.existsSync(readyPath),
+          'server mid-extract throw: READY preserved')
+        assert(!fs.existsSync(path.join(tmp3, 'NEW-server.exe')),
+          'server mid-extract throw: outer-catch sweep removed partial NEW-server.exe')
+        assert(fs.existsSync(path.join(tmp3, 'OLD-server.exe')),
+          'server mid-extract throw: pre-existing OLD-server.exe preserved')
+
+        const failedMarker = path.join(pd, 'FAILED')
+        assert(fs.existsSync(failedMarker),
+          'server mid-extract throw: FAILED marker written by outer catch')
+        const failedDoc = JSON.parse(fs.readFileSync(failedMarker, 'utf-8'))
+        assert(failedDoc.consecutiveFailures === 1,
+          'server mid-extract throw: consecutiveFailures = 1')
+        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW-server.exe'),
+          'server mid-extract throw: outer-catch FAILED records the swept exe')
+      } finally {
+        rmrf(tmp3)
+      }
+    }
   } finally {
     rmrf(tmp)
     rmrf(desktopDir)

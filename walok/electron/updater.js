@@ -407,6 +407,94 @@ function extractZip(zipBuffer, destDir) {
   return { extracted, failed, totalEntries, failedFiles }
 }
 
+// Maximum number of consecutive failed apply attempts before we give up and
+// clear the READY marker. Without this cap, a permanently-broken payload
+// (e.g. corrupted zip) would re-attempt apply on every single launch forever.
+// 5 attempts is enough to ride out the legitimate "asar is locked, retry on
+// the next cold start" case but small enough to not loop indefinitely.
+const MAX_CONSECUTIVE_APPLY_FAILURES = 5
+
+// Snapshot the basenames of every top-level *.exe currently in the install
+// dir. Used as a "before" picture so a downstream failure-cleanup step can
+// tell which .exe files are NEW (just dropped by the in-progress extractZip)
+// vs OLD (already on disk before the apply started). Returns a Set of
+// lower-cased names so callers can compare case-insensitively (Windows FS).
+function snapshotTopLevelExes(appRoot) {
+  const out = new Set()
+  try {
+    for (const e of fs.readdirSync(appRoot, { withFileTypes: true })) {
+      if (e.isFile() && e.name.toLowerCase().endsWith('.exe')) out.add(e.name.toLowerCase())
+    }
+  } catch (_) {}
+  return out
+}
+
+// When an apply attempt fails partway through, extractZip may already have
+// dropped the new .exe (no name conflict, written cleanly) before failing on
+// a locked file like resources/app.asar. The runtime integrity check inside
+// that new exe will then fail (new exe bytes vs stale integrity.dat / asar
+// secret), causing an "Application Integrity Error" popup if the user
+// double-clicks it. Remove just those files — only ones that:
+//   (a) appeared during this apply attempt (not in the pre-extract snapshot),
+//   (b) are listed as top-level entries in the payload zip, and
+//   (c) are not the currently-running exe (we'd be deleting ourselves).
+// Returns the basenames that were removed for diagnostics.
+function sweepPartialNewExes(appRoot, preExtractExes, payloadExeNames, currentBasename) {
+  const removed = []
+  const currentLower = currentBasename ? currentBasename.toLowerCase() : null
+  const payloadLower = new Set((payloadExeNames || []).map(n => n.toLowerCase()))
+  try {
+    for (const e of fs.readdirSync(appRoot, { withFileTypes: true })) {
+      if (!e.isFile()) continue
+      const lower = e.name.toLowerCase()
+      if (!lower.endsWith('.exe')) continue
+      if (preExtractExes.has(lower)) continue
+      if (!payloadLower.has(lower)) continue
+      if (currentLower && lower === currentLower) continue
+      try {
+        fs.unlinkSync(path.join(appRoot, e.name))
+        removed.push(e.name)
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return removed
+}
+
+// Read the consecutiveFailures counter from a previous FAILED marker so the
+// runaway-retry guard can decide whether to keep retrying or finally give up.
+// Missing/malformed marker -> 0 (treat as the first failure).
+function readPriorFailureCount(failedMarker) {
+  try {
+    if (!fs.existsSync(failedMarker)) return 0
+    const obj = JSON.parse(fs.readFileSync(failedMarker, 'utf-8'))
+    if (obj && Number.isInteger(obj.consecutiveFailures)) return obj.consecutiveFailures
+  } catch (_) {}
+  return 0
+}
+
+// Centralised "the apply failed; record diagnostics and decide whether to
+// keep READY for retry or finally give up" handler. Used by both failure
+// branches in applyPendingUpdateOnStartup (the index.html sanity check and
+// the result.failed > 0 path) so they behave consistently.
+function recordApplyFailure({ readyMarker, failedMarker, diagnostics }) {
+  const priorFailures = readPriorFailureCount(failedMarker)
+  const consecutiveFailures = priorFailures + 1
+  const giveUp = consecutiveFailures >= MAX_CONSECUTIVE_APPLY_FAILURES
+  try {
+    fs.writeFileSync(failedMarker, JSON.stringify(Object.assign({}, diagnostics, {
+      at: new Date().toISOString(),
+      consecutiveFailures,
+      gaveUp: giveUp,
+    }), null, 2))
+  } catch (_) {}
+  if (giveUp) {
+    log('Apply has failed ' + consecutiveFailures + ' times in a row — clearing READY so the user is not stuck retrying a permanently-broken payload.')
+    try { fs.unlinkSync(readyMarker) } catch (_) {}
+  } else {
+    log('Apply failed (' + consecutiveFailures + '/' + MAX_CONSECUTIVE_APPLY_FAILURES + ' consecutive) — keeping READY so the next launch can retry once the locked files are released.')
+  }
+}
+
 // Read-only walk of an OTA payload zip — returns the basenames of any
 // top-level *.exe entries it contains, without extracting anything. Mirrors
 // the LFH parser in extractZip but does no I/O. Used by the orphan-exe scan
@@ -774,12 +862,24 @@ function applyPendingUpdateOnStartup(appRoot) {
   if (!fs.existsSync(readyMarker) || !fs.existsSync(zipPath)) return false
 
   log('Found pending update — applying before app starts...')
+  // Hoisted so the outer catch can also sweep when extractZip itself throws
+  // mid-stream (corrupt zip header, disk-full, etc.) — not just when it
+  // returns result.failed > 0. Without this, a hard-throw during extraction
+  // could still leave a partial new exe on disk.
+  let payloadExeNames = null
+  let preExtractExes = null
   try {
     const buf = fs.readFileSync(zipPath)
     // Snapshot the payload's top-level *.exe entries BEFORE extraction so the
     // orphan-exe scan downstream can tell "part of this payload" from
     // "left-over junk from a previous build".
-    const payloadExeNames = listTopLevelExesInZip(buf)
+    payloadExeNames = listTopLevelExesInZip(buf)
+    // Snapshot the install dir's existing top-level *.exe BEFORE extractZip
+    // touches the disk. If the apply fails partway through, the failure
+    // handler uses this snapshot to clean up newly-dropped exes that are now
+    // mismatched with their (still-old) sibling resources, so the user can't
+    // double-click an integrity-failing binary.
+    preExtractExes = snapshotTopLevelExes(appRoot)
     const result = extractZip(buf, appRoot)
     log('Extraction: ' + result.extracted + '/' + result.totalEntries + ' files OK, ' + result.failed + ' failed.')
 
@@ -804,14 +904,23 @@ function applyPendingUpdateOnStartup(appRoot) {
         if (head.length === 0 || looksBinary || !hasHtmlMagic) {
           log('UPDATE INCOMPLETE — index.html at ' + indexPath + ' looks corrupted (size=' +
             head.length + ', binary=' + looksBinary + ', html=' + hasHtmlMagic + '). Refusing to mark as applied.')
-          try {
-            fs.writeFileSync(failedMarker, JSON.stringify({
+          // Sweep any newly-dropped exes from the partial extract so the user
+          // can't trigger an "Application Integrity Error" by double-clicking
+          // a new exe that's paired with stale renderer/resource files.
+          const removedPartialExes = sweepPartialNewExes(
+            appRoot, preExtractExes, payloadExeNames, getCurrentExeBasename(),
+          )
+          if (removedPartialExes.length) {
+            log('Removed ' + removedPartialExes.length + ' partially-extracted new exe(s) to prevent integrity-error popups: ' + removedPartialExes.join(', '))
+          }
+          recordApplyFailure({
+            readyMarker, failedMarker,
+            diagnostics: {
               error: 'index.html post-extract sanity check failed',
               indexPath, size: head.length, binary: looksBinary, html: hasHtmlMagic,
-              at: new Date().toISOString(),
-            }, null, 2))
-            fs.unlinkSync(readyMarker)
-          } catch (_) {}
+              removedPartialExes,
+            },
+          })
           return false
         }
       }
@@ -822,16 +931,28 @@ function applyPendingUpdateOnStartup(appRoot) {
     if (result.failed > 0 || result.extracted === 0) {
       log('UPDATE INCOMPLETE — refusing to mark as applied.')
       result.failedFiles.slice(0, 10).forEach(f => log('  failed: ' + f))
-      try {
-        fs.writeFileSync(failedMarker, JSON.stringify({
+      // The classic "asar locked by the running launcher" failure mode lives
+      // here: extractZip drops the new exe successfully (no name conflict)
+      // but fails to overwrite resources/app.asar. Without cleanup, the
+      // user can double-click the new exe and trip an integrity-error popup
+      // because its bytes don't match the stale integrity.dat / asar secret.
+      const removedPartialExes = sweepPartialNewExes(
+        appRoot, preExtractExes, payloadExeNames, getCurrentExeBasename(),
+      )
+      if (removedPartialExes.length) {
+        log('Removed ' + removedPartialExes.length + ' partially-extracted new exe(s) to prevent integrity-error popups: ' + removedPartialExes.join(', '))
+      }
+      recordApplyFailure({
+        readyMarker, failedMarker,
+        diagnostics: {
           extractedAt: new Date().toISOString(),
           extracted: result.extracted,
           failed: result.failed,
           totalEntries: result.totalEntries,
           failedFiles: result.failedFiles.slice(0, 50),
-        }, null, 2))
-        try { fs.unlinkSync(readyMarker) } catch (_) {}
-      } catch (_) {}
+          removedPartialExes,
+        },
+      })
       return false
     }
 
@@ -967,12 +1088,29 @@ function applyPendingUpdateOnStartup(appRoot) {
     return true
   } catch (e) {
     log('Failed to apply pending update: ' + e.message)
-    try {
-      fs.writeFileSync(failedMarker, JSON.stringify({
-        error: e.message, at: new Date().toISOString()
-      }, null, 2))
-      fs.unlinkSync(readyMarker)
-    } catch (_) {}
+    // If extractZip threw mid-stream (corrupt header, disk full, etc.), the
+    // partial NEW exe could still be on disk. Sweep it for the same reason
+    // as the result.failed > 0 branch: prevent the user from double-clicking
+    // an integrity-failing binary.
+    let removedPartialExes = []
+    if (preExtractExes && payloadExeNames) {
+      try {
+        removedPartialExes = sweepPartialNewExes(
+          appRoot, preExtractExes, payloadExeNames, getCurrentExeBasename(),
+        )
+        if (removedPartialExes.length) {
+          log('Removed ' + removedPartialExes.length + ' partially-extracted new exe(s) after exception: ' + removedPartialExes.join(', '))
+        }
+      } catch (e2) {
+        log('Sweep after exception itself failed: ' + e2.message)
+      }
+    }
+    // Same retry-with-cap policy as the partial-extract branches: keep READY
+    // for retry on the next launch, capped by MAX_CONSECUTIVE_APPLY_FAILURES.
+    recordApplyFailure({
+      readyMarker, failedMarker,
+      diagnostics: { error: e.message, stack: e.stack, removedPartialExes },
+    })
     return false
   }
 }
@@ -1207,4 +1345,7 @@ module.exports = {
   getBundledVersion, readAdvertisedVersion, pickSuccessorExe, detectVersionMismatch,
   // round-3 fix: per-exe identity sidecar
   readCurrentExeRecord, writeCurrentExeRecord,
+  // partial-apply hardening (rebrand-cleanup bug fix): exposed for tests
+  snapshotTopLevelExes, sweepPartialNewExes, recordApplyFailure,
+  readPriorFailureCount, MAX_CONSECUTIVE_APPLY_FAILURES,
 }

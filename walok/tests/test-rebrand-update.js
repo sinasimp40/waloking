@@ -266,6 +266,174 @@ function main() {
     assert(!fs.existsSync(path.join(tmp, 'unrelated.exe')),
       'sweep still deletes the legitimate orphan listed alongside the traversal attempts')
     try { fs.unlinkSync(sentinel) } catch (_) {}
+
+    // ---- Regression: partial-extract failure must clean up the new exe AND
+    //      preserve READY for retry, so the user can't trigger an
+    //      "Application Integrity Error" by double-clicking a new exe that
+    //      was extracted next to a stale (still-locked) app.asar. ----
+    //
+    // We simulate the locked-asar failure by monkey-patching fs.writeFileSync
+    // to throw whenever extractZip tries to write to app.asar's .ota-tmp.
+    // Other writes (FAILED marker, exe writes) are passed through unchanged.
+    {
+      const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-partial-fail-'))
+      try {
+        fs.writeFileSync(path.join(tmp2, 'OLD.exe'), 'old-binary')
+        fs.writeFileSync(path.join(tmp2, 'app.asar'), 'OLD asar v1')
+        fs.writeFileSync(path.join(tmp2, 'ota-config.json'), JSON.stringify({
+          enabled: true, channel: 'rebrand-test', version: '1.0.0', updateServer: 'http://example.test',
+        }, null, 2))
+
+        const pd = path.join(tmp2, '.ota-pending')
+        fs.mkdirSync(pd)
+        fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
+          { name: 'NEW.exe', data: Buffer.from('new-binary-v2') },
+          { name: 'app.asar', data: Buffer.from('NEW asar v2') },
+        ]))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'NEW.exe',
+        }, null, 2))
+        const readyPath = path.join(pd, 'READY')
+        fs.writeFileSync(readyPath, new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater2 = require('../electron/updater.js')
+
+        // Patch fs.writeFileSync to fail the asar write (simulates Windows
+        // file lock by the running OLD.exe holding app.asar mmap'd).
+        const origWFS = fs.writeFileSync
+        fs.writeFileSync = function (p, data, opts) {
+          if (typeof p === 'string' && p.endsWith('app.asar.ota-tmp')) {
+            const err = new Error('SIMULATED: app.asar tmp write failed (mimicking Windows asar file lock)')
+            err.code = 'EBUSY'
+            throw err
+          }
+          return origWFS(p, data, opts)
+        }
+        let appliedFail
+        try {
+          appliedFail = updater2.applyPendingUpdateOnStartup(tmp2)
+        } finally {
+          fs.writeFileSync = origWFS
+        }
+
+        assert(appliedFail === false, 'partial-extract failure: applyPendingUpdateOnStartup returns false')
+        assert(fs.existsSync(readyPath),
+          'partial-extract failure: READY marker is PRESERVED so the next launch can retry (was previously deleted, stranding the user)')
+        assert(!fs.existsSync(path.join(tmp2, 'NEW.exe')),
+          'partial-extract failure: the partially-dropped NEW.exe was swept (would otherwise show "Application Integrity Error" on double-click)')
+        assert(fs.existsSync(path.join(tmp2, 'OLD.exe')),
+          'partial-extract failure: pre-existing OLD.exe is preserved (sweep only touches files NEW to this attempt)')
+        assert(
+          fs.readFileSync(path.join(tmp2, 'app.asar'), 'utf-8') === 'OLD asar v1',
+          'partial-extract failure: app.asar was NOT replaced (still has OLD contents)',
+        )
+        assert(!fs.existsSync(path.join(tmp2, '.ota-cleanup.json')),
+          'partial-extract failure: no cleanup marker is written when the apply did not succeed')
+
+        const failedMarkerPath = path.join(pd, 'FAILED')
+        assert(fs.existsSync(failedMarkerPath),
+          'partial-extract failure: FAILED diagnostics marker written')
+        const failedDoc = JSON.parse(fs.readFileSync(failedMarkerPath, 'utf-8'))
+        assert(failedDoc.consecutiveFailures === 1,
+          'partial-extract failure: consecutiveFailures = 1 on first attempt')
+        assert(failedDoc.gaveUp === false,
+          'partial-extract failure: gaveUp = false on first attempt')
+        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW.exe'),
+          'partial-extract failure: FAILED diagnostics records which partial exes were swept')
+
+        // ---- Runaway-retry guard: 5 consecutive failures must drop READY ----
+        // Re-trigger the same failure path 4 more times (we already have 1).
+        for (let i = 2; i <= 5; i++) {
+          fs.writeFileSync(readyPath, new Date().toISOString()) // restage READY
+          fs.writeFileSync = function (p, data, opts) {
+            if (typeof p === 'string' && p.endsWith('app.asar.ota-tmp')) {
+              const err = new Error('SIMULATED locked asar')
+              err.code = 'EBUSY'
+              throw err
+            }
+            return origWFS(p, data, opts)
+          }
+          try {
+            updater2.applyPendingUpdateOnStartup(tmp2)
+          } finally {
+            fs.writeFileSync = origWFS
+          }
+        }
+        const finalFailed = JSON.parse(fs.readFileSync(failedMarkerPath, 'utf-8'))
+        assert(finalFailed.consecutiveFailures === 5,
+          'runaway-retry guard: consecutiveFailures climbs to 5 after repeated failures')
+        assert(finalFailed.gaveUp === true,
+          'runaway-retry guard: gaveUp = true once the cap is hit')
+        assert(!fs.existsSync(readyPath),
+          'runaway-retry guard: READY is dropped after MAX_CONSECUTIVE_APPLY_FAILURES so the user is not stuck retrying a permanently-broken payload')
+      } finally {
+        rmrf(tmp2)
+      }
+    }
+
+    // ---- Regression (architect nit): hard throw MID-extract (not a per-entry
+    //      failure) must also sweep the partially-dropped exe via the outer
+    //      catch. Reproduces the case where extractZip's own header-read
+    //      throws RangeError on a truncated zip after NEW.exe was already
+    //      written to disk. Without the outer-catch sweep, that exe would
+    //      survive and trip "Application Integrity Error" on double-click. ----
+    {
+      const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-mid-throw-'))
+      try {
+        fs.writeFileSync(path.join(tmp3, 'OLD.exe'), 'old-binary')
+        fs.writeFileSync(path.join(tmp3, 'app.asar'), 'OLD asar v1')
+        fs.writeFileSync(path.join(tmp3, 'ota-config.json'), JSON.stringify({
+          enabled: true, channel: 'rebrand-test', version: '1.0.0', updateServer: 'http://example.test',
+        }, null, 2))
+
+        const pd = path.join(tmp3, '.ota-pending')
+        fs.mkdirSync(pd)
+        // Build a payload with a valid LFH for NEW.exe + 4 trailing magic bytes
+        // (0x04034b50 little-endian). The loop will enter on the magic, then
+        // throw RangeError when reading the rest of the truncated header.
+        const validZip = makeMinimalZip([
+          { name: 'NEW.exe', data: Buffer.from('new-binary-mid-throw') },
+        ])
+        const truncatedTail = Buffer.from([0x50, 0x4B, 0x03, 0x04])
+        const corruptZip = Buffer.concat([validZip, truncatedTail])
+        fs.writeFileSync(path.join(pd, 'payload.zip'), corruptZip)
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'NEW.exe',
+        }, null, 2))
+        const readyPath = path.join(pd, 'READY')
+        fs.writeFileSync(readyPath, new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater3 = require('../electron/updater.js')
+
+        const appliedThrow = updater3.applyPendingUpdateOnStartup(tmp3)
+
+        assert(appliedThrow === false,
+          'mid-extract throw: applyPendingUpdateOnStartup returns false (outer catch fired)')
+        assert(fs.existsSync(readyPath),
+          'mid-extract throw: READY preserved (outer catch keeps READY for retry)')
+        assert(!fs.existsSync(path.join(tmp3, 'NEW.exe')),
+          'mid-extract throw: outer-catch sweep removed the partial NEW.exe (no integrity-error popup possible)')
+        assert(fs.existsSync(path.join(tmp3, 'OLD.exe')),
+          'mid-extract throw: pre-existing OLD.exe is preserved')
+
+        const failedMarker = path.join(pd, 'FAILED')
+        assert(fs.existsSync(failedMarker),
+          'mid-extract throw: FAILED diagnostics marker written by outer catch')
+        const failedDoc = JSON.parse(fs.readFileSync(failedMarker, 'utf-8'))
+        assert(failedDoc.consecutiveFailures === 1,
+          'mid-extract throw: consecutiveFailures = 1')
+        assert(Array.isArray(failedDoc.removedPartialExes) && failedDoc.removedPartialExes.includes('NEW.exe'),
+          'mid-extract throw: outer-catch FAILED diagnostics record the swept partial exe')
+      } finally {
+        rmrf(tmp3)
+      }
+    }
   } finally {
     rmrf(tmp)
     delete process.env.OTA_TEST_CURRENT_EXE
