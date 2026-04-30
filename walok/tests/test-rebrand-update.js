@@ -583,6 +583,283 @@ function main() {
         rmrf(tmp5)
       }
     }
+
+    // ---- Task #18: Windows out-of-process applier. The launcher cannot
+    //      overwrite app.asar from inside the running Electron process
+    //      (the asar is locked). Test the staging path: extract to
+    //      .ota-pending/staged/, pre-stage cleanup marker + sidecar +
+    //      bumped ota-config.json from Node (no PowerShell escaping
+    //      surface), write apply.cmd to %TEMP%, "spawn" cmd.exe via
+    //      injected mock, exit. The actual robocopy step runs only on
+    //      real Windows; we verify everything up to the handoff. ----
+    {
+      const tmp6 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-stage-'))
+      try {
+        fs.writeFileSync(path.join(tmp6, 'OLD.exe'), 'old-binary-must-survive-staging')
+        fs.writeFileSync(path.join(tmp6, 'app.asar'), 'OLD asar must survive staging')
+        fs.writeFileSync(path.join(tmp6, 'chrome.pak'), 'OLD chrome pak must survive staging')
+        // ota-config.json holds customer-specific data (channel, customer
+        // ID, server URL). The bump must preserve EVERY other field and
+        // change ONLY version.
+        fs.mkdirSync(path.join(tmp6, 'resources'))
+        const oldOtaCfg = {
+          enabled: true,
+          channel: 'rebrand-test',
+          version: '1.0.0',
+          updateServer: 'http://example.test',
+          customerId: 'cust-42-MUST-BE-PRESERVED',
+          extraField: { nested: 'value-MUST-SURVIVE' },
+        }
+        fs.writeFileSync(path.join(tmp6, 'resources', 'ota-config.json'), JSON.stringify(oldOtaCfg, null, 2))
+
+        const pd = path.join(tmp6, '.ota-pending')
+        fs.mkdirSync(pd)
+        const payload = makeMinimalZip([
+          { name: 'NEW.exe',    data: Buffer.from('new-launcher-binary') },
+          { name: 'app.asar',   data: Buffer.from('NEW asar v2') },
+          { name: 'chrome.pak', data: Buffer.from('NEW chrome pak v2') },
+        ])
+        fs.writeFileSync(path.join(pd, 'payload.zip'), payload)
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'NEW.exe',
+        }, null, 2))
+        fs.writeFileSync(path.join(pd, 'READY'), new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater6 = require('../electron/updater.js')
+
+        // Capture the cmd.exe spawn so the test can verify args without
+        // actually running cmd.exe (it doesn't exist on Linux).
+        const spawned = []
+        const fakeSpawnFn = (cmd, args, opts) => {
+          spawned.push({ cmd, args, opts })
+          return { unref() {}, pid: 99999 }
+        }
+        let exitedWith = null
+        const fakeExitFn = (code) => { exitedWith = code }
+
+        const tmpScriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-tmp-'))
+        const result = updater6.applyPendingUpdateOnStartup(tmp6, {
+          _forceOutOfProcess: true,
+          _spawnFn: fakeSpawnFn,
+          _exitFn: fakeExitFn,
+          _tmpDir: tmpScriptDir,
+        })
+
+        assert(result === true,
+          'OOP staging: applyPendingUpdateOnStartup returns true after handoff')
+        assert(exitedWith === 0,
+          'OOP staging: exit hook called with code 0 (so OS releases asar lock)')
+
+        // Pre-existing files in the install dir must be UNTOUCHED — the
+        // OOP path only writes to .ota-pending/staged/ from the OLD process.
+        assert(fs.readFileSync(path.join(tmp6, 'OLD.exe'), 'utf-8') === 'old-binary-must-survive-staging',
+          'OOP staging: install-dir OLD.exe untouched (the cmd.exe applier handles the swap after parent exits)')
+        assert(fs.readFileSync(path.join(tmp6, 'app.asar'), 'utf-8') === 'OLD asar must survive staging',
+          'OOP staging: install-dir app.asar untouched (no in-process write attempted)')
+        assert(fs.readFileSync(path.join(tmp6, 'chrome.pak'), 'utf-8') === 'OLD chrome pak must survive staging',
+          'OOP staging: install-dir chrome.pak untouched')
+        assert(!fs.existsSync(path.join(tmp6, 'NEW.exe')),
+          'OOP staging: NEW.exe NOT yet in install dir (lives in staged/ until applier moves it)')
+
+        // Staged dir must contain a complete copy of the payload.
+        const stagedDir = path.join(pd, 'staged')
+        assert(fs.existsSync(stagedDir),
+          'OOP staging: .ota-pending/staged/ created')
+        assert(fs.existsSync(path.join(stagedDir, 'NEW.exe'))
+          && fs.readFileSync(path.join(stagedDir, 'NEW.exe'), 'utf-8') === 'new-launcher-binary',
+          'OOP staging: staged/NEW.exe extracted (this is what apply.cmd will move into install dir)')
+        assert(fs.existsSync(path.join(stagedDir, 'app.asar'))
+          && fs.readFileSync(path.join(stagedDir, 'app.asar'), 'utf-8') === 'NEW asar v2',
+          'OOP staging: staged/app.asar extracted (apply.cmd moves this on top of locked install asar after parent exits)')
+        assert(fs.existsSync(path.join(stagedDir, 'chrome.pak'))
+          && fs.readFileSync(path.join(stagedDir, 'chrome.pak'), 'utf-8') === 'NEW chrome pak v2',
+          'OOP staging: staged/chrome.pak extracted')
+
+        // Verify cmd.exe spawn args. The args contract is now small and
+        // injection-free: only Node-controlled values (pid, paths,
+        // whitelisted exe basename). Version + oldExe live in the staged
+        // JSON files so the cmd script never sees user content.
+        assert(spawned.length === 1, 'OOP staging: cmd.exe spawned exactly once')
+        if (spawned.length === 1) {
+          const sp = spawned[0]
+          assert(sp.cmd === 'cmd.exe', 'OOP staging: spawn target is cmd.exe')
+          assert(sp.args[0] === '/c', 'OOP staging: cmd.exe invoked with /c')
+          assert(typeof sp.args[1] === 'string' && sp.args[1].endsWith('.cmd'),
+            'OOP staging: arg[1] is the apply.cmd path')
+          assert(sp.args[2] === String(process.pid),
+            'OOP staging: arg[2] is parent PID (so apply.cmd waits for THIS process to exit)')
+          assert(sp.args[3] === pd,
+            'OOP staging: arg[3] is pending dir')
+          assert(sp.args[4] === tmp6,
+            'OOP staging: arg[4] is install dir')
+          assert(sp.args[5] === 'NEW.exe',
+            'OOP staging: arg[5] is new exe basename (resolved case-insensitively against staged/)')
+          assert(sp.args.length === 6,
+            'OOP staging: cmd args end at the new exe basename — version + oldExe live in staged JSON, NOT in the cmd line (no shell-injection surface)')
+          assert(sp.opts && sp.opts.detached === true && sp.opts.windowsHide === true,
+            'OOP staging: cmd.exe spawned detached + windowsHide so it survives our exit and runs without a visible window')
+
+          // Verify the apply.cmd file was actually written to disk.
+          const applierPath = sp.args[1]
+          assert(fs.existsSync(applierPath),
+            'OOP staging: apply.cmd file exists on disk at the path passed to cmd.exe')
+          const applierContent = fs.readFileSync(applierPath, 'utf-8')
+          assert(applierContent.startsWith('@echo off'),
+            'OOP staging: apply.cmd starts with @echo off')
+          assert(applierContent.includes('robocopy'),
+            'OOP staging: apply.cmd uses robocopy to swap staged into install dir')
+          assert(applierContent.includes('tasklist'),
+            'OOP staging: apply.cmd polls tasklist to wait for parent exit (so locks release)')
+          assert(applierContent.includes('timeout /t 3'),
+            'OOP staging: apply.cmd grants 3s grace after parent exit so OS releases handles before robocopy')
+          assert(!applierContent.includes('powershell'),
+            'OOP staging: apply.cmd contains NO PowerShell — every JSON write was pre-staged in Node, eliminating the PS string-interpolation injection surface')
+        }
+
+        // Pre-staged metadata — the contents the cmd applier will move
+        // into the install dir without needing PowerShell.
+        const cleanupMarker = path.join(stagedDir, '.ota-cleanup.json')
+        assert(fs.existsSync(cleanupMarker),
+          'OOP staging: .ota-cleanup.json pre-staged in staged/ (robocopy moves it into install dir)')
+        const cleanup = JSON.parse(fs.readFileSync(cleanupMarker, 'utf-8'))
+        assert(Array.isArray(cleanup.deleteExes) && cleanup.deleteExes[0] === 'OLD.exe',
+          'OOP staging: cleanup marker lists OLD.exe for next-launch sweep')
+        assert(cleanup.nextExe === 'NEW.exe',
+          'OOP staging: cleanup marker records nextExe so the launcher knows which exe should be running')
+
+        const sidecar = path.join(stagedDir, '.ota-current-exe.json')
+        assert(fs.existsSync(sidecar),
+          'OOP staging: .ota-current-exe.json sidecar pre-staged (lets a manually-relaunched OLD exe self-handoff)')
+        const sc = JSON.parse(fs.readFileSync(sidecar, 'utf-8'))
+        assert(sc.exe === 'NEW.exe' && sc.version === '2.0.0',
+          'OOP staging: sidecar carries new exe + version (JSON.stringify safely escapes both)')
+
+        // ota-config.json: bumped version, ALL other fields preserved.
+        const stagedCfg = path.join(stagedDir, 'resources', 'ota-config.json')
+        assert(fs.existsSync(stagedCfg),
+          'OOP staging: bumped ota-config.json pre-staged at the install-relative path (resources/ subdir)')
+        const cfg = JSON.parse(fs.readFileSync(stagedCfg, 'utf-8'))
+        assert(cfg.version === '2.0.0',
+          'OOP staging: ota-config.json version bumped to 2.0.0')
+        assert(cfg.customerId === 'cust-42-MUST-BE-PRESERVED',
+          'OOP staging: customer ID preserved (NOT clobbered by the bump)')
+        assert(cfg.channel === 'rebrand-test' && cfg.updateServer === 'http://example.test',
+          'OOP staging: channel + updateServer preserved')
+        assert(cfg.extraField && cfg.extraField.nested === 'value-MUST-SURVIVE',
+          'OOP staging: nested fields preserved')
+
+        // Apply lock file present (will be cleaned up by the cmd applier).
+        assert(fs.existsSync(path.join(pd, '.apply.lock')),
+          'OOP staging: .apply.lock created (atomic O_EXCL — prevents two OLD-exe instances from racing into apply)')
+      } finally {
+        rmrf(tmp6)
+      }
+    }
+
+    // ---- Task #18: OOP path must skip when an in-flight applier already
+    //      holds the .apply.lock. Prevents two OLD-exe instances from
+    //      racing to wipe each other's staging. ----
+    {
+      const tmp7 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-skip-'))
+      try {
+        fs.writeFileSync(path.join(tmp7, 'OLD.exe'), 'old')
+        fs.writeFileSync(path.join(tmp7, 'app.asar'), 'old asar')
+        const pd = path.join(tmp7, '.ota-pending')
+        fs.mkdirSync(pd)
+        // Pre-create the lock file with current mtime to simulate
+        // "another applier already running."
+        fs.writeFileSync(path.join(pd, '.apply.lock'), '99999\nin-progress\n')
+        // Pre-create staged/ as it would be from the in-flight applier.
+        const stagedDir = path.join(pd, 'staged')
+        fs.mkdirSync(stagedDir)
+        fs.writeFileSync(path.join(stagedDir, 'NEW.exe'), 'new-from-other-applier')
+        fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
+          { name: 'NEW.exe', data: Buffer.from('new') },
+        ]))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'NEW.exe',
+        }, null, 2))
+        fs.writeFileSync(path.join(pd, 'READY'), new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater7 = require('../electron/updater.js')
+
+        let spawnCalled = false
+        let exitCalled = false
+        const result = updater7.applyPendingUpdateOnStartup(tmp7, {
+          _forceOutOfProcess: true,
+          _spawnFn: () => { spawnCalled = true; return { unref() {} } },
+          _exitFn: () => { exitCalled = true },
+          _tmpDir: os.tmpdir(),
+        })
+
+        assert(result === false,
+          'OOP skip-when-busy: returns false when .apply.lock is held (lets the running applier finish)')
+        assert(spawnCalled === false,
+          'OOP skip-when-busy: did NOT spawn another cmd.exe')
+        assert(exitCalled === false,
+          'OOP skip-when-busy: did NOT exit our process')
+        // Staged dir from the "other applier" must remain untouched so it
+        // can complete its work.
+        assert(fs.readFileSync(path.join(stagedDir, 'NEW.exe'), 'utf-8') === 'new-from-other-applier',
+          'OOP skip-when-busy: staged dir contents preserved')
+        assert(fs.existsSync(path.join(pd, '.apply.lock')),
+          'OOP skip-when-busy: lock file preserved (we did not steal it)')
+      } finally {
+        rmrf(tmp7)
+      }
+    }
+
+    // ---- Task #18: defense-in-depth — manifest.exeName that doesn't
+    //      match the safe-basename whitelist (e.g. contains shell
+    //      metacharacters) must be rejected before staging spawns
+    //      cmd.exe. This kills the cmd-injection vector at the door even
+    //      though resolution is case-insensitive against staged/. ----
+    {
+      const tmp8 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-evil-'))
+      try {
+        fs.writeFileSync(path.join(tmp8, 'OLD.exe'), 'old')
+        const pd = path.join(tmp8, '.ota-pending')
+        fs.mkdirSync(pd)
+        fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
+          { name: 'evil & calc.exe', data: Buffer.from('payload') },
+        ]))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({
+          version: '2.0.0', channel: 'rebrand-test', exeName: 'evil & calc.exe',
+        }, null, 2))
+        fs.writeFileSync(path.join(pd, 'READY'), new Date().toISOString())
+
+        process.env.OTA_TEST_CURRENT_EXE = 'OLD.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater8 = require('../electron/updater.js')
+
+        let spawnCalled = false
+        let exitCalled = false
+        const result = updater8.applyPendingUpdateOnStartup(tmp8, {
+          _forceOutOfProcess: true,
+          _spawnFn: () => { spawnCalled = true; return { unref() {} } },
+          _exitFn: () => { exitCalled = true },
+          _tmpDir: os.tmpdir(),
+        })
+
+        assert(result === false,
+          'OOP exeName whitelist: returns false when manifest exeName contains shell metacharacters')
+        assert(spawnCalled === false,
+          'OOP exeName whitelist: did NOT spawn cmd.exe with an unsafe basename')
+        assert(exitCalled === false,
+          'OOP exeName whitelist: did NOT exit our process')
+        assert(fs.existsSync(path.join(pd, 'FAILED')),
+          'OOP exeName whitelist: FAILED marker written for diagnostics')
+      } finally {
+        rmrf(tmp8)
+      }
+    }
   } finally {
     rmrf(tmp)
     delete process.env.OTA_TEST_CURRENT_EXE

@@ -1,4 +1,5 @@
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const http = require('http')
 const https = require('https')
@@ -974,13 +975,295 @@ async function downloadAndApply(manifest) {
   }
 }
 
-function applyPendingUpdateOnStartup(appRoot) {
+// See walok/electron/updater.js for the full design rationale of the
+// out-of-process Windows applier — server-side mirror. See
+// walok/electron/updater.js for the full design notes; this file is kept
+// in sync byte-for-byte to avoid the two paths drifting.
+function buildPhase2ApplierCmd() {
+  return [
+    '@echo off',
+    'setlocal EnableExtensions',
+    'set "PARENT_PID=%~1"',
+    'set "PENDING_DIR=%~2"',
+    'set "INSTALL_DIR=%~3"',
+    'set "NEW_EXE=%~4"',
+    'set "STAGED=%PENDING_DIR%\\staged"',
+    'set "APPLY_LOG=%PENDING_DIR%\\apply.log"',
+    'echo [%date% %time%] phase2 start parent=%PARENT_PID% install=%INSTALL_DIR% newExe=%NEW_EXE% > "%APPLY_LOG%"',
+    'set /A WAITED=0',
+    ':wait_loop',
+    'tasklist /FI "PID eq %PARENT_PID%" /NH 2>NUL | find "%PARENT_PID%" >NUL',
+    'if errorlevel 1 goto parent_gone',
+    'if %WAITED% GEQ 60 (',
+    '  echo [%date% %time%] timeout waiting for parent %PARENT_PID% >> "%APPLY_LOG%"',
+    '  echo timeout > "%PENDING_DIR%\\FAILED"',
+    '  goto cleanup_fail',
+    ')',
+    'timeout /t 1 /nobreak >NUL',
+    'set /A WAITED+=1',
+    'goto wait_loop',
+    ':parent_gone',
+    'echo [%date% %time%] parent gone after %WAITED%s >> "%APPLY_LOG%"',
+    'timeout /t 3 /nobreak >NUL',
+    'robocopy "%STAGED%" "%INSTALL_DIR%" /E /MOVE /R:5 /W:2 /NP /NFL /NDL /NJH /NJS >> "%APPLY_LOG%"',
+    'set RC=%ERRORLEVEL%',
+    'if %RC% GEQ 8 (',
+    '  echo [%date% %time%] robocopy failed exit=%RC% >> "%APPLY_LOG%"',
+    '  echo robocopy %RC% > "%PENDING_DIR%\\FAILED"',
+    '  goto cleanup_fail',
+    ')',
+    'echo [%date% %time%] robocopy ok exit=%RC% >> "%APPLY_LOG%"',
+    'start "" "%INSTALL_DIR%\\%NEW_EXE%"',
+    'echo [%date% %time%] launched %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
+    'echo done > "%PENDING_DIR%\\SUCCESS"',
+    'start "" /b cmd /c "timeout /t 5 /nobreak >NUL & rmdir /S /Q ""%PENDING_DIR%"" & del /f /q ""%~f0"""',
+    'exit /b 0',
+    ':cleanup_fail',
+    'start "" /b cmd /c "timeout /t 5 /nobreak >NUL & del /f /q ""%~f0"""',
+    'exit /b 1',
+    '',
+  ].join('\r\n')
+}
+
+function isSafeExeBasename(name) {
+  return typeof name === 'string'
+    && name.length > 0
+    && name.length <= 128
+    && /^[A-Za-z0-9._-]+\.exe$/i.test(name)
+}
+
+function stageOutOfProcessApply(appRoot, pendingDir, opts) {
+  opts = opts || {}
+  const stagedDir = path.join(pendingDir, 'staged')
+  const zipPath = path.join(pendingDir, 'payload.zip')
+  const manifestPath = path.join(pendingDir, 'manifest.json')
+  const lockPath = path.join(pendingDir, '.apply.lock')
+
+  // Inter-process lock — atomic O_CREAT|O_EXCL.
+  let lockFd = null
+  try {
+    lockFd = fs.openSync(lockPath, 'wx')
+  } catch (e) {
+    if (e && e.code === 'EEXIST') {
+      let mtimeMs = 0
+      try { mtimeMs = fs.statSync(lockPath).mtimeMs || 0 } catch (_) {}
+      const age = Date.now() - mtimeMs
+      if (age >= 0 && age < 5 * 60 * 1000) {
+        return { kind: 'skipped', reason: 'apply lock held (age ' + age + 'ms)' }
+      }
+      try { fs.rmSync(lockPath, { force: true }) } catch (_) {}
+      try { lockFd = fs.openSync(lockPath, 'wx') } catch (e2) {
+        return { kind: 'skipped', reason: 'apply lock recreate failed: ' + e2.message }
+      }
+    } else {
+      return { kind: 'error', error: 'apply lock open failed: ' + e.message, diagnostics: { stage: 'lock' } }
+    }
+  }
+  try { fs.writeSync(lockFd, String(process.pid) + '\n' + new Date().toISOString() + '\n') } catch (_) {}
+  try { fs.closeSync(lockFd) } catch (_) {}
+  if (fs.existsSync(stagedDir)) {
+    try { fs.rmSync(stagedDir, { recursive: true, force: true }) } catch (_) {}
+  }
+
+  const releaseLock = () => { try { fs.rmSync(lockPath, { force: true }) } catch (_) {} }
+
+  let manifest = null
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'manifest read failed: ' + e.message, diagnostics: { stage: 'manifest' } }
+  }
+  if (!manifest.exeName || !manifest.version) {
+    releaseLock()
+    return { kind: 'error', error: 'manifest missing exeName/version', diagnostics: { stage: 'manifest', manifest } }
+  }
+  if (!isSafeExeBasename(manifest.exeName)) {
+    releaseLock()
+    return { kind: 'error', error: 'manifest exeName "' + manifest.exeName + '" is not a safe basename', diagnostics: { stage: 'manifest', manifest } }
+  }
+
+  let buf
+  try { buf = fs.readFileSync(zipPath) } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'payload read failed: ' + e.message, diagnostics: { stage: 'payload' } }
+  }
+
+  try { fs.mkdirSync(stagedDir, { recursive: true }) } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'mkdir staged failed: ' + e.message, diagnostics: { stage: 'staged' } }
+  }
+
+  let extractResult
+  try {
+    extractResult = extractZip(buf, stagedDir)
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'staged extract threw: ' + e.message, diagnostics: { stage: 'extract' } }
+  }
+  if (extractResult.failed > 0 || extractResult.extracted === 0) {
+    releaseLock()
+    return {
+      kind: 'error',
+      error: 'staged extract incomplete (' + extractResult.extracted + '/' + extractResult.totalEntries + ' OK, ' + extractResult.failed + ' failed)',
+      diagnostics: { stage: 'extract', extracted: extractResult.extracted, failed: extractResult.failed, failedFiles: extractResult.failedFiles.slice(0, 50) },
+    }
+  }
+
+  let stagedExeName = null
+  try {
+    const want = String(manifest.exeName).trim().toLowerCase()
+    for (const e of fs.readdirSync(stagedDir, { withFileTypes: true })) {
+      if (e.isFile() && e.name.toLowerCase() === want) { stagedExeName = e.name; break }
+    }
+  } catch (_) {}
+  if (!stagedExeName) {
+    releaseLock()
+    return {
+      kind: 'error',
+      error: 'staged dir missing manifest exeName "' + manifest.exeName + '"',
+      diagnostics: { stage: 'verify', stagedEntries: (() => { try { return fs.readdirSync(stagedDir).slice(0, 50) } catch (_) { return [] } })() },
+    }
+  }
+  if (!isSafeExeBasename(stagedExeName)) {
+    releaseLock()
+    return { kind: 'error', error: 'resolved staged exe "' + stagedExeName + '" is not a safe basename', diagnostics: { stage: 'verify' } }
+  }
+
+  const oldExe = getCurrentExeBasename() || 'unknown.exe'
+
+  // Pre-stage cleanup marker, sidecar, and bumped ota-config.json into
+  // staged/ so robocopy moves them into place — no PowerShell, no string
+  // interpolation of user content into shell commands.
+  try {
+    const stagedResourcesCfg = path.join(stagedDir, 'resources', 'ota-config.json')
+    const stagedRootCfg      = path.join(stagedDir, 'ota-config.json')
+    const installResourcesCfg = path.join(appRoot, 'resources', 'ota-config.json')
+    const installRootCfg      = path.join(appRoot, 'ota-config.json')
+
+    let target = null
+    let baseline = null
+    if (fs.existsSync(stagedResourcesCfg)) {
+      target = stagedResourcesCfg
+      try { baseline = JSON.parse(fs.readFileSync(stagedResourcesCfg, 'utf-8')) } catch (_) {}
+    } else if (fs.existsSync(stagedRootCfg)) {
+      target = stagedRootCfg
+      try { baseline = JSON.parse(fs.readFileSync(stagedRootCfg, 'utf-8')) } catch (_) {}
+    } else if (fs.existsSync(installResourcesCfg)) {
+      target = path.join(stagedDir, 'resources', 'ota-config.json')
+      try { baseline = JSON.parse(fs.readFileSync(installResourcesCfg, 'utf-8')) } catch (_) {}
+    } else if (fs.existsSync(installRootCfg)) {
+      target = path.join(stagedDir, 'ota-config.json')
+      try { baseline = JSON.parse(fs.readFileSync(installRootCfg, 'utf-8')) } catch (_) {}
+    }
+    if (target && baseline && typeof baseline === 'object') {
+      baseline.version = String(manifest.version)
+      try { fs.mkdirSync(path.dirname(target), { recursive: true }) } catch (_) {}
+      fs.writeFileSync(target, JSON.stringify(baseline, null, 2), { encoding: 'utf-8' })
+    }
+  } catch (e) {
+    log('OOP: ota-config.json pre-stage failed (will continue, next OTA poll will heal): ' + e.message)
+  }
+
+  try {
+    fs.writeFileSync(
+      path.join(stagedDir, '.ota-cleanup.json'),
+      JSON.stringify({
+        deleteExes: [oldExe],
+        nextExe: stagedExeName,
+        createdAt: new Date().toISOString(),
+      }, null, 2),
+      { encoding: 'utf-8' },
+    )
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: '.ota-cleanup.json write failed: ' + e.message, diagnostics: { stage: 'cleanup-marker' } }
+  }
+
+  try {
+    fs.writeFileSync(
+      path.join(stagedDir, '.ota-current-exe.json'),
+      JSON.stringify({
+        exe: stagedExeName,
+        version: String(manifest.version),
+        written: Date.now(),
+      }, null, 2),
+      { encoding: 'utf-8' },
+    )
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: '.ota-current-exe.json write failed: ' + e.message, diagnostics: { stage: 'sidecar' } }
+  }
+
+  const tmpDir = opts._tmpDir || os.tmpdir()
+  const applierPath = path.join(tmpDir, 'walok-ota-srv-apply-' + Date.now() + '-' + process.pid + '.cmd')
+  const script = opts._cmdScript || buildPhase2ApplierCmd()
+  try {
+    fs.writeFileSync(applierPath, script, { encoding: 'utf-8' })
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'apply.cmd write failed: ' + e.message, diagnostics: { stage: 'script', applierPath } }
+  }
+
+  const args = [
+    '/c', applierPath,
+    String(process.pid),
+    pendingDir,
+    appRoot,
+    stagedExeName,
+  ]
+  const spawnFn = opts._spawnFn || ((cmd, sa, so) => spawn(cmd, sa, so))
+  try {
+    const child = spawnFn('cmd.exe', args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    if (child && typeof child.unref === 'function') child.unref()
+    log('OOP applier spawned (cmd.exe ' + applierPath + '). Exiting so app.asar lock releases.')
+    return { kind: 'spawned', applierPath, stagedExeName, manifest }
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'cmd.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', applierPath } }
+  }
+}
+
+function applyPendingUpdateOnStartup(appRoot, _opts) {
+  _opts = _opts || {}
   const pendingDir = path.join(appRoot, '.ota-pending')
   const readyMarker = path.join(pendingDir, 'READY')
   const zipPath = path.join(pendingDir, 'payload.zip')
   const failedMarker = path.join(pendingDir, 'FAILED')
   if (!fs.existsSync(readyMarker) || !fs.existsSync(zipPath)) return false
   log('Found pending server update — applying...')
+
+  // OOP path: required on Windows. See launcher updater.js for rationale.
+  const useOOP = _opts._forceOutOfProcess === true
+    || (_opts._forceOutOfProcess !== false && process.platform === 'win32')
+  if (useOOP) {
+    const oopExitFn = _opts._exitFn || ((code) => {
+      if (app && typeof app.exit === 'function') app.exit(code)
+      else process.exit(code)
+    })
+    const stageRes = stageOutOfProcessApply(appRoot, pendingDir, _opts)
+    if (stageRes.kind === 'spawned') {
+      log('Phase 2 applier handed off — exiting OLD server process now.')
+      try { oopExitFn(0) } catch (_) {}
+      return true
+    }
+    if (stageRes.kind === 'skipped') {
+      log('OOP apply skipped: ' + stageRes.reason + '. Leaving pending dir for the running applier to finish.')
+      return false
+    }
+    log('OOP staging failed: ' + stageRes.error + '. Recording failure.')
+    try { fs.rmSync(path.join(pendingDir, 'staged'), { recursive: true, force: true }) } catch (_) {}
+    recordApplyFailure({
+      readyMarker, failedMarker,
+      diagnostics: Object.assign({ error: stageRes.error, path: 'oop-stage' }, stageRes.diagnostics || {}),
+    })
+    return false
+  }
+
   let stagedManifest = null
   // Hoisted so the outer catch can roll back when extractZip throws mid-stream.
   let payloadExeNames = null
@@ -1572,4 +1855,6 @@ module.exports = {
   // partial-apply hardening (rebrand-cleanup bug fix): exposed for tests
   snapshotTopLevelExes, sweepPartialNewExes, recordApplyFailure,
   readPriorFailureCount, MAX_CONSECUTIVE_APPLY_FAILURES,
+  // out-of-process Windows applier (Task #18 — phase-2 cmd.exe swap)
+  stageOutOfProcessApply, buildPhase2ApplierCmd,
 }
