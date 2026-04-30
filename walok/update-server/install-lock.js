@@ -37,6 +37,7 @@
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const crypto = require('crypto')
 
 const LOCK_FILENAME = '.ota-install.lock'
 
@@ -123,18 +124,33 @@ function acquireInstallLock(projectRoot, opts) {
       continue
     }
 
-    // Got the lock. Write diagnostic metadata, then close the descriptor
-    // so a stat-based stale check sees the right mtime. Failures here
-    // are non-fatal — the lockfile already exists and is held; metadata
-    // is purely for human forensics.
+    // Got the lock. Mint a unique ownership token and write it into
+    // the lockfile alongside diagnostic metadata. The token is what
+    // makes release() safe under stale-reclaim:
+    //
+    //   Without a token, this race is possible:
+    //     1. holder A acquires the lock (e.g. very slow npm install)
+    //     2. A's install runs longer than staleAfterMs
+    //     3. holder B sees the lockfile as stale, unlinks it, acquires
+    //        a fresh lock — now B is the legitimate owner
+    //     4. A's install finally completes and calls A.release(),
+    //        which unconditionally unlinks the lockfile → B's valid
+    //        lock is silently deleted, opening the door to a third
+    //        concurrent install
+    //
+    //   With a token, A's release() reads the lockfile, sees B's
+    //   token instead of A's own, and refuses to unlink. The race is
+    //   closed: only the current owner can delete their own lock.
+    const ownerToken = crypto.randomBytes(16).toString('hex')
     try {
       const meta = JSON.stringify({
+        token: ownerToken,
         pid: process.pid,
         host: os.hostname(),
         acquiredAt: new Date().toISOString(),
       })
       fs.writeSync(fd, meta)
-    } catch (e) { /* metadata is advisory */ }
+    } catch (e) { /* metadata is advisory; token presence is the gate */ }
     try { fs.closeSync(fd) } catch (e) { /* ditto */ }
 
     let released = false
@@ -144,9 +160,31 @@ function acquireInstallLock(projectRoot, opts) {
       release() {
         if (released) return
         released = true
-        // Best-effort unlink. If the file is already gone (e.g. another
-        // process force-reclaimed it as stale, which only happens if we
-        // held it >10 min) the missing-file error is benign.
+        // Token-checked unlink: read the current lockfile and only
+        // remove it if the embedded token still matches ours. This is
+        // best-effort (no kernel-level atomicity between read+unlink),
+        // but the window is microscopic and any concurrent reclaimer
+        // that sneaks in afterwards will also be token-protected.
+        let current = null
+        try { current = fs.readFileSync(lockPath, 'utf-8') }
+        catch (e) {
+          // ENOENT: lock file is already gone (someone reclaimed us as
+          // stale, or it was never written). Nothing to release.
+          return
+        }
+        let parsed = null
+        try { parsed = JSON.parse(current) } catch (e) { /* corrupted */ }
+        if (parsed && parsed.token && parsed.token !== ownerToken) {
+          // Lock has been forcibly reclaimed by another process — DO
+          // NOT delete their lock. Just return; we no longer own it.
+          return
+        }
+        // Either the lockfile is ours (token matches) or we cannot
+        // identify the owner (corrupted or missing token). In both
+        // cases unlinking is the right thing — if it's ours we want it
+        // gone, and if metadata is corrupted we're recovering toward a
+        // clean state. Use unlink-by-name (not by-fd) so we can't race
+        // ourselves into double-deletion.
         tryUnlink(lockPath)
       },
     }

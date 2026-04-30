@@ -144,7 +144,46 @@ console.log('=== install-lock.js tests ===')
   }
 })()
 
-// --- Test 6: cross-PROCESS contention (the actual scenario the lock
+// --- Test 6: stale-reclaim release safety (the architect-flagged
+// edge case). If holder A's install runs longer than staleAfterMs,
+// holder B will reclaim the stale lockfile and acquire a fresh lock.
+// When A finally calls release(), it MUST NOT delete B's lock — the
+// token-ownership check protects against that. ---
+;(function test_release_after_stale_reclaim() {
+  const root = makeTempRoot()
+  const lockPath = path.join(root, LOCK_FILENAME)
+  try {
+    // Simulate "A is a slow holder": acquire normally, then backdate
+    // the lockfile mtime so a follow-up acquire treats it as stale.
+    const lockA = acquireInstallLock(root)
+    const long = (Date.now() - 60 * 60 * 1000) / 1000 // 1h ago
+    fs.utimesSync(lockPath, long, long)
+
+    // Holder B comes along, sees stale, reclaims. Now B owns a FRESH
+    // lockfile with B's token.
+    const lockB = acquireInstallLock(root, { staleAfterMs: 1000, maxWaitMs: 500, pollMs: 25 })
+    const bMeta = JSON.parse(fs.readFileSync(lockPath, 'utf-8'))
+    assert.ok(bMeta.token, 'B has a token')
+
+    // A's install eventually completes and A.release() runs. Without
+    // token check, this would unlink B's lockfile — corrupting the
+    // mutual-exclusion invariant. With token check, A sees the token
+    // mismatch and refuses.
+    lockA.release()
+    assert.strictEqual(fs.existsSync(lockPath), true, "A.release() must NOT delete B's lockfile")
+    const stillB = JSON.parse(fs.readFileSync(lockPath, 'utf-8'))
+    assert.strictEqual(stillB.token, bMeta.token, "B's token still in the lockfile after A's late release()")
+
+    // B can release normally.
+    lockB.release()
+    assert.strictEqual(fs.existsSync(lockPath), false, 'B can release its own lock')
+    ok('release-after-stale-reclaim: token check prevents A from deleting B\'s lock')
+  } catch (e) { fail('release-after-stale-reclaim', e) } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})()
+
+// --- Test 7: cross-PROCESS contention (the actual scenario the lock
 // exists for: two OTA server instances racing). Spawns two short Node
 // child processes that BOTH try to acquire and hold for ~400ms. One
 // wins immediately; the other waits then acquires after the first
