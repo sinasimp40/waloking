@@ -12,3 +12,5 @@ update-server/data/
 customers/_migrated_backup/
 releases/
 .ota-pending/
+.build-jobs/
+.ota-install.lock
