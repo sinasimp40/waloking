@@ -976,51 +976,116 @@ async function downloadAndApply(manifest) {
 }
 
 // See walok/electron/updater.js for the full design rationale of the
-// out-of-process Windows applier — server-side mirror. See
-// walok/electron/updater.js for the full design notes; this file is kept
-// in sync byte-for-byte to avoid the two paths drifting.
-function buildPhase2ApplierCmd() {
+// out-of-process Windows applier — server-side mirror. PowerShell-based
+// applier: hides the console reliably (-WindowStyle Hidden), extracts
+// payload.zip directly via Expand-Archive, and uses StartTime to defeat
+// PID reuse in the parent-wait loop.
+function buildPhase2ApplierPs1() {
   return [
-    '@echo off',
-    'setlocal EnableExtensions',
-    'set "PARENT_PID=%~1"',
-    'set "PENDING_DIR=%~2"',
-    'set "INSTALL_DIR=%~3"',
-    'set "NEW_EXE=%~4"',
-    'set "STAGED=%PENDING_DIR%\\staged"',
-    'set "APPLY_LOG=%PENDING_DIR%\\apply.log"',
-    'echo [%date% %time%] phase2 start parent=%PARENT_PID% install=%INSTALL_DIR% newExe=%NEW_EXE% > "%APPLY_LOG%"',
-    'set /A WAITED=0',
-    ':wait_loop',
-    'tasklist /FI "PID eq %PARENT_PID%" /NH 2>NUL | find "%PARENT_PID%" >NUL',
-    'if errorlevel 1 goto parent_gone',
-    'if %WAITED% GEQ 60 (',
-    '  echo [%date% %time%] timeout waiting for parent %PARENT_PID% >> "%APPLY_LOG%"',
-    '  echo timeout > "%PENDING_DIR%\\FAILED"',
-    '  goto cleanup_fail',
+    'param(',
+    '  [int]$ParentPid,',
+    '  [string]$PendingDir,',
+    '  [string]$InstallDir,',
+    '  [string]$NewExe',
     ')',
-    'timeout /t 1 /nobreak >NUL',
-    'set /A WAITED+=1',
-    'goto wait_loop',
-    ':parent_gone',
-    'echo [%date% %time%] parent gone after %WAITED%s >> "%APPLY_LOG%"',
-    'timeout /t 3 /nobreak >NUL',
-    'robocopy "%STAGED%" "%INSTALL_DIR%" /E /MOVE /R:5 /W:2 /NP /NFL /NDL /NJH /NJS >> "%APPLY_LOG%"',
-    'set RC=%ERRORLEVEL%',
-    'if %RC% GEQ 8 (',
-    '  echo [%date% %time%] robocopy failed exit=%RC% >> "%APPLY_LOG%"',
-    '  echo robocopy %RC% > "%PENDING_DIR%\\FAILED"',
-    '  goto cleanup_fail',
-    ')',
-    'echo [%date% %time%] robocopy ok exit=%RC% >> "%APPLY_LOG%"',
-    'start "" "%INSTALL_DIR%\\%NEW_EXE%"',
-    'echo [%date% %time%] launched %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
-    'echo done > "%PENDING_DIR%\\SUCCESS"',
-    'start "" /b cmd /c "timeout /t 5 /nobreak >NUL & rmdir /S /Q ""%PENDING_DIR%"" & del /f /q ""%~f0"""',
-    'exit /b 0',
-    ':cleanup_fail',
-    'start "" /b cmd /c "timeout /t 5 /nobreak >NUL & del /f /q ""%~f0"""',
-    'exit /b 1',
+    '$ErrorActionPreference = "Continue"',
+    '$applyLog = Join-Path $PendingDir "apply.log"',
+    'function Log($msg) {',
+    '  $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg',
+    '  try { Add-Content -LiteralPath $applyLog -Value $line -Encoding utf8 -ErrorAction SilentlyContinue } catch {}',
+    '}',
+    'Log "phase2 start parent=$ParentPid install=$InstallDir newExe=$NewExe"',
+    '',
+    '$origStart = $null',
+    'try {',
+    '  $p0 = Get-Process -Id $ParentPid -ErrorAction Stop',
+    '  $origStart = $p0.StartTime',
+    '  Log "parent alive at start, StartTime=$origStart"',
+    '} catch {',
+    '  Log "parent already gone at script start"',
+    '}',
+    '',
+    '$waited = 0',
+    'while ($origStart -ne $null) {',
+    '  $stillAlive = $false',
+    '  try {',
+    '    $p = Get-Process -Id $ParentPid -ErrorAction Stop',
+    '    if ($p.StartTime -eq $origStart) { $stillAlive = $true }',
+    '    else { Log "PID $ParentPid was reused (StartTime differs); treating parent as gone" }',
+    '  } catch { }',
+    '  if (-not $stillAlive) { break }',
+    '  if ($waited -ge 60) {',
+    '    Log "timeout waiting for parent $ParentPid"',
+    '    "timeout" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
+    '    exit 1',
+    '  }',
+    '  Start-Sleep -Seconds 1',
+    '  $waited++',
+    '}',
+    'Log ("parent gone after " + $waited + "s, 3s grace before extract...")',
+    'Start-Sleep -Seconds 3',
+    '',
+    '$zip = Join-Path $PendingDir "payload.zip"',
+    '$attempt = 0',
+    '$maxAttempts = 5',
+    'while ($true) {',
+    '  $attempt++',
+    '  try {',
+    '    Expand-Archive -LiteralPath $zip -DestinationPath $InstallDir -Force -ErrorAction Stop',
+    '    Log "Expand-Archive ok on attempt $attempt"',
+    '    break',
+    '  } catch {',
+    '    $msg = $_.Exception.Message',
+    '    Log "Expand-Archive attempt $attempt failed: $msg"',
+    '    if ($attempt -ge $maxAttempts) {',
+    '      "extract" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
+    '      exit 1',
+    '    }',
+    '    Start-Sleep -Seconds 2',
+    '  }',
+    '}',
+    '',
+    '$mergedCfg = Join-Path $PendingDir "merged-ota-config.json"',
+    'if (Test-Path -LiteralPath $mergedCfg) {',
+    '  $resDir = Join-Path $InstallDir "resources"',
+    '  if (Test-Path -LiteralPath $resDir) {',
+    '    $cfgTarget = Join-Path $resDir "ota-config.json"',
+    '  } else {',
+    '    $cfgTarget = Join-Path $InstallDir "ota-config.json"',
+    '  }',
+    '  try { Copy-Item -LiteralPath $mergedCfg -Destination $cfgTarget -Force; Log "merged ota-config.json -> $cfgTarget" }',
+    '  catch { Log "ota-config copy failed: $_" }',
+    '}',
+    '$cleanupSrc = Join-Path $PendingDir "cleanup-marker.json"',
+    'if (Test-Path -LiteralPath $cleanupSrc) {',
+    '  try { Copy-Item -LiteralPath $cleanupSrc -Destination (Join-Path $InstallDir ".ota-cleanup.json") -Force; Log "cleanup marker placed" }',
+    '  catch { Log "cleanup marker copy failed: $_" }',
+    '}',
+    '$sidecarSrc = Join-Path $PendingDir "current-exe-sidecar.json"',
+    'if (Test-Path -LiteralPath $sidecarSrc) {',
+    '  try { Copy-Item -LiteralPath $sidecarSrc -Destination (Join-Path $InstallDir ".ota-current-exe.json") -Force; Log "current-exe sidecar placed" }',
+    '  catch { Log "sidecar copy failed: $_" }',
+    '}',
+    '',
+    '$newExePath = Join-Path $InstallDir $NewExe',
+    'try {',
+    '  Start-Process -FilePath $newExePath -WorkingDirectory $InstallDir',
+    '  Log "launched $newExePath"',
+    '  "done" | Out-File -LiteralPath (Join-Path $PendingDir "SUCCESS") -Encoding utf8',
+    '} catch {',
+    '  Log "launch failed: $_"',
+    '  "launch" | Out-File -LiteralPath (Join-Path $PendingDir "FAILED") -Encoding utf8',
+    '  exit 1',
+    '}',
+    '',
+    '$selfPath = $PSCommandPath',
+    `$pdEsc = $PendingDir.Replace("'", "''")`,
+    `$spEsc = $selfPath.Replace("'", "''")`,
+    `$cleanupCmd = "Start-Sleep -Seconds 5; Remove-Item -LiteralPath '" + $pdEsc + "' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '" + $spEsc + "' -Force -ErrorAction SilentlyContinue"`,
+    'try {',
+    '  Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-Command",$cleanupCmd) -WindowStyle Hidden',
+    '} catch { Log "cleanup schedule failed: $_" }',
+    'exit 0',
     '',
   ].join('\r\n')
 }
@@ -1034,7 +1099,6 @@ function isSafeExeBasename(name) {
 
 function stageOutOfProcessApply(appRoot, pendingDir, opts) {
   opts = opts || {}
-  const stagedDir = path.join(pendingDir, 'staged')
   const zipPath = path.join(pendingDir, 'payload.zip')
   const manifestPath = path.join(pendingDir, 'manifest.json')
   const lockPath = path.join(pendingDir, '.apply.lock')
@@ -1061,9 +1125,6 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
   }
   try { fs.writeSync(lockFd, String(process.pid) + '\n' + new Date().toISOString() + '\n') } catch (_) {}
   try { fs.closeSync(lockFd) } catch (_) {}
-  if (fs.existsSync(stagedDir)) {
-    try { fs.rmSync(stagedDir, { recursive: true, force: true }) } catch (_) {}
-  }
 
   const releaseLock = () => { try { fs.rmSync(lockPath, { force: true }) } catch (_) {} }
 
@@ -1083,108 +1144,76 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     return { kind: 'error', error: 'manifest exeName "' + manifest.exeName + '" is not a safe basename', diagnostics: { stage: 'manifest', manifest } }
   }
 
-  let buf
-  try { buf = fs.readFileSync(zipPath) } catch (e) {
-    releaseLock()
-    return { kind: 'error', error: 'payload read failed: ' + e.message, diagnostics: { stage: 'payload' } }
-  }
-
-  try { fs.mkdirSync(stagedDir, { recursive: true }) } catch (e) {
-    releaseLock()
-    return { kind: 'error', error: 'mkdir staged failed: ' + e.message, diagnostics: { stage: 'staged' } }
-  }
-
-  let extractResult
+  // Validate the payload zip declares the manifest exeName at top level
+  // (case-insensitive). Resolve the actual cased name without extracting.
+  let resolvedExeName = null
   try {
-    extractResult = extractZip(buf, stagedDir)
+    const buf = fs.readFileSync(zipPath)
+    const tops = listTopLevelExesInZip(buf)
+    const want = String(manifest.exeName).trim().toLowerCase()
+    for (const n of tops) {
+      if (n.toLowerCase() === want) { resolvedExeName = n; break }
+    }
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'staged extract threw: ' + e.message, diagnostics: { stage: 'extract' } }
+    return { kind: 'error', error: 'payload scan failed: ' + e.message, diagnostics: { stage: 'payload' } }
   }
-  if (extractResult.failed > 0 || extractResult.extracted === 0) {
+  if (!resolvedExeName) {
     releaseLock()
-    return {
-      kind: 'error',
-      error: 'staged extract incomplete (' + extractResult.extracted + '/' + extractResult.totalEntries + ' OK, ' + extractResult.failed + ' failed)',
-      diagnostics: { stage: 'extract', extracted: extractResult.extracted, failed: extractResult.failed, failedFiles: extractResult.failedFiles.slice(0, 50) },
-    }
+    return { kind: 'error', error: 'payload.zip missing manifest exeName "' + manifest.exeName + '"', diagnostics: { stage: 'verify' } }
   }
-
-  let stagedExeName = null
-  try {
-    const want = String(manifest.exeName).trim().toLowerCase()
-    for (const e of fs.readdirSync(stagedDir, { withFileTypes: true })) {
-      if (e.isFile() && e.name.toLowerCase() === want) { stagedExeName = e.name; break }
-    }
-  } catch (_) {}
-  if (!stagedExeName) {
+  if (!isSafeExeBasename(resolvedExeName)) {
     releaseLock()
-    return {
-      kind: 'error',
-      error: 'staged dir missing manifest exeName "' + manifest.exeName + '"',
-      diagnostics: { stage: 'verify', stagedEntries: (() => { try { return fs.readdirSync(stagedDir).slice(0, 50) } catch (_) { return [] } })() },
-    }
-  }
-  if (!isSafeExeBasename(stagedExeName)) {
-    releaseLock()
-    return { kind: 'error', error: 'resolved staged exe "' + stagedExeName + '" is not a safe basename', diagnostics: { stage: 'verify' } }
+    return { kind: 'error', error: 'resolved exe "' + resolvedExeName + '" is not a safe basename', diagnostics: { stage: 'verify' } }
   }
 
   const oldExe = getCurrentExeBasename() || 'unknown.exe'
 
-  // Pre-stage cleanup marker, sidecar, and bumped ota-config.json into
-  // staged/ so robocopy moves them into place — no PowerShell, no string
-  // interpolation of user content into shell commands.
+  // Pre-write overlay files at the pending-dir root. The PowerShell
+  // applier copies them into the install dir after Expand-Archive. No
+  // string interpolation of user content into the script — exeName,
+  // version, and customer ota-config fields all travel through JSON.
   try {
-    const stagedResourcesCfg = path.join(stagedDir, 'resources', 'ota-config.json')
-    const stagedRootCfg      = path.join(stagedDir, 'ota-config.json')
     const installResourcesCfg = path.join(appRoot, 'resources', 'ota-config.json')
     const installRootCfg      = path.join(appRoot, 'ota-config.json')
-
-    let target = null
     let baseline = null
-    if (fs.existsSync(stagedResourcesCfg)) {
-      target = stagedResourcesCfg
-      try { baseline = JSON.parse(fs.readFileSync(stagedResourcesCfg, 'utf-8')) } catch (_) {}
-    } else if (fs.existsSync(stagedRootCfg)) {
-      target = stagedRootCfg
-      try { baseline = JSON.parse(fs.readFileSync(stagedRootCfg, 'utf-8')) } catch (_) {}
-    } else if (fs.existsSync(installResourcesCfg)) {
-      target = path.join(stagedDir, 'resources', 'ota-config.json')
+    if (fs.existsSync(installResourcesCfg)) {
       try { baseline = JSON.parse(fs.readFileSync(installResourcesCfg, 'utf-8')) } catch (_) {}
     } else if (fs.existsSync(installRootCfg)) {
-      target = path.join(stagedDir, 'ota-config.json')
       try { baseline = JSON.parse(fs.readFileSync(installRootCfg, 'utf-8')) } catch (_) {}
     }
-    if (target && baseline && typeof baseline === 'object') {
+    if (baseline && typeof baseline === 'object') {
       baseline.version = String(manifest.version)
-      try { fs.mkdirSync(path.dirname(target), { recursive: true }) } catch (_) {}
-      fs.writeFileSync(target, JSON.stringify(baseline, null, 2), { encoding: 'utf-8' })
+      fs.writeFileSync(
+        path.join(pendingDir, 'merged-ota-config.json'),
+        JSON.stringify(baseline, null, 2),
+        { encoding: 'utf-8' },
+      )
     }
   } catch (e) {
-    log('OOP: ota-config.json pre-stage failed (will continue, next OTA poll will heal): ' + e.message)
+    log('OOP: ota-config.json pre-merge failed (will continue, next OTA poll will heal): ' + e.message)
   }
 
   try {
     fs.writeFileSync(
-      path.join(stagedDir, '.ota-cleanup.json'),
+      path.join(pendingDir, 'cleanup-marker.json'),
       JSON.stringify({
         deleteExes: [oldExe],
-        nextExe: stagedExeName,
+        nextExe: resolvedExeName,
         createdAt: new Date().toISOString(),
       }, null, 2),
       { encoding: 'utf-8' },
     )
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: '.ota-cleanup.json write failed: ' + e.message, diagnostics: { stage: 'cleanup-marker' } }
+    return { kind: 'error', error: 'cleanup-marker.json write failed: ' + e.message, diagnostics: { stage: 'cleanup-marker' } }
   }
 
   try {
     fs.writeFileSync(
-      path.join(stagedDir, '.ota-current-exe.json'),
+      path.join(pendingDir, 'current-exe-sidecar.json'),
       JSON.stringify({
-        exe: stagedExeName,
+        exe: resolvedExeName,
         version: String(manifest.version),
         written: Date.now(),
       }, null, 2),
@@ -1192,39 +1221,42 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     )
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: '.ota-current-exe.json write failed: ' + e.message, diagnostics: { stage: 'sidecar' } }
+    return { kind: 'error', error: 'current-exe-sidecar.json write failed: ' + e.message, diagnostics: { stage: 'sidecar' } }
   }
 
   const tmpDir = opts._tmpDir || os.tmpdir()
-  const applierPath = path.join(tmpDir, 'walok-ota-srv-apply-' + Date.now() + '-' + process.pid + '.cmd')
-  const script = opts._cmdScript || buildPhase2ApplierCmd()
+  const applierPath = path.join(tmpDir, 'walok-ota-srv-apply-' + Date.now() + '-' + process.pid + '.ps1')
+  const script = opts._ps1Script || buildPhase2ApplierPs1()
   try {
     fs.writeFileSync(applierPath, script, { encoding: 'utf-8' })
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'apply.cmd write failed: ' + e.message, diagnostics: { stage: 'script', applierPath } }
+    return { kind: 'error', error: 'apply.ps1 write failed: ' + e.message, diagnostics: { stage: 'script', applierPath } }
   }
 
   const args = [
-    '/c', applierPath,
-    String(process.pid),
-    pendingDir,
-    appRoot,
-    stagedExeName,
+    '-NoProfile',
+    '-WindowStyle', 'Hidden',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', applierPath,
+    '-ParentPid', String(process.pid),
+    '-PendingDir', pendingDir,
+    '-InstallDir', appRoot,
+    '-NewExe', resolvedExeName,
   ]
   const spawnFn = opts._spawnFn || ((cmd, sa, so) => spawn(cmd, sa, so))
   try {
-    const child = spawnFn('cmd.exe', args, {
+    const child = spawnFn('powershell.exe', args, {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
     })
     if (child && typeof child.unref === 'function') child.unref()
-    log('OOP applier spawned (cmd.exe ' + applierPath + '). Exiting so app.asar lock releases.')
-    return { kind: 'spawned', applierPath, stagedExeName, manifest }
+    log('OOP applier spawned (powershell.exe ' + applierPath + '). Exiting so app.asar lock releases.')
+    return { kind: 'spawned', applierPath, resolvedExeName, manifest }
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'cmd.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', applierPath } }
+    return { kind: 'error', error: 'powershell.exe spawn failed: ' + e.message, diagnostics: { stage: 'spawn', applierPath } }
   }
 }
 
@@ -1234,6 +1266,18 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
   const readyMarker = path.join(pendingDir, 'READY')
   const zipPath = path.join(pendingDir, 'payload.zip')
   const failedMarker = path.join(pendingDir, 'FAILED')
+  const successMarker = path.join(pendingDir, 'SUCCESS')
+
+  // OOP success sweep: if a prior PowerShell applier wrote SUCCESS but
+  // its background self-cleanup didn't sweep the pending dir before we
+  // booted, wipe it now so we don't re-apply on every launch.
+  if (fs.existsSync(successMarker)) {
+    log('Found .ota-pending/SUCCESS from a prior OOP apply — sweeping pending dir.')
+    try { fs.rmSync(pendingDir, { recursive: true, force: true }) }
+    catch (e) { log('SUCCESS sweep failed (non-fatal): ' + e.message) }
+    return false
+  }
+
   if (!fs.existsSync(readyMarker) || !fs.existsSync(zipPath)) return false
   log('Found pending server update — applying...')
 
@@ -1241,10 +1285,11 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
   const useOOP = _opts._forceOutOfProcess === true
     || (_opts._forceOutOfProcess !== false && process.platform === 'win32')
   if (useOOP) {
-    const oopExitFn = _opts._exitFn || ((code) => {
-      if (app && typeof app.exit === 'function') app.exit(code)
-      else process.exit(code)
-    })
+    // Hard kill via process.exit. app.exit was unreliable here because
+    // init() runs pre-whenReady in main.js (line 67), where Electron's
+    // app.exit doesn't always terminate the parent — leaving the asar
+    // lock held and nothing extracting. Mirrors the launcher fix.
+    const oopExitFn = _opts._exitFn || ((code) => process.exit(code))
     const stageRes = stageOutOfProcessApply(appRoot, pendingDir, _opts)
     if (stageRes.kind === 'spawned') {
       log('Phase 2 applier handed off — exiting OLD server process now.')
@@ -1256,7 +1301,6 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
       return false
     }
     log('OOP staging failed: ' + stageRes.error + '. Recording failure.')
-    try { fs.rmSync(path.join(pendingDir, 'staged'), { recursive: true, force: true }) } catch (_) {}
     recordApplyFailure({
       readyMarker, failedMarker,
       diagnostics: Object.assign({ error: stageRes.error, path: 'oop-stage' }, stageRes.diagnostics || {}),
@@ -1856,5 +1900,5 @@ module.exports = {
   snapshotTopLevelExes, sweepPartialNewExes, recordApplyFailure,
   readPriorFailureCount, MAX_CONSECUTIVE_APPLY_FAILURES,
   // out-of-process Windows applier (Task #18 — phase-2 cmd.exe swap)
-  stageOutOfProcessApply, buildPhase2ApplierCmd,
+  stageOutOfProcessApply, buildPhase2ApplierPs1,
 }

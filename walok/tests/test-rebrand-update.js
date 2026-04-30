@@ -586,12 +586,11 @@ function main() {
 
     // ---- Task #18: Windows out-of-process applier. The launcher cannot
     //      overwrite app.asar from inside the running Electron process
-    //      (the asar is locked). Test the staging path: extract to
-    //      .ota-pending/staged/, pre-stage cleanup marker + sidecar +
-    //      bumped ota-config.json from Node (no PowerShell escaping
-    //      surface), write apply.cmd to %TEMP%, "spawn" cmd.exe via
-    //      injected mock, exit. The actual robocopy step runs only on
-    //      real Windows; we verify everything up to the handoff. ----
+    //      (the asar is locked). We pre-write overlay files (merged
+    //      ota-config + cleanup marker + sidecar) into the pending dir
+    //      from Node, write apply.ps1 to %TEMP%, "spawn" powershell.exe
+    //      via injected mock, exit. The actual Expand-Archive step runs
+    //      only on real Windows; we verify everything up to the handoff. ----
     {
       const tmp6 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-stage-'))
       try {
@@ -630,8 +629,8 @@ function main() {
         delete require.cache[require.resolve('../electron/ota-live.js')]
         const updater6 = require('../electron/updater.js')
 
-        // Capture the cmd.exe spawn so the test can verify args without
-        // actually running cmd.exe (it doesn't exist on Linux).
+        // Capture the powershell.exe spawn so the test can verify args
+        // without actually running powershell (it doesn't exist on Linux).
         const spawned = []
         const fakeSpawnFn = (cmd, args, opts) => {
           spawned.push({ cmd, args, opts })
@@ -654,94 +653,99 @@ function main() {
           'OOP staging: exit hook called with code 0 (so OS releases asar lock)')
 
         // Pre-existing files in the install dir must be UNTOUCHED — the
-        // OOP path only writes to .ota-pending/staged/ from the OLD process.
+        // OOP path only writes overlay files to .ota-pending from the
+        // OLD process; the PowerShell applier does the in-place extract
+        // after we exit.
         assert(fs.readFileSync(path.join(tmp6, 'OLD.exe'), 'utf-8') === 'old-binary-must-survive-staging',
-          'OOP staging: install-dir OLD.exe untouched (the cmd.exe applier handles the swap after parent exits)')
+          'OOP staging: install-dir OLD.exe untouched (the powershell applier handles the swap after parent exits)')
         assert(fs.readFileSync(path.join(tmp6, 'app.asar'), 'utf-8') === 'OLD asar must survive staging',
           'OOP staging: install-dir app.asar untouched (no in-process write attempted)')
         assert(fs.readFileSync(path.join(tmp6, 'chrome.pak'), 'utf-8') === 'OLD chrome pak must survive staging',
           'OOP staging: install-dir chrome.pak untouched')
         assert(!fs.existsSync(path.join(tmp6, 'NEW.exe')),
-          'OOP staging: NEW.exe NOT yet in install dir (lives in staged/ until applier moves it)')
+          'OOP staging: NEW.exe NOT yet in install dir (Expand-Archive runs only after parent exits)')
 
-        // Staged dir must contain a complete copy of the payload.
-        const stagedDir = path.join(pd, 'staged')
-        assert(fs.existsSync(stagedDir),
-          'OOP staging: .ota-pending/staged/ created')
-        assert(fs.existsSync(path.join(stagedDir, 'NEW.exe'))
-          && fs.readFileSync(path.join(stagedDir, 'NEW.exe'), 'utf-8') === 'new-launcher-binary',
-          'OOP staging: staged/NEW.exe extracted (this is what apply.cmd will move into install dir)')
-        assert(fs.existsSync(path.join(stagedDir, 'app.asar'))
-          && fs.readFileSync(path.join(stagedDir, 'app.asar'), 'utf-8') === 'NEW asar v2',
-          'OOP staging: staged/app.asar extracted (apply.cmd moves this on top of locked install asar after parent exits)')
-        assert(fs.existsSync(path.join(stagedDir, 'chrome.pak'))
-          && fs.readFileSync(path.join(stagedDir, 'chrome.pak'), 'utf-8') === 'NEW chrome pak v2',
-          'OOP staging: staged/chrome.pak extracted')
+        // Simplified contract: the payload.zip stays as-is in the pending
+        // dir; PowerShell extracts it directly via Expand-Archive. No
+        // staged/ subfolder, no double-copy.
+        assert(!fs.existsSync(path.join(pd, 'staged')),
+          'OOP staging: NO staged/ subfolder (extract goes straight to install dir from payload.zip)')
+        assert(fs.existsSync(path.join(pd, 'payload.zip')),
+          'OOP staging: payload.zip preserved in pending dir for PowerShell to extract')
 
-        // Verify cmd.exe spawn args. The args contract is now small and
-        // injection-free: only Node-controlled values (pid, paths,
-        // whitelisted exe basename). Version + oldExe live in the staged
-        // JSON files so the cmd script never sees user content.
-        assert(spawned.length === 1, 'OOP staging: cmd.exe spawned exactly once')
+        // Verify powershell.exe spawn args. The args are all
+        // Node-controlled values (pid, paths, whitelisted exe basename)
+        // bound through PowerShell param() — no shell-injection surface.
+        assert(spawned.length === 1, 'OOP staging: powershell.exe spawned exactly once')
         if (spawned.length === 1) {
           const sp = spawned[0]
-          assert(sp.cmd === 'cmd.exe', 'OOP staging: spawn target is cmd.exe')
-          assert(sp.args[0] === '/c', 'OOP staging: cmd.exe invoked with /c')
-          assert(typeof sp.args[1] === 'string' && sp.args[1].endsWith('.cmd'),
-            'OOP staging: arg[1] is the apply.cmd path')
-          assert(sp.args[2] === String(process.pid),
-            'OOP staging: arg[2] is parent PID (so apply.cmd waits for THIS process to exit)')
-          assert(sp.args[3] === pd,
-            'OOP staging: arg[3] is pending dir')
-          assert(sp.args[4] === tmp6,
-            'OOP staging: arg[4] is install dir')
-          assert(sp.args[5] === 'NEW.exe',
-            'OOP staging: arg[5] is new exe basename (resolved case-insensitively against staged/)')
-          assert(sp.args.length === 6,
-            'OOP staging: cmd args end at the new exe basename — version + oldExe live in staged JSON, NOT in the cmd line (no shell-injection surface)')
-          assert(sp.opts && sp.opts.detached === true && sp.opts.windowsHide === true,
-            'OOP staging: cmd.exe spawned detached + windowsHide so it survives our exit and runs without a visible window')
+          assert(sp.cmd === 'powershell.exe', 'OOP staging: spawn target is powershell.exe (reliably hides console window)')
+          assert(sp.args.includes('-NoProfile'), 'OOP staging: -NoProfile to skip user profile load')
+          assert(sp.args.includes('-WindowStyle') && sp.args[sp.args.indexOf('-WindowStyle') + 1] === 'Hidden',
+            'OOP staging: -WindowStyle Hidden so no console window pops up')
+          assert(sp.args.includes('-ExecutionPolicy') && sp.args[sp.args.indexOf('-ExecutionPolicy') + 1] === 'Bypass',
+            'OOP staging: -ExecutionPolicy Bypass so the script runs even with restricted policy')
+          const fileIdx = sp.args.indexOf('-File')
+          assert(fileIdx >= 0 && typeof sp.args[fileIdx + 1] === 'string' && sp.args[fileIdx + 1].endsWith('.ps1'),
+            'OOP staging: -File <apply.ps1> path passed')
+          const pidIdx = sp.args.indexOf('-ParentPid')
+          assert(pidIdx >= 0 && sp.args[pidIdx + 1] === String(process.pid),
+            'OOP staging: -ParentPid is parent PID (so apply.ps1 waits for THIS process to exit)')
+          const pdIdx = sp.args.indexOf('-PendingDir')
+          assert(pdIdx >= 0 && sp.args[pdIdx + 1] === pd,
+            'OOP staging: -PendingDir set')
+          const idIdx = sp.args.indexOf('-InstallDir')
+          assert(idIdx >= 0 && sp.args[idIdx + 1] === tmp6,
+            'OOP staging: -InstallDir set')
+          const exeIdx = sp.args.indexOf('-NewExe')
+          assert(exeIdx >= 0 && sp.args[exeIdx + 1] === 'NEW.exe',
+            'OOP staging: -NewExe is whitelisted exe basename (resolved case-insensitively against payload.zip)')
+          assert(sp.opts && sp.opts.detached === true && sp.opts.windowsHide === true && sp.opts.stdio === 'ignore',
+            'OOP staging: powershell.exe spawned detached + windowsHide + stdio:ignore so it survives our exit and stays hidden')
 
-          // Verify the apply.cmd file was actually written to disk.
-          const applierPath = sp.args[1]
+          // Verify the apply.ps1 file was actually written to disk.
+          const applierPath = sp.args[fileIdx + 1]
           assert(fs.existsSync(applierPath),
-            'OOP staging: apply.cmd file exists on disk at the path passed to cmd.exe')
+            'OOP staging: apply.ps1 file exists on disk at the path passed to powershell.exe')
           const applierContent = fs.readFileSync(applierPath, 'utf-8')
-          assert(applierContent.startsWith('@echo off'),
-            'OOP staging: apply.cmd starts with @echo off')
-          assert(applierContent.includes('robocopy'),
-            'OOP staging: apply.cmd uses robocopy to swap staged into install dir')
-          assert(applierContent.includes('tasklist'),
-            'OOP staging: apply.cmd polls tasklist to wait for parent exit (so locks release)')
-          assert(applierContent.includes('timeout /t 3'),
-            'OOP staging: apply.cmd grants 3s grace after parent exit so OS releases handles before robocopy')
-          assert(!applierContent.includes('powershell'),
-            'OOP staging: apply.cmd contains NO PowerShell — every JSON write was pre-staged in Node, eliminating the PS string-interpolation injection surface')
+          assert(applierContent.includes('param(') && applierContent.includes('[int]$ParentPid'),
+            'OOP staging: apply.ps1 declares param() block for safe value binding')
+          assert(applierContent.includes('Expand-Archive'),
+            'OOP staging: apply.ps1 uses Expand-Archive to extract payload.zip directly onto install dir')
+          assert(applierContent.includes('Get-Process -Id $ParentPid'),
+            'OOP staging: apply.ps1 polls Get-Process to wait for parent exit')
+          assert(applierContent.includes('Start-Sleep -Seconds 3'),
+            'OOP staging: apply.ps1 grants 3s grace after parent exit so OS releases handles before extract')
+          assert(applierContent.includes('StartTime'),
+            'OOP staging: apply.ps1 captures parent StartTime to detect PID reuse (cmd.exe tasklist approach could hang on recycled PID)')
+          assert(applierContent.includes('Start-Process -FilePath $newExePath'),
+            'OOP staging: apply.ps1 launches the new exe via Start-Process after extract')
         }
 
-        // Pre-staged metadata — the contents the cmd applier will move
-        // into the install dir without needing PowerShell.
-        const cleanupMarker = path.join(stagedDir, '.ota-cleanup.json')
+        // Pre-written overlay files — PowerShell Copy-Items them on top
+        // of the freshly-extracted tree. They live at the pending-dir
+        // root (no staged/ subfolder) for the simplest possible layout.
+        const cleanupMarker = path.join(pd, 'cleanup-marker.json')
         assert(fs.existsSync(cleanupMarker),
-          'OOP staging: .ota-cleanup.json pre-staged in staged/ (robocopy moves it into install dir)')
+          'OOP staging: cleanup-marker.json pre-written in pending dir (PowerShell copies it to .ota-cleanup.json after extract)')
         const cleanup = JSON.parse(fs.readFileSync(cleanupMarker, 'utf-8'))
         assert(Array.isArray(cleanup.deleteExes) && cleanup.deleteExes[0] === 'OLD.exe',
           'OOP staging: cleanup marker lists OLD.exe for next-launch sweep')
         assert(cleanup.nextExe === 'NEW.exe',
           'OOP staging: cleanup marker records nextExe so the launcher knows which exe should be running')
 
-        const sidecar = path.join(stagedDir, '.ota-current-exe.json')
+        const sidecar = path.join(pd, 'current-exe-sidecar.json')
         assert(fs.existsSync(sidecar),
-          'OOP staging: .ota-current-exe.json sidecar pre-staged (lets a manually-relaunched OLD exe self-handoff)')
+          'OOP staging: current-exe-sidecar.json pre-written (lets a manually-relaunched OLD exe self-handoff)')
         const sc = JSON.parse(fs.readFileSync(sidecar, 'utf-8'))
         assert(sc.exe === 'NEW.exe' && sc.version === '2.0.0',
           'OOP staging: sidecar carries new exe + version (JSON.stringify safely escapes both)')
 
-        // ota-config.json: bumped version, ALL other fields preserved.
-        const stagedCfg = path.join(stagedDir, 'resources', 'ota-config.json')
-        assert(fs.existsSync(stagedCfg),
-          'OOP staging: bumped ota-config.json pre-staged at the install-relative path (resources/ subdir)')
-        const cfg = JSON.parse(fs.readFileSync(stagedCfg, 'utf-8'))
+        // Merged ota-config.json: bumped version, ALL other fields preserved.
+        const mergedCfg = path.join(pd, 'merged-ota-config.json')
+        assert(fs.existsSync(mergedCfg),
+          'OOP staging: merged-ota-config.json pre-written (PowerShell copies it to install/resources/ota-config.json after extract)')
+        const cfg = JSON.parse(fs.readFileSync(mergedCfg, 'utf-8'))
         assert(cfg.version === '2.0.0',
           'OOP staging: ota-config.json version bumped to 2.0.0')
         assert(cfg.customerId === 'cust-42-MUST-BE-PRESERVED',
@@ -751,7 +755,7 @@ function main() {
         assert(cfg.extraField && cfg.extraField.nested === 'value-MUST-SURVIVE',
           'OOP staging: nested fields preserved')
 
-        // Apply lock file present (will be cleaned up by the cmd applier).
+        // Apply lock file present (will be cleaned up by the applier).
         assert(fs.existsSync(path.join(pd, '.apply.lock')),
           'OOP staging: .apply.lock created (atomic O_EXCL — prevents two OLD-exe instances from racing into apply)')
       } finally {
@@ -761,7 +765,7 @@ function main() {
 
     // ---- Task #18: OOP path must skip when an in-flight applier already
     //      holds the .apply.lock. Prevents two OLD-exe instances from
-    //      racing to wipe each other's staging. ----
+    //      racing to wipe each other's overlay files. ----
     {
       const tmp7 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-skip-'))
       try {
@@ -772,10 +776,9 @@ function main() {
         // Pre-create the lock file with current mtime to simulate
         // "another applier already running."
         fs.writeFileSync(path.join(pd, '.apply.lock'), '99999\nin-progress\n')
-        // Pre-create staged/ as it would be from the in-flight applier.
-        const stagedDir = path.join(pd, 'staged')
-        fs.mkdirSync(stagedDir)
-        fs.writeFileSync(path.join(stagedDir, 'NEW.exe'), 'new-from-other-applier')
+        // Pre-create overlay files as they would be from the in-flight applier.
+        fs.writeFileSync(path.join(pd, 'cleanup-marker.json'),
+          JSON.stringify({ deleteExes: ['OLD.exe'], nextExe: 'NEW.exe', from: 'other-applier' }))
         fs.writeFileSync(path.join(pd, 'payload.zip'), makeMinimalZip([
           { name: 'NEW.exe', data: Buffer.from('new') },
         ]))
@@ -801,13 +804,13 @@ function main() {
         assert(result === false,
           'OOP skip-when-busy: returns false when .apply.lock is held (lets the running applier finish)')
         assert(spawnCalled === false,
-          'OOP skip-when-busy: did NOT spawn another cmd.exe')
+          'OOP skip-when-busy: did NOT spawn another powershell.exe')
         assert(exitCalled === false,
           'OOP skip-when-busy: did NOT exit our process')
-        // Staged dir from the "other applier" must remain untouched so it
-        // can complete its work.
-        assert(fs.readFileSync(path.join(stagedDir, 'NEW.exe'), 'utf-8') === 'new-from-other-applier',
-          'OOP skip-when-busy: staged dir contents preserved')
+        // Other applier's overlay files must remain untouched.
+        const otherCleanup = JSON.parse(fs.readFileSync(path.join(pd, 'cleanup-marker.json'), 'utf-8'))
+        assert(otherCleanup.from === 'other-applier',
+          'OOP skip-when-busy: in-flight applier overlay files preserved')
         assert(fs.existsSync(path.join(pd, '.apply.lock')),
           'OOP skip-when-busy: lock file preserved (we did not steal it)')
       } finally {
@@ -818,8 +821,8 @@ function main() {
     // ---- Task #18: defense-in-depth — manifest.exeName that doesn't
     //      match the safe-basename whitelist (e.g. contains shell
     //      metacharacters) must be rejected before staging spawns
-    //      cmd.exe. This kills the cmd-injection vector at the door even
-    //      though resolution is case-insensitive against staged/. ----
+    //      powershell.exe. Defense-in-depth even though param() binding
+    //      handles escaping for the four args we pass. ----
     {
       const tmp8 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-evil-'))
       try {
@@ -851,13 +854,59 @@ function main() {
         assert(result === false,
           'OOP exeName whitelist: returns false when manifest exeName contains shell metacharacters')
         assert(spawnCalled === false,
-          'OOP exeName whitelist: did NOT spawn cmd.exe with an unsafe basename')
+          'OOP exeName whitelist: did NOT spawn powershell.exe with an unsafe basename')
         assert(exitCalled === false,
           'OOP exeName whitelist: did NOT exit our process')
         assert(fs.existsSync(path.join(pd, 'FAILED')),
           'OOP exeName whitelist: FAILED marker written for diagnostics')
       } finally {
         rmrf(tmp8)
+      }
+    }
+
+    // ---- Task #18 follow-up: if a prior OOP apply succeeded but its
+    //      background self-cleanup didn't sweep the pending dir before
+    //      the NEW exe boots, applyPendingUpdateOnStartup must NOT
+    //      re-apply the same payload. The SUCCESS marker is the signal
+    //      to wipe the pending dir and move on. ----
+    {
+      const tmp9 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-oop-success-sweep-'))
+      try {
+        fs.writeFileSync(path.join(tmp9, 'NEW.exe'), 'already-applied-launcher')
+        const pd = path.join(tmp9, '.ota-pending')
+        fs.mkdirSync(pd)
+        fs.writeFileSync(path.join(pd, 'payload.zip'), Buffer.from('leftover-payload-bytes'))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({ version: '2.0.0' }))
+        fs.writeFileSync(path.join(pd, 'READY'), 'leftover-ready-marker')
+        fs.writeFileSync(path.join(pd, 'SUCCESS'), 'done')
+        fs.writeFileSync(path.join(pd, 'apply.log'), 'phase2 ok')
+
+        process.env.OTA_TEST_CURRENT_EXE = 'NEW.exe'
+        delete require.cache[require.resolve('../electron/updater.js')]
+        delete require.cache[require.resolve('../electron/ota-live.js')]
+        const updater9 = require('../electron/updater.js')
+
+        let spawnCalled = false
+        let exitCalled = false
+        const result = updater9.applyPendingUpdateOnStartup(tmp9, {
+          _forceOutOfProcess: true,
+          _spawnFn: () => { spawnCalled = true; return { unref() {} } },
+          _exitFn: () => { exitCalled = true },
+          _tmpDir: os.tmpdir(),
+        })
+
+        assert(result === false,
+          'OOP SUCCESS sweep: returns false when SUCCESS marker present (apply already done by prior OOP run)')
+        assert(spawnCalled === false,
+          'OOP SUCCESS sweep: did NOT spawn powershell.exe to re-apply')
+        assert(exitCalled === false,
+          'OOP SUCCESS sweep: did NOT exit our process')
+        assert(!fs.existsSync(pd),
+          'OOP SUCCESS sweep: leftover .ota-pending dir wiped so next download has clean slate')
+        assert(fs.readFileSync(path.join(tmp9, 'NEW.exe'), 'utf-8') === 'already-applied-launcher',
+          'OOP SUCCESS sweep: install dir untouched (we only swept the pending dir)')
+      } finally {
+        rmrf(tmp9)
       }
     }
   } finally {

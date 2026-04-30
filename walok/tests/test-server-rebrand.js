@@ -459,6 +459,67 @@ function main() {
         rmrf(tmp3)
       }
     }
+
+    // ---- Task #18 follow-up (server mirror): SUCCESS-marker sweep.
+    //      If a prior PowerShell OOP apply succeeded but its background
+    //      self-cleanup didn't remove the pending dir before the NEW
+    //      server.exe boots, we must NOT re-apply the same payload —
+    //      we must wipe .ota-pending and move on. Mirror of the
+    //      launcher-side scenario in test-rebrand-update.js. ----
+    {
+      const tmp4 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-srv-success-sweep-'))
+      try {
+        fs.writeFileSync(path.join(tmp4, 'NEW-server.exe'), 'already-applied-server-binary')
+        const pd = path.join(tmp4, '.ota-pending')
+        fs.mkdirSync(pd)
+        fs.writeFileSync(path.join(pd, 'payload.zip'), Buffer.from('leftover-payload-bytes'))
+        fs.writeFileSync(path.join(pd, 'manifest.json'), JSON.stringify({ version: '2.0.0' }))
+        fs.writeFileSync(path.join(pd, 'READY'), 'leftover-ready-marker')
+        fs.writeFileSync(path.join(pd, 'SUCCESS'), 'done')
+        fs.writeFileSync(path.join(pd, 'apply.log'), 'phase2 ok')
+
+        process.env.OTA_TEST_CURRENT_EXE = 'NEW-server.exe'
+        delete require.cache[require.resolve('../server/electron/updater.js')]
+        delete require.cache[require.resolve('../server/electron/ota-live.js')]
+        const srvUpdater4 = require('../server/electron/updater.js')
+
+        let spawnCalled = false
+        let exitCalled = false
+        const result = srvUpdater4.applyPendingUpdateOnStartup(tmp4, {
+          _forceOutOfProcess: true,
+          _spawnFn: () => { spawnCalled = true; return { unref() {} } },
+          _exitFn: () => { exitCalled = true },
+          _tmpDir: os.tmpdir(),
+        })
+
+        assert(result === false,
+          'server OOP SUCCESS sweep: returns false (no re-apply when prior OOP run already succeeded)')
+        assert(spawnCalled === false,
+          'server OOP SUCCESS sweep: did NOT spawn powershell.exe to re-apply')
+        assert(exitCalled === false,
+          'server OOP SUCCESS sweep: did NOT exit our process')
+        assert(!fs.existsSync(pd),
+          'server OOP SUCCESS sweep: leftover .ota-pending wiped so next download has clean slate')
+        assert(fs.readFileSync(path.join(tmp4, 'NEW-server.exe'), 'utf-8') === 'already-applied-server-binary',
+          'server OOP SUCCESS sweep: install dir untouched (we only swept the pending dir)')
+      } finally {
+        rmrf(tmp4)
+      }
+    }
+
+    // ---- Task #18 follow-up (server mirror): hard-kill exit hook.
+    //      The default OOP exit hook must call process.exit, not
+    //      app.exit. app.exit was unreliable when the updater was
+    //      wired in pre-whenReady (the second field bug). We can't
+    //      execute the default (it would kill the test process), so
+    //      grep the source to verify the default is process.exit. ----
+    {
+      const src = fs.readFileSync(require.resolve('../server/electron/updater.js'), 'utf-8')
+      assert(src.includes('_opts._exitFn || ((code) => process.exit(code))'),
+        'server OOP exit hook: defaults to process.exit (hard kill) so the OS releases the asar lock even when init() runs pre-whenReady')
+      assert(!src.match(/_opts\._exitFn\s*\|\|[\s\S]{0,80}app\.exit/),
+        'server OOP exit hook: does NOT fall back to app.exit (which never terminated when init was wired pre-whenReady)')
+    }
   } finally {
     rmrf(tmp)
     rmrf(desktopDir)
