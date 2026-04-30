@@ -460,13 +460,9 @@ function main() {
       }
     }
 
-    // ---- Regression (architect-flagged data-loss path): if the .ota-bak
-    //      backup directory cannot be created (e.g. EACCES), the apply MUST
-    //      refuse to extract instead of running without rollback. Otherwise
-    //      a subsequent failure would call rollbackExtract on entries with no
-    //      backupPath and unconditionally unlink them — destroying the only
-    //      copy of the file. Verifies pre-existing files are NEVER deleted
-    //      when transactional rollback is unavailable. ----
+    // ---- Regression: if .ota-bak cannot be created the apply must refuse
+    //      to extract instead of running without rollback (which would let a
+    //      later failure unlink replaced files with no backup to restore). ----
     {
       const tmp4 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-no-backup-'))
       try {
@@ -517,8 +513,7 @@ function main() {
 
         assert(appliedNoBackup === false,
           'no-backup refusal: applyPendingUpdateOnStartup returns false when backup dir cannot be created')
-        // CRITICAL safety property: nothing in the install dir was touched
-        // because extract was refused before it could run.
+        // No pre-existing file was touched: extract was refused.
         assert(fs.readFileSync(path.join(tmp4, 'OLD.exe'), 'utf-8') === 'old-binary-must-survive',
           'no-backup refusal: pre-existing OLD.exe is untouched (extract was refused, not run-without-backup)')
         assert(fs.readFileSync(path.join(tmp4, 'app.asar'), 'utf-8') === 'OLD asar must survive',
@@ -538,11 +533,9 @@ function main() {
       }
     }
 
-    // ---- Regression (architect-flagged crash-recovery path): if a previous
-    //      apply attempt was killed AFTER moving originals into .ota-bak but
-    //      BEFORE either committing new content or rolling back, the next
-    //      apply MUST recover those backup files in place BEFORE wiping the
-    //      directory. Otherwise the OLD bytes are lost forever. ----
+    // ---- Regression: if a previous attempt was killed after moving
+    //      originals into .ota-bak but before commit or rollback, the next
+    //      apply must restore those backup files in place before wiping. ----
     {
       const tmp5 = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-leftover-bak-'))
       try {
@@ -579,8 +572,7 @@ function main() {
 
         updater5.applyPendingUpdateOnStartup(tmp5)
 
-        // CRITICAL: the leftover backup bytes were restored BEFORE anything
-        // else ran. Without this, those files would be lost forever.
+        // Leftover backup bytes were restored before the new attempt began.
         assert(fs.existsSync(path.join(tmp5, 'app.asar'))
           && fs.readFileSync(path.join(tmp5, 'app.asar'), 'utf-8') === 'OLD asar (last good copy)',
           'leftover backup recovery: app.asar was restored from .ota-bak before the new attempt began')

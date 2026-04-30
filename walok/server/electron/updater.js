@@ -389,10 +389,8 @@ function extractZip(zipBuffer, destDir, opts) {
   return { extracted, failed, totalEntries, failedFiles, successfulEntries }
 }
 
-// See walok/electron/updater.js rollbackExtract for the rationale. Mirrored.
-// Critical: NEVER unlink a replacement target without a backupPath — that
-// would destroy the only copy of the file. The architect flagged this as a
-// data-loss path; entries in that state are recorded as "skipped" instead.
+// Mirror of walok/electron/updater.js rollbackExtract.
+// NEVER unlinks a replacement target without a backupPath (data loss).
 function rollbackExtract(successfulEntries) {
   const restored = []
   const removed = []
@@ -419,10 +417,7 @@ function rollbackExtract(successfulEntries) {
   return { restored, removed, skipped }
 }
 
-// See walok/electron/updater.js recoverFromLeftoverBackup for the rationale.
-// Mirrored. Restores OLD bytes left behind by a previous apply attempt that
-// was killed AFTER moving originals into backup but BEFORE either committing
-// new content or completing rollback.
+// Mirror of walok/electron/updater.js recoverFromLeftoverBackup.
 function recoverFromLeftoverBackup(backupDir, destDir) {
   const restored = []
   const failed = []
@@ -987,9 +982,7 @@ function applyPendingUpdateOnStartup(appRoot) {
   if (!fs.existsSync(readyMarker) || !fs.existsSync(zipPath)) return false
   log('Found pending server update — applying...')
   let stagedManifest = null
-  // Hoisted so the outer catch can also roll back when extractZip itself
-  // throws mid-stream. successfulEntries is the out-array extractZip pushes
-  // a record into for each entry it commits to disk.
+  // Hoisted so the outer catch can roll back when extractZip throws mid-stream.
   let payloadExeNames = null
   const successfulEntries = []
   let backupDir = null
@@ -997,9 +990,8 @@ function applyPendingUpdateOnStartup(appRoot) {
     const buf = fs.readFileSync(zipPath)
     payloadExeNames = listTopLevelExesInZip(buf)
     backupDir = path.join(pendingDir, '.ota-bak')
-    // STEP 1 — recover from any leftover .ota-bak (previous attempt killed
-    // mid-apply). Backup files are the LAST good copy of the originals;
-    // restore them in place BEFORE wiping. Mirrors launcher updater.
+    // Recover any leftover backup from a previous killed attempt before
+    // wiping it. If recovery is incomplete, abort rather than lose the bytes.
     if (fs.existsSync(backupDir)) {
       try {
         const rec = recoverFromLeftoverBackup(backupDir, appRoot)
@@ -1030,9 +1022,8 @@ function applyPendingUpdateOnStartup(appRoot) {
         return false
       }
     }
-    // STEP 2 — create the backup dir for THIS attempt. If we cannot, REFUSE
-    // to extract; running extractZip without a backupDir would replace files
-    // we can no longer roll back (data loss).
+    // Refuse to extract if we can't create the backup dir — running without
+    // backups would mean rollback can't restore replaced files (data loss).
     try {
       fs.mkdirSync(backupDir, { recursive: true })
     } catch (e) {
@@ -1049,10 +1040,6 @@ function applyPendingUpdateOnStartup(appRoot) {
     if (result.failed > 0 || result.extracted === 0) {
       log('UPDATE INCOMPLETE — rolling back to pre-apply state.')
       result.failedFiles.slice(0, 10).forEach(f => log('  failed: ' + f))
-      // Full rollback: restores every replaced file from backup and deletes
-      // every newly-added file (incl. the new server exe), so the install
-      // ends up exactly where it started. Prevents the "OLD server.exe + NEW
-      // chrome paks" mismatch that produces a black/violet window on launch.
       const rb = rollbackExtract(successfulEntries)
       log('Rollback: restored ' + rb.restored.length + ' file(s), removed ' + rb.removed.length + ' new file(s).')
       recordApplyFailure({

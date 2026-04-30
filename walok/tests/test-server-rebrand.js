@@ -296,11 +296,7 @@ function main() {
       try {
         fs.writeFileSync(path.join(tmp2, 'OLD-server.exe'), 'old-server-binary')
         fs.writeFileSync(path.join(tmp2, 'app.asar'), 'OLD server asar v1')
-        // Field-reported regression mirror: an UNLOCKED file that gets
-        // replaced during the failed apply must be RESTORED to its OLD
-        // content via rollback, not left at NEW content (which would
-        // produce a black/violet screen the next time the server window
-        // opens).
+        // Replaced unlocked file must be restored to OLD content via rollback.
         fs.writeFileSync(path.join(tmp2, 'chrome.pak'), 'OLD chrome pak v1')
         fs.writeFileSync(path.join(tmp2, 'ota-config.json'), JSON.stringify({
           enabled: true, channel: 'rebrand-test-server', version: '1.0.0',

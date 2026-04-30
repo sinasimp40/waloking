@@ -333,28 +333,15 @@ function detectVersionMismatch(appRoot, currentBasename) {
   return { stale: true, candidate, reason: 'older-than-advertised', bundled, advertised }
 }
 
-// Transactional ZIP extraction.
-//
-// The original implementation extracted entries one-by-one and committed each
-// one in place. That left the install dir in a HALF-UPDATED state when even
-// one entry failed (e.g. resources/app.asar locked by the running launcher
-// while chrome_*.pak / locales/* / BLASTING.exe extracted cleanly). The user
-// then booted the OLD launcher against NEW chrome resources -> black screen.
-//
-// New behaviour: when callers pass a `backupDir` and a `successfulEntries`
-// out-array, this function preserves OLD content in `backupDir` BEFORE
-// overwriting, and tracks every successful entry in `successfulEntries`.
-// On ANY failure, the caller invokes `rollbackExtract(successfulEntries)`
-// to restore the install dir to its pre-extract state in full.
-//
-// Without a backupDir (the legacy call shape) it behaves like the old code,
-// committing in place. New OTA apply paths always pass a backupDir.
+// Transactional ZIP extraction. With opts.backupDir + opts.successfulEntries,
+// each existing target is renamed into backupDir BEFORE write, and each
+// committed entry is recorded on the out-array. On any failure the caller
+// invokes rollbackExtract(successfulEntries) to restore the install dir.
+// Without a backupDir it falls back to the legacy in-place commit.
 function extractZip(zipBuffer, destDir, opts) {
   opts = opts || {}
   const backupDir = opts.backupDir || null
-  // Caller-owned scratch array. Passing it in (rather than returning it)
-  // means the caller can still roll back even if THIS function throws
-  // mid-stream — every entry committed up to the throw is in the array.
+  // Caller-owned so rollback works even if this function throws mid-stream.
   const successfulEntries = opts.successfulEntries || []
   let pos = 0
   let extracted = 0
@@ -405,12 +392,8 @@ function extractZip(zipBuffer, destDir, opts) {
     const wasReplacement = fs.existsSync(targetPath)
     let backupPath = null
 
-    // STEP 1: if we have a backupDir AND target exists, move the OLD file out
-    // of the way first. If this fails (typically because the file is locked
-    // by the running launcher: app.asar, ffmpeg.dll, icudtl.dat, etc.), mark
-    // the entry as failed WITHOUT touching disk further. The locked file
-    // stays exactly where it was, and the rest of the apply will be rolled
-    // back by the caller.
+    // Move OLD out of the way first. Locked files (asar, ffmpeg.dll, etc.)
+    // fail here and are recorded as failed without further disk changes.
     if (backupDir && wasReplacement) {
       const relForBackup = path.relative(destDir, targetPath)
       backupPath = path.join(backupDir, relForBackup)
@@ -427,8 +410,7 @@ function extractZip(zipBuffer, destDir, opts) {
       }
     }
 
-    // STEP 2: write the new content via the .ota-tmp dance for atomicity
-    // against power loss.
+    // Write new content via .ota-tmp + rename for power-loss atomicity.
     try {
       const tmpPath = targetPath + '.ota-tmp'
       fs.writeFileSync(tmpPath, content)
@@ -467,43 +449,24 @@ function extractZip(zipBuffer, destDir, opts) {
   return { extracted, failed, totalEntries, failedFiles, successfulEntries }
 }
 
-// Undo every entry in `successfulEntries` (typically populated by extractZip
-// via the opts.successfulEntries out-array). For each successful entry:
-//   - if entry was an ADD (new file with no prior content), delete the target
-//   - if entry was a REPLACEMENT and a backup exists, delete the new target
-//     and rename the backup back into place to restore OLD bytes
-//   - if entry was a REPLACEMENT but NO backup exists (caller ran extractZip
-//     without a backupDir, or backup failed silently), DO NOTHING — deleting
-//     the target with no backup would destroy the only copy of the file. The
-//     "skipped" counter surfaces this in diagnostics.
-// Returns diagnostics for the FAILED marker.
+// Undo every entry in successfulEntries (the out-array extractZip pushes to
+// on each commit). Adds are deleted; replacements with a backupPath are
+// restored from backup. A replacement WITHOUT a backupPath is NEVER unlinked
+// — that would destroy the only copy of the file. Walk in reverse order.
 function rollbackExtract(successfulEntries) {
   const restored = []
   const removed = []
   const skipped = []
-  // Walk in reverse — symmetric to the forward order, and slightly safer if
-  // anything depends on order (e.g. a parent dir written before its child).
   for (let i = successfulEntries.length - 1; i >= 0; i--) {
     const e = successfulEntries[i]
     if (e.wasReplacement) {
-      if (!e.backupPath) {
-        // No backup — refuse to delete; that would destroy the only copy
-        // of this file's old AND new content (irrecoverable data loss).
-        // The architect explicitly flagged this as a critical failure mode.
-        skipped.push(path.basename(e.target))
-        continue
-      }
+      if (!e.backupPath) { skipped.push(path.basename(e.target)); continue }
       try { fs.unlinkSync(e.target) } catch (_) {}
       try {
         fs.renameSync(e.backupPath, e.target)
         restored.push(path.basename(e.target))
-      } catch (_) {
-        // Backup restore failed — record as skipped so diagnostics expose
-        // the half-rollback state for investigation.
-        skipped.push(path.basename(e.target))
-      }
+      } catch (_) { skipped.push(path.basename(e.target)) }
     } else {
-      // Pure addition — safe to delete; no original content to lose.
       try { fs.unlinkSync(e.target) } catch (_) {}
       removed.push(path.basename(e.target))
     }
@@ -511,17 +474,10 @@ function rollbackExtract(successfulEntries) {
   return { restored, removed, skipped }
 }
 
-// Recover from a leftover .ota-bak directory left by a previous apply attempt
-// that crashed AFTER moving originals into backup but BEFORE either
-// committing the new content or completing rollback. The backup is the LAST
-// good copy of those files; this restores them in place before we touch
-// anything else, so a subsequent fresh attempt starts from a clean OLD state.
-//
-// destDir is the install root the previous attempt was extracting INTO; the
-// backup mirrors that directory tree underneath backupDir.
-//
-// If anything in the backup tree fails to move back, we log it and KEEP the
-// remaining backup files in place (do NOT delete) so a human can recover.
+// Restore originals from a leftover .ota-bak left by a previous apply that
+// died after backing up but before commit or rollback. Those bytes are the
+// last good copy. Failures are reported and remaining backup files are KEPT
+// in place rather than deleted.
 function recoverFromLeftoverBackup(backupDir, destDir) {
   const restored = []
   const failed = []
@@ -1009,27 +965,18 @@ function applyPendingUpdateOnStartup(appRoot) {
   if (!fs.existsSync(readyMarker) || !fs.existsSync(zipPath)) return false
 
   log('Found pending update — applying before app starts...')
-  // These two are hoisted so the outer catch can also roll back when
-  // extractZip itself throws mid-stream (corrupt zip header, disk full, etc.)
-  // — not just when it returns result.failed > 0. successfulEntries is the
-  // out-array that extractZip pushes a record into for each entry it commits
-  // to disk; rollbackExtract walks it to undo every change.
+  // Hoisted so the outer catch can roll back when extractZip throws mid-stream.
   let payloadExeNames = null
   const successfulEntries = []
   let backupDir = null
   try {
     const buf = fs.readFileSync(zipPath)
     payloadExeNames = listTopLevelExesInZip(buf)
-    // Per-apply backup dir, scoped INSIDE .ota-pending so a successful apply
-    // (which removes .ota-pending entirely) also removes the backup; and a
-    // failed apply that gets rolled back leaves the backup dir empty for the
-    // OS to clean up next sweep. Lives outside appRoot proper to avoid being
-    // mistaken for an installed file.
+    // Backup dir scoped inside .ota-pending so a successful apply removes it
+    // along with the staging dir.
     backupDir = path.join(pendingDir, '.ota-bak')
-    // STEP 1 — recover from any leftover .ota-bak left by a previous attempt
-    // that was killed mid-apply. Those backup files are the LAST good copy
-    // of the originals; we must restore them in place BEFORE doing anything
-    // else. Only after recovery is finished do we wipe the directory.
+    // Recover any leftover backup from a previous killed attempt before
+    // wiping it. If recovery is incomplete, abort rather than lose the bytes.
     if (fs.existsSync(backupDir)) {
       try {
         const rec = recoverFromLeftoverBackup(backupDir, appRoot)
@@ -1038,44 +985,27 @@ function applyPendingUpdateOnStartup(appRoot) {
             backupDir + (rec.failed.length > 0 ? '; ' + rec.failed.length + ' failed: ' + rec.failed.slice(0, 5).join(', ') : '') + '.')
         }
         if (rec.failed.length > 0) {
-          // Some backup files could not be restored. Refuse to proceed —
-          // wiping the dir now would lose those bytes forever, and applying
-          // a fresh update on top of a half-recovered install is worse than
-          // surfacing the problem.
           log('UPDATE BLOCKED — leftover backup at ' + backupDir + ' could not be fully recovered. Manual intervention required.')
           recordApplyFailure({
             readyMarker, failedMarker,
-            diagnostics: {
-              error: 'leftover backup recovery failed',
-              backupDir,
-              recovered: rec.restored.length,
-              failed: rec.failed,
-            },
+            diagnostics: { error: 'leftover backup recovery failed', backupDir, recovered: rec.restored.length, failed: rec.failed },
           })
           return false
         }
         try { fs.rmSync(backupDir, { recursive: true, force: true }) } catch (_) {}
       } catch (e) {
         log('UPDATE BLOCKED — could not inspect leftover backup at ' + backupDir + ': ' + e.message)
-        recordApplyFailure({
-          readyMarker, failedMarker,
-          diagnostics: { error: 'leftover backup inspect failed: ' + e.message, backupDir },
-        })
+        recordApplyFailure({ readyMarker, failedMarker, diagnostics: { error: 'leftover backup inspect failed: ' + e.message, backupDir } })
         return false
       }
     }
-    // STEP 2 — create the backup dir for THIS attempt. If we cannot, REFUSE
-    // to extract; running extractZip without a backupDir would replace files
-    // that we then have no way to restore on rollback (data loss). The
-    // architect explicitly flagged this as a critical failure mode.
+    // Refuse to extract if we can't create the backup dir — running without
+    // backups would mean rollback can't restore replaced files (data loss).
     try {
       fs.mkdirSync(backupDir, { recursive: true })
     } catch (e) {
       log('UPDATE BLOCKED — could not create backup dir at ' + backupDir + ': ' + e.message + '. Refusing to extract without transactional rollback.')
-      recordApplyFailure({
-        readyMarker, failedMarker,
-        diagnostics: { error: 'backup dir create failed: ' + e.message, backupDir },
-      })
+      recordApplyFailure({ readyMarker, failedMarker, diagnostics: { error: 'backup dir create failed: ' + e.message, backupDir } })
       backupDir = null
       return false
     }
@@ -1103,9 +1033,6 @@ function applyPendingUpdateOnStartup(appRoot) {
         if (head.length === 0 || looksBinary || !hasHtmlMagic) {
           log('UPDATE INCOMPLETE — index.html at ' + indexPath + ' looks corrupted (size=' +
             head.length + ', binary=' + looksBinary + ', html=' + hasHtmlMagic + '). Rolling back.')
-          // Full transactional rollback: every entry that was written so far
-          // is reverted (new files deleted, replaced files restored from
-          // backup) so the install dir ends up at its pre-extract state.
           const rb = rollbackExtract(successfulEntries)
           log('Rollback: restored ' + rb.restored.length + ' file(s), removed ' + rb.removed.length + ' new file(s).')
           recordApplyFailure({
@@ -1126,13 +1053,6 @@ function applyPendingUpdateOnStartup(appRoot) {
     if (result.failed > 0 || result.extracted === 0) {
       log('UPDATE INCOMPLETE — rolling back to pre-apply state.')
       result.failedFiles.slice(0, 10).forEach(f => log('  failed: ' + f))
-      // The classic "asar locked by the running launcher" failure mode lives
-      // here: extractZip cleanly drops some unlocked entries (chrome paks,
-      // locales, the new exe) but fails to overwrite resources/app.asar
-      // and the locked native deps. Without rollback, the OLD launcher
-      // boots against a MIX of OLD asar + NEW chrome paks -> black screen.
-      // Full rollback restores all replaced files and deletes all newly-
-      // added files, so the install ends up exactly where it started.
       const rb = rollbackExtract(successfulEntries)
       log('Rollback: restored ' + rb.restored.length + ' file(s), removed ' + rb.removed.length + ' new file(s).')
       recordApplyFailure({
