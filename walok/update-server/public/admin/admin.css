@@ -262,17 +262,101 @@ button{cursor:pointer;font-family:inherit;border-radius:4px;border:none;letter-s
   flex:1 1 auto;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.console-card .console-card-step{
-  color:var(--muted);font-size:10px;
-  flex:1 1 100%;
+.console-card .console-card-elapsed{
+  font-family:'Consolas','Courier New',monospace;
+  font-size:11px;
+  color:var(--orange-soft);
+  letter-spacing:1px;
+  padding:3px 8px;
+  background:#0a0604;
+  border:1px solid var(--border);
+  border-radius:3px;
 }
 .console-card .console-card-cancel{margin-left:auto}
 .console-card .console{
-  border:0;border-radius:0 0 4px 4px;
+  border:0;border-radius:0;
   max-height:320px;
 }
 .console-card.finished{opacity:.85}
 .console-card .job-error-banner{margin:8px 12px}
+
+/* Task #17 — per-build progress bar */
+.console-card .progress-block{
+  padding:10px 12px 12px;
+  border-bottom:1px solid var(--border);
+  background:#0e0805;
+}
+.console-card .progress-row{
+  display:flex;align-items:baseline;gap:10px;
+  margin-bottom:6px;
+}
+.console-card .progress-phase{
+  flex:1 1 auto;
+  font-size:12px;
+  color:var(--orange-soft);
+  letter-spacing:.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.console-card .progress-pct{
+  font-family:'Consolas','Courier New',monospace;
+  font-size:11px;
+  color:var(--orange);
+  letter-spacing:1px;
+  flex:0 0 auto;
+}
+.console-card .progress-bar{
+  position:relative;
+  height:10px;
+  background:#1a0e08;
+  border:1px solid var(--border);
+  border-radius:5px;
+  overflow:hidden;
+}
+.console-card .progress-fill{
+  height:100%;
+  /* Soft orange gradient, matches the dark-on-orange aesthetic. */
+  background:linear-gradient(90deg, var(--orange) 0%, var(--orange-bright) 100%);
+  /* Smoothly animate width updates. We re-set width frequently from JS
+     (phase jumps + per-tick creep), so this transition is what makes the
+     motion feel "alive" rather than jumpy. */
+  transition:width .45s cubic-bezier(.25,.8,.25,1);
+  box-shadow:0 0 12px rgba(255,106,0,.45);
+  border-radius:5px;
+}
+/* Subtle barber-pole shimmer while running so a long phase reads as
+   "working" even when its width hasn't changed in the last second. */
+.console-card:not(.finished):not(.cancelled):not(.failed) .progress-fill{
+  background-image:
+    linear-gradient(90deg, var(--orange) 0%, var(--orange-bright) 100%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255,255,255,.06) 0 8px,
+      transparent 8px 16px
+    );
+  background-blend-mode:overlay;
+}
+/* Failure: red bar, frozen at the failing-phase position. */
+.console-card.failed .progress-fill{
+  background:linear-gradient(90deg, #b40000 0%, var(--error) 100%);
+  box-shadow:0 0 12px rgba(255,80,80,.45);
+}
+.console-card.failed .progress-phase{color:var(--error)}
+.console-card.failed .progress-pct{color:var(--error)}
+/* Cancelled: muted, frozen at last position. */
+.console-card.cancelled .progress-fill{
+  background:linear-gradient(90deg, #444 0%, #666 100%);
+  box-shadow:none;
+  opacity:.6;
+}
+.console-card.cancelled .progress-phase{color:var(--muted)}
+.console-card.cancelled .progress-pct{color:var(--muted)}
+
+.console-card .log-toggle-row{
+  padding:6px 12px;
+  border-bottom:1px solid var(--border);
+  background:#0a0604;
+}
+.btn-ghost.small{font-size:10px;padding:4px 10px;letter-spacing:1.5px}
 .status-pill{
   font-size:10px;letter-spacing:2px;padding:4px 10px;border-radius:10px;
   background:#1a0e08;color:var(--muted);text-transform:uppercase;

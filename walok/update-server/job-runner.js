@@ -28,6 +28,7 @@ const os = require('os')
 const path = require('path')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
+const { phaseById, weightSoFar, SUBSTEP_TO_PHASE } = require('./phases')
 
 const IS_WIN = process.platform === 'win32'
 const MAX_CONCURRENT_BUILDS = Math.max(1, parseInt(process.env.OTA_MAX_BUILDS || '2', 10))
@@ -195,6 +196,12 @@ function newJob({ label, channels = [], kind = 'build' }) {
     failedStep: null,
     currentStep: null,
     currentSubstep: null,
+    currentPhase: null,                  // Task #17: latest phase id emitted
+                                         // by jobEmitPhase. Used both as an
+                                         // idempotency guard (don't re-emit
+                                         // the same phase twice) and so the
+                                         // admin UI can rehydrate position
+                                         // from a /api/admin/jobs snapshot.
     output: [],                          // {t, line} or {t, end, exitCode, failedStep}
     listeners: new Set(),                // SSE response.write functions for this job
     workspace: null,
@@ -227,6 +234,34 @@ function jobAppend(job, line) {
   }
 }
 
+// Emit a STRUCTURED phase event onto the per-job SSE stream (Task #17). The
+// admin progress bar reads these to advance without parsing log lines. The
+// event is also pushed into job.output so a page refresh mid-build replays
+// the phase history and the bar lands on the right position.
+//
+// Idempotent per phase id: re-emitting the same phase (e.g. STEP_TO_PHASE +
+// SUBSTEP_TO_PHASE both mapping to 'rebrand') is a no-op so the bar never
+// jumps backwards.
+function jobEmitPhase(job, phaseId) {
+  const p = phaseById(phaseId)
+  if (!p) return
+  if (job.currentPhase === phaseId) return
+  job.currentPhase = phaseId
+  const entry = {
+    t: nowMs(),
+    phase: p.id,
+    label: p.label,
+    weight: p.weight,
+    weightSoFar: weightSoFar(p.id),
+    startedAt: nowMs(),
+  }
+  job.output.push(entry)
+  if (job.output.length > 5000) job.output.splice(0, job.output.length - 5000)
+  for (const send of job.listeners) {
+    try { send(entry) } catch (_) {}
+  }
+}
+
 function emitJobEnd(job) {
   const payload = { t: nowMs(), end: true, exitCode: job.exitCode, failedStep: job.failedStep, status: job.status }
   for (const send of job.listeners) {
@@ -246,7 +281,15 @@ const SUBSTEP_END_OK_RE = /\[SUBSTEP_END_OK\]\s*(.+?)\s*$/
 const SUBSTEP_END_FAIL_RE = /\[SUBSTEP_END_FAIL\]\s*(.+?)\s*$/
 function processLineForSubsteps(job, line) {
   let m
-  if ((m = SUBSTEP_BEGIN_RE.exec(line))) { job.currentSubstep = m[1]; return }
+  if ((m = SUBSTEP_BEGIN_RE.exec(line))) {
+    job.currentSubstep = m[1]
+    // Task #17: substep boundary doubles as a progress-bar phase boundary.
+    // Lookup is intentionally lenient — an unknown substep name leaves the
+    // bar at its current phase position rather than throwing or freezing.
+    const phaseId = SUBSTEP_TO_PHASE[m[1]]
+    if (phaseId) jobEmitPhase(job, phaseId)
+    return
+  }
   if ((m = SUBSTEP_END_OK_RE.exec(line))) { if (job.currentSubstep === m[1]) job.currentSubstep = null; return }
   if ((m = SUBSTEP_END_FAIL_RE.exec(line))) { job.currentSubstep = m[1]; return }
 }
@@ -453,6 +496,11 @@ function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete, onCa
     // Allocate workspace lazily (just-in-time) so a queued job that gets
     // cancelled before it runs never touches the disk.
     try {
+      // Task #17: emit the very first phase BEFORE the workspace clone so
+      // the admin progress bar advances off 0% the instant the job starts
+      // running, instead of sitting empty for the few seconds the clone
+      // takes on a fresh tree.
+      jobEmitPhase(job, 'workspace')
       jobAppend(job, '== Preparing isolated build workspace…')
       job.workspace = await createJobWorkspace(job.id, projectRoot)
       jobAppend(job, '   workspace: ' + path.relative(projectRoot, job.workspace))
@@ -483,6 +531,12 @@ function enqueueBuildJob({ label, channels, projectRoot, steps, onComplete, onCa
         jobAppend(job, '=== ' + step.label + ' ===')
         job.currentStep = step.label
         job.currentSubstep = null
+        // Task #17: a step may declare a `phase` id. The build-customer step
+        // doesn't (its phases are emitted by the SUBSTEP_BEGIN log lines from
+        // build-customer.js itself), but the publish step does — that one is
+        // a single child process with no substeps, so the only place to mark
+        // it on the bar is at step entry.
+        if (step.phase) jobEmitPhase(job, step.phase)
         const stepEnv = {
           ...(step.env || {}),
           BUILD_OUTPUT_DIR: launcherDist,
@@ -600,6 +654,16 @@ function listJobs() {
     failedStep: j.failedStep,
     currentStep: j.currentStep,
     currentSubstep: j.currentSubstep,
+    // Task #17: snapshot fields used by the admin UI to rehydrate the
+    // progress bar IMMEDIATELY on a mid-build page refresh — before the SSE
+    // replay catches up and even when the phase event has fallen out of the
+    // 5000-entry output ring buffer for a very chatty build. The four
+    // `currentPhase*` fields are a complete description of "where the bar
+    // should sit right now" without needing the PHASES table client-side.
+    currentPhase: j.currentPhase,
+    currentPhaseLabel: j.currentPhase ? (phaseById(j.currentPhase)?.label || null) : null,
+    currentPhaseWeight: j.currentPhase ? (phaseById(j.currentPhase)?.weight || 0) : 0,
+    currentPhaseWeightSoFar: j.currentPhase ? weightSoFar(j.currentPhase) : 0,
     queuePosition: j.status === 'queued' ? (QUEUE.indexOf(j.id) + 1) : null,
   }))
 }
@@ -633,6 +697,7 @@ module.exports = {
   attachListener,
   setOnSlotChange,
   jobAppend,
+  jobEmitPhase,
   // exported for unit tests + scripts/build-customer.js EPERM fix
   rmrfWithRetry,
   createJobWorkspace,

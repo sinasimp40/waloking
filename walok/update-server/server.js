@@ -840,12 +840,18 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
       cmd: process.execPath, args: ['scripts/build-customer.js', ch],
       cwd: '.',
       env: { BUILD_VERSION: v },
+      // No `phase` here — build-customer.js prints [SUBSTEP_BEGIN] markers
+      // for each of its 5 inner phases (rebrand → vite → pack-launcher →
+      // pack-server → collect), and the job-runner translates those into
+      // jobEmitPhase calls so the bar advances 5 times during this single
+      // step instead of jumping from `workspace` straight to `publish`.
     })
     steps.push({
       label: 'Ship "' + ch + '" v' + v + ' to update server',
       cmd: process.execPath, args: ['scripts/publish-update.js', ch],
       cwd: '.',
       env: { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR },
+      phase: 'publish', // single-process step — emit at step entry.
     })
 
     const job = jobRunner.enqueueBuildJob({

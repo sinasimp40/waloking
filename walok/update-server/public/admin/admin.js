@@ -384,6 +384,14 @@ async function triggerBuild(opts) {
 // the CLEAR FINISHED button to drop terminated cards in one click.
 const consoleCards = new Map()
 
+// Task #17: total typical wall-clock for one customer build on the operator's
+// machine. Used purely as the ETA denominator for the in-phase "creep" so the
+// bar never freezes during a long step (electron-builder = ~30s with no log
+// output). Wrong by 2x in either direction is fine — the bar still lands at
+// the next phase's start whenever the next phase event fires, and snaps to
+// 100% on success.
+const BUILD_TOTAL_ETA_SEC = 90
+
 function ensureConsoleCard(jobId, label) {
   const empty = document.getElementById('consoles-empty')
   if (empty) empty.classList.add('hidden')
@@ -398,8 +406,17 @@ function ensureConsoleCard(jobId, label) {
     '<div class="console-card-head">' +
       '<span class="console-card-title"></span>' +
       '<span class="status-pill running">RUNNING</span>' +
+      '<span class="console-card-elapsed" title="Elapsed wall-clock since the job started">00:00</span>' +
       '<button type="button" class="btn-secondary small console-card-cancel">CANCEL</button>' +
-      '<span class="console-card-step muted small"></span>' +
+    '</div>' +
+    '<div class="progress-block">' +
+      '<div class="progress-row">' +
+        '<span class="progress-phase">Waiting in queue…</span>' +
+        '<span class="progress-pct">0%</span>' +
+      '</div>' +
+      '<div class="progress-bar">' +
+        '<div class="progress-fill" style="width:0%"></div>' +
+      '</div>' +
     '</div>' +
     '<div class="job-error-banner hidden">' +
       '<div class="job-error-banner-title">!! BUILD FAILED</div>' +
@@ -411,18 +428,32 @@ function ensureConsoleCard(jobId, label) {
         '<span class="job-error-exit-text">—</span>' +
       '</div>' +
     '</div>' +
-    '<pre class="console"></pre>'
+    '<div class="log-toggle-row">' +
+      '<button type="button" class="btn-ghost small log-toggle">SHOW LOG</button>' +
+    '</div>' +
+    '<pre class="console hidden"></pre>'
   card.querySelector('.console-card-title').textContent = label + ' (job ' + jobId + ')'
   const cancelBtn = card.querySelector('.console-card-cancel')
   cancelBtn.addEventListener('click', () => cancelJob(jobId))
+  const logToggle = card.querySelector('.log-toggle')
+  const consoleEl = card.querySelector('.console')
+  logToggle.addEventListener('click', () => {
+    const hidden = consoleEl.classList.toggle('hidden')
+    logToggle.textContent = hidden ? 'SHOW LOG' : 'HIDE LOG'
+    if (!hidden) consoleEl.scrollTop = consoleEl.scrollHeight
+  })
   area.appendChild(card)
 
   const rec = {
     card,
-    output: card.querySelector('.console'),
+    output: consoleEl,
     statusPill: card.querySelector('.status-pill'),
-    stepEl: card.querySelector('.console-card-step'),
     cancelBtn,
+    elapsedEl: card.querySelector('.console-card-elapsed'),
+    phaseEl: card.querySelector('.progress-phase'),
+    pctEl: card.querySelector('.progress-pct'),
+    fillEl: card.querySelector('.progress-fill'),
+    logToggle,
     banner: card.querySelector('.job-error-banner'),
     bannerStep: card.querySelector('.job-error-step-text'),
     bannerExit: card.querySelector('.job-error-exit-text'),
@@ -440,10 +471,97 @@ function ensureConsoleCard(jobId, label) {
     // remove old <div> children from the head of `output`. 5000 lines is more
     // than enough to debug and well below the point where the tab struggles.
     MAX_LINES: 5000,
+    // --- Progress / phase state ---
+    // The current phase event we received, plus an interval id for the
+    // in-phase "creep" + the elapsed-timer tick. setProgressFromPhase()
+    // owns these.
+    currentPhase: null,    // {phase, label, weight, weightSoFar} or null
+    barFraction: 0,        // 0..1 — last fraction we set on .progress-fill
+    creepTimer: null,
+    elapsedTimer: null,
+    startedAt: null,
   }
   consoleCards.set(jobId, rec)
   updateClearFinishedButton()
   return rec
+}
+
+// Animate the bar smoothly within the current phase. The CSS transition
+// already handles the jump-to-phase-start when a phase event fires; this
+// function adds the in-phase "creep" so a long step (electron-builder is
+// ~30s with periods of total log silence) doesn't make the bar look frozen.
+//
+// Creep target = weightSoFar + 0.95*weight. We deliberately stop short of
+// the next phase's start so the bar still has somewhere to JUMP when the
+// next phase event arrives — that visible step-up is the operator's cue
+// that "the next thing started", which matters for cancellable steps.
+function setProgressFromPhase(rec, phaseEvt) {
+  rec.currentPhase = phaseEvt
+  const start = phaseEvt.weightSoFar
+  const end = Math.min(0.999, start + phaseEvt.weight * 0.95)
+  rec.phaseEl.textContent = phaseEvt.label
+  setBarFraction(rec, start)
+  // Clear any previous creep before starting a new one.
+  if (rec.creepTimer) { clearInterval(rec.creepTimer); rec.creepTimer = null }
+  // Per-phase ETA in ms — a fraction of the global build estimate scaled
+  // by this phase's weight.
+  const etaMs = Math.max(800, phaseEvt.weight * BUILD_TOTAL_ETA_SEC * 1000)
+  const ticks = 30                                   // ~3.3% of phase per tick
+  const stepInterval = Math.max(150, etaMs / ticks)
+  const startedTickAt = Date.now()
+  rec.creepTimer = setInterval(() => {
+    if (rec.finished) {
+      clearInterval(rec.creepTimer)
+      rec.creepTimer = null
+      return
+    }
+    const elapsed = Date.now() - startedTickAt
+    // Asymptotic curve toward `end` so the bar never quite reaches it
+    // before the next phase fires. Looks like a slowing creep.
+    const progress = 1 - Math.exp(-elapsed / etaMs)
+    const target = start + (end - start) * progress
+    if (target > rec.barFraction) setBarFraction(rec, target)
+  }, stepInterval)
+}
+
+function setBarFraction(rec, frac) {
+  const f = Math.max(0, Math.min(1, frac))
+  rec.barFraction = f
+  const pct = Math.round(f * 100)
+  rec.fillEl.style.width = pct + '%'
+  rec.pctEl.textContent = pct + '%'
+}
+
+function fmtElapsed(ms) {
+  if (ms < 0) ms = 0
+  const s = Math.floor(ms / 1000)
+  const mm = Math.floor(s / 60)
+  const ss = s % 60
+  return String(mm).padStart(2, '0') + ':' + String(ss).padStart(2, '0')
+}
+
+function startElapsedTicker(rec) {
+  if (rec.elapsedTimer) return
+  if (!rec.startedAt) rec.startedAt = Date.now()
+  rec.elapsedEl.textContent = fmtElapsed(Date.now() - rec.startedAt)
+  rec.elapsedTimer = setInterval(() => {
+    if (rec.finished) return
+    rec.elapsedEl.textContent = fmtElapsed(Date.now() - rec.startedAt)
+  }, 1000)
+}
+
+function stopElapsedTicker(rec) {
+  if (rec.elapsedTimer) {
+    clearInterval(rec.elapsedTimer)
+    rec.elapsedTimer = null
+  }
+  if (rec.creepTimer) {
+    clearInterval(rec.creepTimer)
+    rec.creepTimer = null
+  }
+  if (rec.startedAt) {
+    rec.elapsedEl.textContent = fmtElapsed(Date.now() - rec.startedAt)
+  }
 }
 
 // Flush all queued lines for `rec` in a single DOM mutation. Called from
@@ -520,6 +638,13 @@ function streamJob(jobId, label) {
   }
   setCardStatus(rec, 'RUNNING', 'running')
   rec.cancelBtn.classList.remove('hidden')
+  // NOTE: we deliberately do NOT call startElapsedTicker here. The ticker
+  // is started by renderQueue's snapshot pass once the job is observed in
+  // the active set, with rec.startedAt seeded from j.startedAt (the
+  // server-authoritative start time). Starting it eagerly here would
+  // wrongly include queue-wait time for rehydrated cards whose underlying
+  // job is still QUEUED — and would tick from the local card-creation
+  // moment instead of the server's startedAt for jobs that just dispatched.
 
   const evt = new EventSource('/api/admin/jobs/' + jobId + '/stream')
   rec.evt = evt
@@ -537,8 +662,17 @@ function streamJob(jobId, label) {
         appendConsoleLine(rec, '', '')
         if (cancelled) {
           appendConsoleLine(rec, '=== CANCELLED ===', 'error')
+          // Stop the bar wherever it is, mute its colour. Don't snap to 100%
+          // — leaving it at the cancelled position preserves the operator's
+          // mental model of "it stopped here".
+          rec.card.classList.add('cancelled')
+          rec.phaseEl.textContent = 'Cancelled'
         } else if (ok) {
           appendConsoleLine(rec, '=== SUCCESS (exit ' + data.exitCode + ') ===', 'success')
+          // Snap the bar to 100% on success so a fast build that didn't have
+          // time to creep through every phase still LOOKS finished.
+          setBarFraction(rec, 1)
+          rec.phaseEl.textContent = 'Done'
         } else {
           appendConsoleLine(rec, '=== FAILED (exit ' + data.exitCode + ') ===', 'error')
           if (data.failedStep) {
@@ -547,6 +681,14 @@ function streamJob(jobId, label) {
           rec.bannerStep.textContent = data.failedStep || '(unknown — see console)'
           rec.bannerExit.textContent = String(data.exitCode == null ? '?' : data.exitCode)
           rec.banner.classList.remove('hidden')
+          rec.card.classList.add('failed')
+          rec.phaseEl.textContent = 'Failed: ' + (data.failedStep || 'unknown step')
+          // Auto-expand the log on failure so the operator immediately sees
+          // the tail without an extra click.
+          if (rec.output.classList.contains('hidden')) {
+            rec.output.classList.remove('hidden')
+            rec.logToggle.textContent = 'HIDE LOG'
+          }
         }
         // Force a synchronous flush so the user sees every queued line
         // (including the just-appended === SUCCESS === / banner) BEFORE the
@@ -558,9 +700,14 @@ function streamJob(jobId, label) {
         rec.finished = true
         rec.card.classList.add('finished')
         rec.cancelBtn.classList.add('hidden')
-        rec.stepEl.textContent = ''
+        stopElapsedTicker(rec)
         updateClearFinishedButton()
         loadCustomers()
+        return
+      }
+      // Task #17: structured phase event drives the progress bar.
+      if (data.phase) {
+        setProgressFromPhase(rec, data)
         return
       }
       let cls = ''
@@ -654,7 +801,13 @@ function renderQueue(snap) {
     const row = document.createElement('div')
     row.className = 'queue-row queue-row-' + kind
     const status = kind === 'active' ? 'RUNNING' : ('QUEUED #' + pos)
-    const stepNote = j.currentStep ? (' — step: ' + j.currentStep) : ''
+    // Prefer the more granular phase label when the job has reached one;
+    // fall back to the coarser step label for jobs still in the early
+    // workspace-allocation phase before the first SUBSTEP_BEGIN fires.
+    const phaseLabel = j.currentPhaseLabel
+      ? (' — ' + j.currentPhaseLabel)
+      : (j.currentStep ? (' — step: ' + j.currentStep) : '')
+    const stepNote = phaseLabel
     const chans = (j.channels && j.channels.length) ? (' [' + j.channels.join(', ') + ']') : ''
     row.innerHTML =
       '<span class="queue-row-status">' + status + '</span>' +
@@ -680,20 +833,57 @@ function renderQueue(snap) {
       }
     }
   }
-  // Mirror each non-terminal job's current step + queue/run status onto its
-  // console card header. The card's status pill defaults to RUNNING when
-  // ensureConsoleCard creates it (covers the common /api/admin/build case
-  // where the card is opened the moment a job dispatches), so this snapshot
-  // pass corrects rehydrated cards that were actually QUEUED at refresh time
-  // and keeps the pill in sync as a queued job becomes active.
+  // Mirror each non-terminal job's queue/run status onto its console card,
+  // and — critically for Task #17 mid-build refresh UX — seed the progress
+  // bar from the snapshot data so a refreshed card never sits at 0% or
+  // "Waiting in queue…" while waiting for the SSE replay to catch up. The
+  // snapshot carries currentPhase + currentPhaseLabel + currentPhaseWeight
+  // + currentPhaseWeightSoFar (see job-runner.listJobs), which is enough
+  // to reconstruct the same {phase,label,weight,weightSoFar} object that
+  // setProgressFromPhase consumes during a live SSE stream. We also seed
+  // the elapsed timer from j.startedAt so the mm:ss counter is wall-clock
+  // accurate even if the operator opened the panel mid-build.
   const queuedSet = new Set(queue.queued)
   const activeSet = new Set(queue.active)
   for (const j of jobs) {
     const rec = consoleCards.get(j.id)
     if (rec && !rec.finished) {
-      rec.stepEl.textContent = j.currentStep ? ('step: ' + j.currentStep) : ''
-      if (queuedSet.has(j.id)) setCardStatus(rec, 'QUEUED', 'queued')
-      else if (activeSet.has(j.id)) setCardStatus(rec, 'RUNNING', 'running')
+      if (queuedSet.has(j.id)) {
+        setCardStatus(rec, 'QUEUED', 'queued')
+        if (!rec.currentPhase) rec.phaseEl.textContent = 'Waiting in queue…'
+        // Queued jobs haven't started running yet — make sure the elapsed
+        // counter stays at 00:00 (a previously-active card that re-queued
+        // somehow would otherwise keep ticking up). The ticker is restarted
+        // when this job moves to ACTIVE on a later snapshot.
+        if (rec.elapsedTimer) {
+          clearInterval(rec.elapsedTimer)
+          rec.elapsedTimer = null
+        }
+        rec.elapsedEl.textContent = '00:00'
+      } else if (activeSet.has(j.id)) {
+        setCardStatus(rec, 'RUNNING', 'running')
+        // Always trust j.startedAt as the source of truth for when the
+        // job ACTUALLY started running (server clock). This prevents the
+        // elapsed counter from including queue-wait time and corrects
+        // any earlier seed that was off (e.g. card created before the
+        // job dispatched, or different system clocks).
+        if (j.startedAt) rec.startedAt = j.startedAt
+        startElapsedTicker(rec)
+      }
+      // Seed the progress bar from the snapshot. Skip if a more recent
+      // phase has already arrived via SSE (rec.currentPhase is the live
+      // phase event object whose .phase id we compare). For queued jobs
+      // currentPhase is null so this is a no-op — the bar correctly stays
+      // at 0% until the job becomes active.
+      if (j.currentPhase && (!rec.currentPhase || rec.currentPhase.phase !== j.currentPhase)) {
+        setProgressFromPhase(rec, {
+          phase: j.currentPhase,
+          label: j.currentPhaseLabel || j.currentPhase,
+          weight: j.currentPhaseWeight || 0,
+          weightSoFar: j.currentPhaseWeightSoFar || 0,
+          startedAt: j.startedAt || Date.now(),
+        })
+      }
     }
   }
 }
