@@ -69,6 +69,38 @@ function computeExeName(channel, multi) {
   return null
 }
 
+// Server exe basename for the manifest. The companion server is built with
+// productName = "<brandName> Server" (see walok/server/package.json), so
+// electron-builder emits "<brandName> Server.exe". This mirrors that exact
+// rule so the OTA manifest's exeName matches the file shipped inside
+// server-payload.zip — without it, the server's stageOutOfProcessApply()
+// short-circuits with "manifest missing exeName" and writes FAILED before
+// even creating the .bat applier (the field bug the user just reported).
+//
+// IMPORTANT: do NOT honor BUILD_PRODUCT_NAME here — that env var is the
+// LAUNCHER's product name (set by build-customer.js for the launcher build).
+// The server's product name is always "<brandName> Server".
+function computeServerExeName(channel, multi) {
+  let brand = null
+  if (channel) {
+    try {
+      const customerFile = path.join(ROOT, 'customers', channel + '.json')
+      if (fs.existsSync(customerFile)) {
+        const c = JSON.parse(fs.readFileSync(customerFile, 'utf-8'))
+        if (c && c.brandName) brand = c.brandName
+      }
+    } catch (e) {}
+  }
+  if (!brand) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'branding', 'config.json'), 'utf-8'))
+      if (cfg && cfg.brandName) brand = cfg.brandName
+    } catch (e) {}
+  }
+  if (!brand) return null
+  return sanitizeExeName(brand + ' Server')
+}
+
 function sha256OfFile(filePath) {
   const hash = crypto.createHash('sha256')
   hash.update(fs.readFileSync(filePath))
@@ -210,6 +242,20 @@ function publishChannel(channel, version, multi) {
     const srcZip = path.join(targetChannelDir, 'server-payload.zip')
     const destZip = path.join(serverManifestDir, 'server-payload.zip')
     if (srcZip !== destZip) fs.copyFileSync(srcZip, destZip)
+    // Compute the server exe basename so the OTA out-of-process applier can
+    // identify the new exe after a rebrand. Without exeName the server-side
+    // stageOutOfProcessApply() rejects the manifest at the first gate and
+    // writes .ota-pending/FAILED before any .bat / overlay JSON is produced
+    // (the field bug: server folder never wiped, payload never extracted).
+    // We refuse to publish a server manifest with no exeName — silently
+    // shipping it would just reproduce the field bug for every install.
+    const serverExeName = computeServerExeName(channel, multi)
+    if (!serverExeName) {
+      err('Server publish ABORTED — could not determine serverExeName for channel "' + channel +
+        '" (no brandName in customers/' + channel + '.json or branding/config.json). ' +
+        'Server OTA needs exeName in the manifest or applyPendingUpdateOnStartup will write FAILED.')
+      return false
+    }
     const serverManifest = {
       version: version,
       channel: channel + '-server',
@@ -219,6 +265,7 @@ function publishChannel(channel, version, multi) {
         size: serverInfo.size,
         sha256: serverInfo.sha256
       },
+      ...(serverExeName ? { exeName: serverExeName } : {}),
       notes: 'Server update v' + version
     }
     const serverManifestPath = path.join(UPDATE_SERVER_PUBLIC, channel + '-server', 'latest.json')

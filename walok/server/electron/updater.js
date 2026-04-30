@@ -1091,11 +1091,16 @@ function buildPhase2ApplierVbs(batRelative) {
   ].join('\r\n')
 }
 
+// Mirror of walok/electron/updater.js — allows ASCII space because the
+// companion server's productName is "<brand> Server" so its exe basename
+// always contains a space (e.g. "DENFIS Server.exe"). All other command
+// metacharacters remain rejected — the value flows into the .bat through
+// quoted paths only.
 function isSafeExeBasename(name) {
   return typeof name === 'string'
     && name.length > 0
     && name.length <= 128
-    && /^[A-Za-z0-9._-]+\.exe$/i.test(name)
+    && /^[A-Za-z0-9._\- ]+\.exe$/i.test(name)
 }
 
 function stageOutOfProcessApply(appRoot, pendingDir, opts) {

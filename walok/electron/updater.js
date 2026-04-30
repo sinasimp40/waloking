@@ -1117,14 +1117,18 @@ function buildPhase2ApplierVbs(batRelative) {
   ].join('\r\n')
 }
 
-// Strict whitelist for an exe basename. The launcher exes we ship only ever
-// match `^[A-Za-z0-9._-]+\.exe$` so a defense-in-depth whitelist rejects
-// junk basenames at the door before we hand the value to the .bat applier.
+// Strict whitelist for an exe basename. The shipped exes match
+// `^[A-Za-z0-9._\- ]+\.exe$` — alphanumerics, dot, underscore, hyphen, and
+// SPACE (the companion server's productName is "<brand> Server" so its
+// basename always has a space, e.g. "DENFIS Server.exe"). The whitelist
+// continues to reject command metacharacters (& | > < ^ % " quotes,
+// slashes, colon, etc.) so the value remains safe to pass through the
+// quoted .bat / .vbs argument paths.
 function isSafeExeBasename(name) {
   return typeof name === 'string'
     && name.length > 0
     && name.length <= 128
-    && /^[A-Za-z0-9._-]+\.exe$/i.test(name)
+    && /^[A-Za-z0-9._\- ]+\.exe$/i.test(name)
 }
 
 // Pre-write the post-extract overlay files (merged ota-config + cleanup
