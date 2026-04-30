@@ -602,13 +602,20 @@ function renderQueue(snap) {
       }
     }
   }
-  // Mirror each running job's current step onto its console card header so
-  // the operator sees "step: Build customer X v1.2.3" without scrolling
-  // through the streaming log to find the latest "$ command…" line.
+  // Mirror each non-terminal job's current step + queue/run status onto its
+  // console card header. The card's status pill defaults to RUNNING when
+  // ensureConsoleCard creates it (covers the common /api/admin/build case
+  // where the card is opened the moment a job dispatches), so this snapshot
+  // pass corrects rehydrated cards that were actually QUEUED at refresh time
+  // and keeps the pill in sync as a queued job becomes active.
+  const queuedSet = new Set(queue.queued)
+  const activeSet = new Set(queue.active)
   for (const j of jobs) {
     const rec = consoleCards.get(j.id)
     if (rec && !rec.finished) {
       rec.stepEl.textContent = j.currentStep ? ('step: ' + j.currentStep) : ''
+      if (queuedSet.has(j.id)) setCardStatus(rec, 'QUEUED', 'queued')
+      else if (activeSet.has(j.id)) setCardStatus(rec, 'RUNNING', 'running')
     }
   }
 }

@@ -92,8 +92,13 @@ function cleanupAfterBuild({ projectRoot, updatesPublicDir, channels, version, k
 // Channel + version regex MUST match server.js's isValidChannel/isValidVersion.
 // Duplicated here so cleanup.js can reject an obviously bogus input
 // (e.g. "..", "/", absolute path) on its own — defense in depth.
-const CHANNEL_RE_LOCAL = /^[a-z0-9][a-z0-9-]*$/
-const VERSION_RE_LOCAL = /^\d+\.\d+\.\d+/
+// Mirror server.js's CHANNEL_RE / VERSION_RE exactly so an input that the
+// server accepted (and may therefore have written into the updates dir) is
+// also accepted here for cleanup. Anything stricter would leave orphan
+// files un-sweepable; anything looser would widen the path-traversal
+// surface beyond what the server already validated.
+const CHANNEL_RE_LOCAL = /^[a-z0-9][a-z0-9-]{0,49}$/
+const VERSION_RE_LOCAL = /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/
 
 // Path-safe deletion of EXACTLY one cancelled job's half-published payload
 // + its raw build output. Used by per-job onCancel hooks so a cancelled

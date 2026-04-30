@@ -277,6 +277,7 @@ button{cursor:pointer;font-family:inherit;border-radius:4px;border:none;letter-s
   background:#1a0e08;color:var(--muted);text-transform:uppercase;
 }
 .status-pill.running{background:#3a2810;color:var(--orange)}
+.status-pill.queued{background:#2a2a18;color:#FFD27A}
 .status-pill.success{background:#0a3a14;color:var(--success)}
 .status-pill.failed{background:#3a0a0a;color:var(--error)}
 .job-error-banner{
