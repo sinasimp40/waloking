@@ -751,23 +751,10 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
   // the request handler before any job is enqueued. On the typical operator
   // machine deps are already populated (rootDepsInstalled()===true) so this
   // is a noop; on a truly fresh tree it blocks the request once.
-  // The check-then-install pattern below is wrapped in a CROSS-PROCESS
-  // filesystem lock. Reasoning:
-  //
-  //   - Inside one Node process, the synchronous `spawnSync` already
-  //     serialises overlapping requests on the event loop.
-  //   - But if the operator runs TWO ota-update-server processes against
-  //     the same PROJECT_ROOT (primary + hot-spare during maintenance,
-  //     accidentally during a deploy), each process has its OWN event
-  //     loop — and both could spawnSync `npm install` against the SAME
-  //     shared node_modules at the same time. npm is not concurrency-safe
-  //     on a shared install target → corrupted tree.
-  //
-  //   - The lock is acquired ONLY when we actually need to install. If
-  //     deps are already populated, we never touch the lockfile, so
-  //     normal hot-path requests pay zero overhead.
-  //   - Double-check after acquire: if a sibling process just finished
-  //     an install and released the lock, we now see the deps and skip.
+  // Cross-process filesystem lock so two OTA server instances against
+  // the same PROJECT_ROOT can't run `npm install` concurrently against
+  // shared node_modules. Acquired only when an install is actually
+  // needed; double-checked after acquire in case a sibling just finished.
   if (!rootDepsInstalled() || (fs.existsSync(serverDir) && !serverDepsInstalled())) {
     let lock
     try {
@@ -782,15 +769,10 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
     }
     try {
       const installSteps = []
-      // Re-check INSIDE the lock — a sibling process may have completed
-      // the install while we were waiting on acquire().
       if (!rootDepsInstalled()) installSteps.push({ cwd: PROJECT_ROOT, label: 'root' })
       if (fs.existsSync(serverDir) && !serverDepsInstalled()) installSteps.push({ cwd: serverDir, label: 'server' })
       for (const s of installSteps) {
-        // Refresh the lockfile mtime before each step so a multi-step
-        // install (root + server) cannot accumulate enough wall-clock
-        // age to be mistaken for a stale crash by another instance.
-        lock.touch()
+        lock.touch() // keep mtime fresh across a multi-step install
         const r = require('child_process').spawnSync(NPM_CMD, ['install', '--no-audit', '--no-fund'], {
           cwd: s.cwd, shell: true, stdio: 'pipe', encoding: 'utf-8',
         })
@@ -801,11 +783,6 @@ app.post('/api/admin/build', requireAdmin, (req, res) => {
         }
       }
     } finally {
-      // ALWAYS release — even if `npm install` crashed, an early return
-      // fired above, or something else threw. Without this finally a
-      // single bad install would brick all subsequent /api/admin/build
-      // requests on every OTA server until the operator manually deleted
-      // the lockfile (or 30 min stale-recovery kicked in).
       lock.release()
     }
   }
