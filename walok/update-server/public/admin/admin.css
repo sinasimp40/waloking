@@ -26,6 +26,8 @@ body{
 .error{color:var(--error);margin-top:10px;font-size:13px;min-height:18px}
 .path{font-family:'Consolas',monospace;font-size:12px;color:var(--orange-soft);word-break:break-all}
 .lbl{font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-right:6px}
+.build-stamp{font-family:'Consolas',monospace;font-size:11px;color:var(--orange-soft);cursor:pointer;user-select:none;outline:none}
+.build-stamp:hover,.build-stamp:focus{color:var(--orange);text-decoration:underline dotted}
 
 /* === LOGIN === */
 #login-screen{display:flex;align-items:center;justify-content:center;padding:20px}

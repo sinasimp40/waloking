@@ -46,10 +46,36 @@ async function init() {
     state.projectRoot = status.projectRoot
     state.buildsAvailable = status.buildsAvailable
     state.deps = status.deps || null
+    state.buildStamp = status.buildStamp || null
     if (status.authenticated) showApp()
     else showLogin()
   } catch (e) {
     showLogin()
+  }
+}
+
+// Format the update-server build stamp as a compact one-liner the operator
+// can read at a glance: "7ca8680 · 2026-04-30 14:02 · node v24.10.0".
+// Click-to-copy puts the full JSON on the clipboard for support questions.
+function renderBuildStamp(stamp) {
+  const el = $('#build-stamp')
+  if (!el) return
+  if (!stamp) { el.textContent = '?'; return }
+  const builtAt = stamp.builtAt
+    ? new Date(stamp.builtAt).toISOString().slice(0, 16).replace('T', ' ')
+    : '—'
+  const hash = stamp.contentHash || '?'
+  const node = stamp.node || ''
+  el.textContent = hash + ' · ' + builtAt + (node ? ' · node ' + node : '')
+  el.title = JSON.stringify(stamp, null, 2) +
+    '\n\nClick to copy this build stamp to the clipboard.'
+  el.onclick = () => {
+    try {
+      navigator.clipboard.writeText(JSON.stringify(stamp))
+      const prev = el.textContent
+      el.textContent = 'copied'
+      setTimeout(() => { el.textContent = prev }, 900)
+    } catch (_) {}
   }
 }
 
@@ -100,6 +126,7 @@ async function showApp() {
   $('#version-input').value = ''
   $('#version-input').placeholder = state.version ? bumpPatch(state.version) : '1.0.1'
   renderDepsStatus(state.deps)
+  renderBuildStamp(state.buildStamp)
   if (!state.buildsAvailable) {
     const banner = $('#warning-banner')
     banner.textContent = 'Project root not detected — admin can edit customer configs but CANNOT trigger builds. Set OTA_PROJECT_ROOT environment variable to the path of your launcher project, then restart this server.'
@@ -693,6 +720,7 @@ $('#login-form').addEventListener('submit', async (e) => {
     state.projectRoot = status.projectRoot
     state.buildsAvailable = status.buildsAvailable
     state.deps = status.deps || null
+    state.buildStamp = status.buildStamp || null
     showApp()
   } catch (e) {
     $('#login-error').textContent = e.message

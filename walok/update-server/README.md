@@ -23,6 +23,19 @@ sudo ufw allow 4231/tcp     # Ubuntu/Debian
 sudo firewall-cmd --add-port=4231/tcp --permanent && sudo firewall-cmd --reload   # CentOS/RHEL
 ```
 
+## Verifying which build is running
+
+The admin panel header shows a `BUILD` field with a short content hash (e.g.
+`7ca8680 · 2026-04-30 14:02 · node v24.10.0`). It's a sha256 of the running
+update-server's source files, truncated to 7 hex chars — same idea as a git
+short rev, but it works without git installed.
+
+Use this when troubleshooting "is my fix actually deployed?" After copying a
+new `update-server/` folder to your Windows machine and restarting `start.bat`,
+the `BUILD` hash should change. If it doesn't, you're still running the old
+code. The same data is also available at `GET /api/admin/build-info` (admin
+auth required) and inside `/api/admin/status`.
+
 ## How publishing works
 
 After you've built one or more customers (`build-all.bat`), run:

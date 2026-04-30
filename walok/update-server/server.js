@@ -28,6 +28,46 @@ const SERVER_VERSION = (() => {
   catch (e) { return null }
 })()
 
+// Build stamp computed at boot. Lets the operator confirm in the admin UI
+// which copy of update-server/ is actually running, so questions like "is the
+// SSE crash fix really deployed?" can be answered without reading stack
+// traces. The contentHash is a sha256 of the server's core source files
+// (truncated to 7 hex chars) — same idea as a git short rev, but works on
+// Windows machines that never installed git.
+const BUILD_STAMP = (() => {
+  const sourceFiles = [
+    path.join(__dirname, 'server.js'),
+    path.join(__dirname, 'job-runner.js'),
+    path.join(__dirname, 'live.js'),
+    path.join(__dirname, 'cleanup.js'),
+    path.join(__dirname, 'db.js'),
+    path.join(__dirname, 'package.json'),
+  ]
+  const hash = crypto.createHash('sha256')
+  let newestMtime = 0
+  for (const f of sourceFiles) {
+    try {
+      const buf = fs.readFileSync(f)
+      // Mix the basename + a NUL delimiter into the hash before the bytes.
+      // This way, content moved between files (or a file becoming empty)
+      // produces a different digest, not the same one.
+      hash.update(path.basename(f) + '\0')
+      hash.update(buf)
+      hash.update('\0')
+      const m = fs.statSync(f).mtimeMs
+      if (m > newestMtime) newestMtime = m
+    } catch (_) { /* file missing — ignored, hash still distinguishes builds */ }
+  }
+  const builtAt = newestMtime > 0 ? new Date(newestMtime).toISOString() : null
+  return {
+    version: SERVER_VERSION,
+    builtAt,
+    contentHash: hash.digest('hex').slice(0, 7),
+    node: process.version,
+    bootedAt: new Date().toISOString(),
+  }
+})()
+
 const CHANNEL_RE = /^[a-z0-9][a-z0-9-]{0,49}$/
 const VERSION_RE = /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/
 function isValidChannel(c) { return typeof c === 'string' && CHANNEL_RE.test(c) }
@@ -486,7 +526,21 @@ app.get('/api/admin/status', (req, res) => {
     version: getProjectVersion(),
     serverVersion: SERVER_VERSION,
     deps: depsStatus(),
+    // Mirrored so the admin UI gets the build stamp on its first request
+    // (no second round-trip needed).
+    buildStamp: BUILD_STAMP,
   })
+})
+
+// Read-only build identifier for the running update-server process. Lets the
+// operator confirm which copy of update-server/ is actually running, so
+// "is the SSE crash fix really deployed?" can be answered in seconds. Note:
+// this GET coexists with the existing POST /api/admin/version (which bumps
+// the PROJECT version, not the update-server version) — Express dispatches
+// by method, but consumers should prefer this endpoint's name to avoid
+// confusion.
+app.get('/api/admin/build-info', requireAdmin, (req, res) => {
+  res.json(BUILD_STAMP)
 })
 
 app.get('/api/admin/customers', requireAdmin, (req, res) => {
