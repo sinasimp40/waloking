@@ -639,6 +639,44 @@ button:disabled {
 .source-card-error:empty,
 .source-card-busy.hidden { display: none; }
 
+/* Real-time upload progress bar — shown during the actual byte-streaming
+ * phase of an upload (driven by xhr.upload.onprogress). Once the upload
+ * hits 100% the bar hides and the existing .source-card-busy "Extracting +
+ * swapping..." message takes over for the server-side processing phase. */
+.upload-progress {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.upload-progress.hidden { display: none; }
+.upload-progress-track {
+  height: 8px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.upload-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 999px;
+  transition: width 120ms ease-out;
+  box-shadow: 0 0 8px var(--accent-soft);
+}
+.upload-progress-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.upload-progress-pct { font-weight: 600; color: var(--accent); min-width: 42px; }
+.upload-progress-bytes { font-family: var(--font-mono); }
+
 @media (max-width: 720px) {
   .source-cards { grid-template-columns: 1fr; }
   .source-card-form button { width: 100%; min-width: 0; }

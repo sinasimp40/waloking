@@ -86,6 +86,10 @@
             <input type="file" name="file" accept=".zip,application/zip" required />
             <button type="submit" class="btn-primary">Replace Project Source</button>
           </form>
+          <div class="upload-progress hidden" id="src-project-progress">
+            <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+            <div class="upload-progress-label"><span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+          </div>
           <div class="source-card-error error" id="src-project-error"></div>
           <div class="source-card-busy muted hidden" id="src-project-busy">Extracting…</div>
         </div>
@@ -106,6 +110,10 @@
                 <input type="file" name="file" accept=".zip,application/zip" required />
                 <button type="submit" class="btn-primary">Replace Launcher Source</button>
               </form>
+              <div class="upload-progress hidden" id="src-launcher-progress">
+                <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+                <div class="upload-progress-label"><span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+              </div>
               <div class="source-card-error error" id="src-launcher-error"></div>
               <div class="source-card-busy muted hidden" id="src-launcher-busy">Extracting…</div>
             </div>
@@ -121,6 +129,10 @@
                 <input type="file" name="file" accept=".zip,application/zip" required />
                 <button type="submit" class="btn-primary">Replace Server Source</button>
               </form>
+              <div class="upload-progress hidden" id="src-server-progress">
+                <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+                <div class="upload-progress-label"><span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+              </div>
               <div class="source-card-error error" id="src-server-error"></div>
               <div class="source-card-busy muted hidden" id="src-server-busy">Extracting…</div>
             </div>

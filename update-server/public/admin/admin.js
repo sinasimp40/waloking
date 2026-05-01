@@ -253,6 +253,103 @@ async function refreshSourceStatus() {
 // then POSTs multipart to /api/admin/update-source. On success: clears the
 // file input + repaints status. On 409 (build running) or 4xx: surfaces the
 // server error in the card-local error slot.
+// Format a byte count as "12.4 MB" / "843 KB" / "512 B" — used by the
+// real-time upload progress bar so the operator can see actual transfer
+// numbers (not just a percentage), which matters when uploading a 50–100MB
+// walok zip from a remote browser to the RDP host.
+function formatBytes(n) {
+  if (!Number.isFinite(n) || n < 0) return ''
+  if (n < 1024) return n + ' B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+  if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB'
+  return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+}
+
+// Upload a FormData via XMLHttpRequest so we get real upload.onprogress
+// events (fetch() does not expose upload progress in browsers). Resolves
+// with { ok, status, data } where data is the parsed JSON body (or {} if
+// the body is not JSON). Rejects only on network-layer failures (DNS,
+// connection drop, abort) — HTTP error statuses come back via { ok:false }
+// so the caller can read data.error like the old fetch() code did.
+//
+// Callbacks:
+//   onProgress(loaded, total) — fires repeatedly with real byte counts.
+//   onUploadDone()            — fires exactly once after the last byte is
+//                               sent, BEFORE the server response arrives.
+//                               Use this to flip from "Uploading X%" to
+//                               the server-side busy indicator. Decoupled
+//                               from onProgress so the byte label is never
+//                               overwritten by a synthetic completion tick.
+function uploadWithProgress(url, formData, onProgress, onUploadDone) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url, true)
+    xhr.withCredentials = true
+    if (xhr.upload) {
+      if (typeof onProgress === 'function') {
+        xhr.upload.addEventListener('progress', (ev) => {
+          // ev.lengthComputable is false for chunked/unknown sizes; in our
+          // case we always send a known-size File so it should be true, but
+          // guard anyway so a weird browser doesn't throw.
+          if (ev.lengthComputable) onProgress(ev.loaded, ev.total)
+        })
+      }
+      if (typeof onUploadDone === 'function') {
+        // Belt-and-braces: some browsers (or a mid-flight network blip)
+        // skip the final 100% progress event. upload.onload fires once
+        // when the request body is fully sent — independent of progress
+        // events — so the caller can reliably flip into "server is
+        // processing" mode even if onProgress never reached loaded===total.
+        let done = false
+        const fire = () => { if (done) return; done = true; onUploadDone() }
+        xhr.upload.addEventListener('load', fire)
+        // Defensive: if the browser fires loadend without load (rare,
+        // happens on aborts), still flip — the response handler below
+        // will sort out success vs error.
+        xhr.upload.addEventListener('loadend', fire)
+      }
+    }
+    xhr.onload = () => {
+      let data = {}
+      try { data = JSON.parse(xhr.responseText || '{}') } catch (_) {}
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data })
+    }
+    xhr.onerror = () => reject(new Error('network error during upload'))
+    xhr.onabort = () => reject(new Error('upload aborted'))
+    xhr.ontimeout = () => reject(new Error('upload timed out'))
+    xhr.send(formData)
+  })
+}
+
+// Helper: drive a progress UI block (bar fill + "42% · 12.4 MB / 30.0 MB")
+// during the byte-streaming phase, then hide it so the existing busy text
+// can take over for the server-side extract/swap phase.
+function makeProgressUpdater(prefix) {
+  const wrap = $('#' + prefix + '-progress')
+  const fill = wrap && wrap.querySelector('.upload-progress-fill')
+  const pct  = wrap && wrap.querySelector('.upload-progress-pct')
+  const bytes = wrap && wrap.querySelector('.upload-progress-bytes')
+  return {
+    show() {
+      if (!wrap) return
+      wrap.classList.remove('hidden')
+      if (fill) fill.style.width = '0%'
+      if (pct) pct.textContent = '0%'
+      if (bytes) bytes.textContent = ''
+    },
+    update(loaded, total) {
+      if (!wrap) return
+      const p = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+      if (fill) fill.style.width = p + '%'
+      if (pct) pct.textContent = p + '%'
+      if (bytes) bytes.textContent = formatBytes(loaded) + ' / ' + formatBytes(total)
+    },
+    hide() {
+      if (wrap) wrap.classList.add('hidden')
+    },
+  }
+}
+
 async function submitUpdateSource(form) {
   const kind = form.dataset.sourceKind
   if (kind !== 'launcher' && kind !== 'server') return
@@ -262,22 +359,33 @@ async function submitUpdateSource(form) {
   const busyEl = $('#src-' + kind + '-busy')
   const submitBtn = form.querySelector('button[type="submit"]')
   const origLabel = submitBtn ? submitBtn.textContent : null
-  if (errEl) errEl.textContent = ''
+  const progress = makeProgressUpdater('src-' + kind)
+  if (errEl) { errEl.textContent = ''; errEl.style.color = '' }
   if (!file) { if (errEl) errEl.textContent = 'pick a .zip first'; return }
   const fd = new FormData()
   fd.append('kind', kind)
   fd.append('file', file)
-  if (busyEl) busyEl.classList.remove('hidden')
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Replacing…' }
+  progress.show()
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Uploading…' }
+  // The busy "Extracting…" text only makes sense AFTER the bytes have all
+  // been uploaded — we flip from progress bar → busy text inside the
+  // onUploadDone callback (see uploadWithProgress).
+  if (busyEl) busyEl.classList.add('hidden')
+  const onProgress = (loaded, total) => progress.update(loaded, total)
+  const onUploadDone = () => {
+    progress.hide()
+    if (submitBtn) submitBtn.textContent = 'Replacing…'
+    if (busyEl) busyEl.classList.remove('hidden')
+  }
   try {
-    const res = await fetch('/api/admin/update-source', { method: 'POST', body: fd, credentials: 'same-origin' })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.error || ('http ' + res.status))
+    const { ok, status, data } = await uploadWithProgress('/api/admin/update-source', fd, onProgress, onUploadDone)
+    if (!ok) throw new Error((data && data.error) || ('http ' + status))
     form.reset()
     refreshSourceStatus()
   } catch (e) {
-    if (errEl) errEl.textContent = e.message
+    if (errEl) { errEl.style.color = ''; errEl.textContent = e.message }
   } finally {
+    progress.hide()
     if (busyEl) busyEl.classList.add('hidden')
     if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
   }
@@ -1326,16 +1434,27 @@ if (_projectForm) {
     const busyEl = $('#src-project-busy')
     const submitBtn = form.querySelector('button[type="submit"]')
     const origLabel = submitBtn ? submitBtn.textContent : null
-    if (errEl) errEl.textContent = ''
+    if (errEl) { errEl.textContent = ''; errEl.style.color = '' }
     if (!file) { if (errEl) errEl.textContent = 'pick a .zip first'; return }
     const fd = new FormData()
     fd.append('file', file)
-    if (busyEl) { busyEl.classList.remove('hidden'); busyEl.textContent = 'Extracting + swapping subdirs (this can take 30–60s on Windows)…' }
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Replacing…' }
+    const progress = makeProgressUpdater('src-project')
+    progress.show()
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Uploading…' }
+    // Hide busy text until the bytes have actually finished uploading —
+    // we flip from progress-bar → busy text inside the onUploadDone
+    // callback (see uploadWithProgress). That way "Extracting + swapping…"
+    // only ever appears once the server is actually doing the extract.
+    if (busyEl) { busyEl.classList.add('hidden'); busyEl.textContent = 'Extracting + swapping subdirs (this can take 30–60s on Windows)…' }
+    const onProgress = (loaded, total) => progress.update(loaded, total)
+    const onUploadDone = () => {
+      progress.hide()
+      if (submitBtn) submitBtn.textContent = 'Replacing…'
+      if (busyEl) busyEl.classList.remove('hidden')
+    }
     try {
-      const res = await fetch('/api/admin/update-source-project', { method: 'POST', body: fd, credentials: 'same-origin' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || ('http ' + res.status))
+      const { ok, status, data } = await uploadWithProgress('/api/admin/update-source-project', fd, onProgress, onUploadDone)
+      if (!ok) throw new Error((data && data.error) || ('http ' + status))
       form.reset()
       // Surface a brief success summary so the operator sees what got
       // replaced (handy when debugging "did my electron/main.js fix
@@ -1356,6 +1475,7 @@ if (_projectForm) {
     } catch (e) {
       if (errEl) { errEl.style.color = ''; errEl.textContent = e.message }
     } finally {
+      progress.hide()
       if (busyEl) { busyEl.classList.add('hidden'); busyEl.textContent = 'Extracting…' }
       if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
     }
