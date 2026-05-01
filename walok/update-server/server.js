@@ -1214,6 +1214,37 @@ function _validateExtractedSourceShape(rootDir, kind) {
   }
 }
 
+// Windows-friendly rename with retry. On Linux/macOS rename is atomic and
+// pretty much always succeeds, but on Windows ANY open handle inside the
+// directory (Explorer window viewing it, editor with a file open, antivirus
+// scan in progress, vite dev server, ...) causes EPERM/EBUSY. Most of those
+// transient locks resolve within 1-2 seconds, so retry with backoff before
+// giving up. Total wait at default settings: ~3 seconds across 5 attempts.
+async function _renameWithRetry(src, dst, label) {
+  const codes = new Set(['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY'])
+  const delays = [100, 200, 400, 800, 1600] // ms
+  let lastErr = null
+  for (let i = 0; i <= delays.length; i++) {
+    try {
+      fs.renameSync(src, dst)
+      if (i > 0) console.log('[update-source] ' + label + ' rename succeeded on attempt ' + (i + 1))
+      return
+    } catch (e) {
+      lastErr = e
+      if (!codes.has(e.code) || i === delays.length) break
+      console.log('[update-source] ' + label + ' rename ' + e.code + ', retrying in ' + delays[i] + 'ms (attempt ' + (i + 2) + '/' + (delays.length + 1) + ')')
+      await new Promise(r => setTimeout(r, delays[i]))
+    }
+  }
+  // Decorate the error with Windows-specific guidance so the operator knows
+  // what to actually fix instead of staring at a cryptic EPERM.
+  if (lastErr && codes.has(lastErr.code) && process.platform === 'win32') {
+    const hint = ' — on Windows this usually means something has a handle open inside that folder. Common causes: (1) a Windows Explorer window viewing walok\\src or walok\\server, (2) an open editor (VSCode, Notepad++) with a file in there, (3) Windows Defender / antivirus scanning the folder right now, (4) a running launcher / vite dev process. Close those and try again.'
+    lastErr.message = lastErr.message + hint
+  }
+  throw lastErr
+}
+
 // rmrf the trash dir without blocking the response. We don't care if it
 // fails — the worst case is leftover .trash-* dirs which the operator can
 // clean up manually. Logged but never thrown.
@@ -1309,11 +1340,14 @@ app.post('/api/admin/update-source',
       try {
         const liveExists = fs.existsSync(targetDir)
         if (liveExists) {
-          fs.renameSync(targetDir, trashDir)
+          await _renameWithRetry(targetDir, trashDir, 'live→trash')
           try {
-            fs.renameSync(tmpDir, targetDir)
+            await _renameWithRetry(tmpDir, targetDir, 'tmp→live')
           } catch (renameErr) {
             // Roll back: move trash back to live so the system stays usable.
+            // Use plain renameSync here — we don't want to retry-loop the
+            // rollback (that path needs to fail loud and fast so the
+            // CRITICAL log fires).
             try { fs.renameSync(trashDir, targetDir) } catch (rollbackErr) {
               console.error('[update-source] CRITICAL: rename failed AND rollback failed. Live source dir: ' + targetDir + ' / trash: ' + trashDir)
               return res.status(500).json({ error: 'atomic swap failed AND rollback failed: ' + renameErr.message + ' / rollback: ' + rollbackErr.message })
@@ -1323,7 +1357,7 @@ app.post('/api/admin/update-source',
           }
           _scheduleTrashRemoval(trashDir)
         } else {
-          fs.renameSync(tmpDir, targetDir)
+          await _renameWithRetry(tmpDir, targetDir, 'tmp→live (fresh)')
         }
       } catch (e) {
         try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
