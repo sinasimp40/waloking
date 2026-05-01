@@ -64,7 +64,7 @@ netsh advfirewall firewall add rule name="NEXTREME-OTA-4231" dir=in action=allow
 
 ### Admin Panel Security
 - Cookie-based HMAC-signed session (12h expiry, `httpOnly`, `sameSite=lax`)
-- Password from `OTA_ADMIN_PASSWORD` env var, OR auto-generated on first run and saved to `update-server/.admin-password` (chmod 0600)
+- Password is read from `OTA_ADMIN_PASSWORD` env var only — set it manually (e.g. in `.env` or on the start.bat command line); the server refuses to boot without it. There is no auto-generated `.admin-password` file anymore.
 - 5 failed login attempts per IP → 5-minute lockout
 - Strict channel name validation (`^[a-z0-9][a-z0-9-]{0,49}$`) on every route to prevent path traversal in logo uploads and build/publish args
 - `child_process.spawn` uses `shell:false` with fixed script paths and validated args; wrapped in try/catch so a malformed payload can't crash the server
@@ -144,7 +144,7 @@ server/electron/
   main.js, preload.js         ← wired
 
 src/components/
-  UpdateModal.jsx             ← cyberpunk progress modal (force-install, no skip)
+  UpdateModal.jsx             ← premium dark progress modal (force-install, no skip; matches admin panel aesthetic)
 
 branding/
   ota-config.json             ← (re-written by build-customer.js per customer)

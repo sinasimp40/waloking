@@ -164,39 +164,39 @@ export default function UpdateModal() {
   let title, subtitle, statusText
   switch (stage) {
     case 'available':
-      title = 'UPDATE INCOMING'
-      subtitle = 'A new version has been detected'
-      statusText = 'Preparing download...'
+      title = 'Update available'
+      subtitle = 'A new version is ready to install'
+      statusText = 'Preparing download…'
       break
     case 'downloading':
-      title = 'DOWNLOADING UPDATE'
+      title = 'Downloading update'
       subtitle = `v${currentVersion} → v${versionLabel}`
-      statusText = `${fmtBytes(progress.downloaded)} / ${fmtBytes(progress.total)}` + (speed > 0 ? `  •  ${fmtBytes(speed)}/s` : '')
+      statusText = `${fmtBytes(progress.downloaded)} of ${fmtBytes(progress.total)}` + (speed > 0 ? `   •   ${fmtBytes(speed)}/s` : '')
       break
     case 'verifying':
-      title = 'VERIFYING INTEGRITY'
+      title = 'Verifying integrity'
       subtitle = `v${versionLabel}`
-      statusText = 'Checking SHA-256 signature...'
+      statusText = 'Checking SHA-256 signature…'
       break
     case 'applying':
-      title = 'APPLYING UPDATE'
+      title = 'Applying update'
       subtitle = `v${versionLabel}`
-      statusText = 'Staging files for next launch...'
+      statusText = 'Staging files for next launch…'
       break
     case 'ready':
-      title = 'UPDATE READY'
+      title = 'Update ready'
       subtitle = `v${currentVersion} → v${versionLabel}`
       statusText = countdown != null && countdown > 0
-        ? `Restarting in ${countdown}s...`
-        : 'Restarting now...'
+        ? `Restarting in ${countdown}s…`
+        : 'Restarting now…'
       break
     case 'error':
-      title = 'UPDATE FAILED'
+      title = 'Update failed'
       subtitle = 'Will retry automatically'
       statusText = errorMsg
       break
     default:
-      title = 'UPDATE'
+      title = 'Update'
       subtitle = ''
       statusText = ''
   }
@@ -209,70 +209,76 @@ export default function UpdateModal() {
 
   const isError = stage === 'error'
 
+  // Premium dark palette — same tokens as the admin panel:
+  //   bg          #0a0a0b   panel       #131316
+  //   border      rgba(255,255,255,0.08)
+  //   accent      #ff6a00 (orange — used sparingly, only on the action button
+  //               and the brand dot; the rest of the chrome is neutral)
+  //   text/sub/faint  #f5f5f6 / #a1a1aa / #6b6b73
+  const ACCENT = isError ? '#ef4444' : '#ff6a00'
+  const TEXT_FAINT = '#6b6b73'
+  const TEXT_SUB = '#a1a1aa'
+  const BORDER = 'rgba(255,255,255,0.08)'
+
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 99999,
-        background: 'rgba(5, 3, 0, 0.92)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
+        background: 'rgba(8, 8, 10, 0.72)',
+        backdropFilter: 'blur(12px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(140%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontFamily: '"Segoe UI", "Rajdhani", sans-serif',
+        fontFamily: '"Inter", "SF Pro Text", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif',
+        WebkitFontSmoothing: 'antialiased',
       }}
     >
       <div
         style={{
           width: '90%',
-          maxWidth: 580,
-          background: 'linear-gradient(135deg, #100806 0%, #1a0c05 100%)',
-          border: `2px solid ${isError ? '#ff3030' : '#ff6a00'}`,
-          borderRadius: 12,
-          padding: '36px 40px',
-          boxShadow: isError
-            ? '0 0 60px rgba(255, 48, 48, 0.4), inset 0 0 30px rgba(255, 48, 48, 0.08)'
-            : '0 0 60px rgba(255, 106, 0, 0.5), inset 0 0 30px rgba(255, 106, 0, 0.08)',
-          color: '#fff',
+          maxWidth: 480,
+          background: '#131316',
+          border: `1px solid ${BORDER}`,
+          borderRadius: 14,
+          padding: '28px 32px',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.3)',
+          color: '#f5f5f6',
           position: 'relative',
-          overflow: 'hidden',
         }}
       >
-        <div
-          style={{
-            position: 'absolute',
-            top: 0, left: 0, right: 0, height: 3,
-            background: isError
-              ? 'linear-gradient(90deg, transparent, #ff3030, transparent)'
-              : 'linear-gradient(90deg, transparent, #ff6a00, #ffb070, #ff6a00, transparent)',
-            backgroundSize: '200% 100%',
-            animation: 'ota-scan 2.5s linear infinite',
-          }}
-        />
-
+        {/* Brand row — small dot + brand name in muted small caps */}
         <div style={{
-          fontSize: 11,
-          letterSpacing: 4,
-          color: isError ? '#ff8080' : '#ffaa66',
-          marginBottom: 8,
-          textTransform: 'uppercase',
-          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 18,
         }}>
-          {brand ? `// ${brand} OTA SYSTEM //` : '// OTA SYSTEM //'}
+          <span style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: ACCENT,
+            display: 'inline-block',
+          }} />
+          <span style={{
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            color: TEXT_FAINT,
+            textTransform: 'uppercase',
+            fontWeight: 600,
+          }}>
+            {brand ? `${brand} • OTA` : 'OTA'}
+          </span>
         </div>
 
         <h2 style={{
           margin: 0,
-          fontSize: 32,
-          letterSpacing: 3,
-          fontWeight: 800,
-          color: isError ? '#ff5050' : '#ff6a00',
-          textShadow: isError
-            ? '0 0 20px rgba(255, 80, 80, 0.6)'
-            : '0 0 20px rgba(255, 106, 0, 0.6)',
-          fontFamily: '"Rajdhani", "Segoe UI", sans-serif',
+          fontSize: 22,
+          letterSpacing: '-0.01em',
+          fontWeight: 600,
+          color: '#f5f5f6',
+          lineHeight: 1.25,
         }}>
           {title}
         </h2>
@@ -280,82 +286,66 @@ export default function UpdateModal() {
         {subtitle && (
           <div style={{
             marginTop: 6,
-            fontSize: 15,
-            color: '#ddd',
-            letterSpacing: 1,
-            opacity: 0.9,
+            fontSize: 13,
+            color: TEXT_SUB,
+            lineHeight: 1.45,
           }}>
             {subtitle}
           </div>
         )}
 
-        <div style={{ marginTop: 28 }}>
+        <div style={{ marginTop: 24 }}>
           <div style={{
             position: 'relative',
-            height: 26,
-            background: '#1a0e08',
-            border: '1px solid #3a1f0e',
-            borderRadius: 4,
+            height: 6,
+            background: 'rgba(255,255,255,0.06)',
+            border: 'none',
+            borderRadius: 999,
             overflow: 'hidden',
           }}>
             <div
               style={{
                 width: `${percent}%`,
                 height: '100%',
-                background: isError
-                  ? 'linear-gradient(90deg, #6a1010 0%, #ff3030 50%, #ff6060 100%)'
-                  : 'linear-gradient(90deg, #6a3500 0%, #ff6a00 50%, #ffb070 100%)',
+                background: isError ? '#ef4444' : '#ff6a00',
                 transition: 'width 0.3s ease-out',
-                boxShadow: isError
-                  ? 'inset 0 0 12px rgba(255, 200, 200, 0.3), 0 0 18px rgba(255, 48, 48, 0.6)'
-                  : 'inset 0 0 12px rgba(255, 220, 200, 0.3), 0 0 18px rgba(255, 106, 0, 0.6)',
+                borderRadius: 999,
               }}
             />
-            {!isError && stage === 'downloading' && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0, bottom: 0, left: 0,
-                  width: '100%',
-                  background: 'linear-gradient(90deg, transparent 0%, rgba(255, 220, 180, 0.15) 50%, transparent 100%)',
-                  animation: 'ota-shimmer 1.6s linear infinite',
-                  pointerEvents: 'none',
-                }}
-              />
-            )}
-            <div style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 13,
-              fontWeight: 700,
-              letterSpacing: 2,
-              color: '#fff',
-              textShadow: '0 0 6px rgba(0,0,0,0.8)',
-              pointerEvents: 'none',
-            }}>
-              {percent}%
-            </div>
           </div>
 
           <div style={{
-            marginTop: 14,
-            fontSize: 13,
-            color: isError ? '#ffb0b0' : '#ffcca0',
-            fontFamily: '"Consolas", "Courier New", monospace',
-            letterSpacing: 0.5,
-            minHeight: 18,
-            wordBreak: 'break-word',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            marginTop: 12,
+            gap: 16,
           }}>
-            {statusText}
+            <div style={{
+              fontSize: 12,
+              color: TEXT_SUB,
+              fontFamily: '"JetBrains Mono", "SF Mono", "Consolas", "Courier New", monospace',
+              wordBreak: 'break-word',
+              flex: 1,
+              minHeight: 16,
+            }}>
+              {statusText}
+            </div>
+            <div style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: '#f5f5f6',
+              fontVariantNumeric: 'tabular-nums',
+              flexShrink: 0,
+            }}>
+              {percent}%
+            </div>
           </div>
         </div>
 
         {stage === 'ready' && (
           <div style={{
-            marginTop: 28,
+            marginTop: 24,
             display: 'flex',
             gap: 12,
             justifyContent: 'flex-end',
@@ -363,50 +353,41 @@ export default function UpdateModal() {
             <button
               onClick={() => { try { window.electronAPI?.ota?.restart() } catch (e) {} }}
               style={{
-                background: 'linear-gradient(135deg, #ff6a00 0%, #ff8c30 100%)',
+                background: '#ff6a00',
                 color: '#fff',
                 border: 'none',
-                padding: '12px 28px',
-                borderRadius: 4,
-                fontWeight: 800,
-                fontSize: 14,
-                letterSpacing: 2,
+                padding: '9px 18px',
+                borderRadius: 8,
+                fontWeight: 600,
+                fontSize: 13,
+                letterSpacing: 0,
                 cursor: 'pointer',
-                textTransform: 'uppercase',
-                boxShadow: '0 0 20px rgba(255, 106, 0, 0.5)',
+                fontFamily: 'inherit',
+                boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset',
+                transition: 'background 0.15s ease',
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#ff7a1a' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#ff6a00' }}
             >
-              RESTART NOW {countdown != null && countdown > 0 ? `(${countdown})` : ''}
+              Restart now{countdown != null && countdown > 0 ? ` (${countdown})` : ''}
             </button>
           </div>
         )}
 
         <div style={{
-          marginTop: 24,
+          marginTop: 22,
           paddingTop: 14,
-          borderTop: '1px solid #3a1f0e',
-          fontSize: 10,
-          letterSpacing: 1.5,
-          color: '#664433',
-          textTransform: 'uppercase',
+          borderTop: `1px solid ${BORDER}`,
+          fontSize: 11,
+          letterSpacing: '0.04em',
+          color: TEXT_FAINT,
           textAlign: 'center',
         }}>
           {isError
-            ? 'WILL RETRY ON NEXT CHECK CYCLE'
-            : 'INSTALLATION IS MANDATORY • PLEASE WAIT'}
+            ? 'Will retry on the next check cycle'
+            : 'Installation is required — please wait'}
         </div>
       </div>
-
-      <style>{`
-        @keyframes ota-scan {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-        @keyframes ota-shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-      `}</style>
     </div>
   )
 }

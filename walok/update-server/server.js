@@ -18,7 +18,6 @@ const HOST = process.env.OTA_HOST || '0.0.0.0'
 const PUBLIC_DIR = path.join(__dirname, 'public')
 const UPDATES_DIR = path.join(PUBLIC_DIR, 'updates')
 const ADMIN_DIR = path.join(PUBLIC_DIR, 'admin')
-const PASSWORD_FILE = path.join(__dirname, '.admin-password')
 
 if (!fs.existsSync(UPDATES_DIR)) fs.mkdirSync(UPDATES_DIR, { recursive: true })
 
@@ -74,20 +73,30 @@ const VERSION_RE = /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/
 function isValidChannel(c) { return typeof c === 'string' && CHANNEL_RE.test(c) }
 function isValidVersion(v) { return typeof v === 'string' && VERSION_RE.test(v) }
 
+// Admin password is set manually via the OTA_ADMIN_PASSWORD environment
+// variable. There is no auto-generation and no .admin-password file — the
+// operator is expected to set this in .env (or in the start.bat / .replit
+// command line) the same way they would set DB_PASSWORD or any other secret.
 function resolveAdminPassword() {
-  if (process.env.OTA_ADMIN_PASSWORD && process.env.OTA_ADMIN_PASSWORD.length >= 8) {
-    return { value: process.env.OTA_ADMIN_PASSWORD, source: 'env' }
+  const v = process.env.OTA_ADMIN_PASSWORD
+  if (!v || typeof v !== 'string' || v.length < 1) {
+    console.error('')
+    console.error('============================================')
+    console.error('  FATAL: OTA_ADMIN_PASSWORD is not set.')
+    console.error('============================================')
+    console.error('  Set it in .env or on the start.bat command line:')
+    console.error('    set OTA_ADMIN_PASSWORD=your-password-here')
+    console.error('    node server.js')
+    console.error('  (Use at least 8 characters in production.)')
+    console.error('============================================')
+    process.exit(1)
   }
-  if (fs.existsSync(PASSWORD_FILE)) {
-    const v = fs.readFileSync(PASSWORD_FILE, 'utf-8').trim()
-    if (v.length >= 8) return { value: v, source: 'file' }
+  if (v.length < 8) {
+    console.warn('[server] WARNING: OTA_ADMIN_PASSWORD is shorter than 8 characters — please use a stronger password.')
   }
-  const generated = crypto.randomBytes(12).toString('base64').replace(/[+/=]/g, '').slice(0, 16)
-  fs.writeFileSync(PASSWORD_FILE, generated, { mode: 0o600 })
-  return { value: generated, source: 'generated' }
+  return v
 }
-const ADMIN_PWD_INFO = resolveAdminPassword()
-const ADMIN_PASSWORD = ADMIN_PWD_INFO.value
+const ADMIN_PASSWORD = resolveAdminPassword()
 
 function findProjectRoot() {
   const candidates = [
@@ -1485,14 +1494,7 @@ app.listen(PORT, HOST, () => {
   console.log('  Health check:    http://localhost:' + PORT + '/health')
   console.log('  Web dashboard:   http://localhost:' + PORT + '/')
   console.log('  Admin panel:     http://localhost:' + PORT + '/admin/')
-  if (ADMIN_PWD_INFO.source === 'env') {
-    console.log('  Admin password:  (from OTA_ADMIN_PASSWORD env)')
-  } else if (ADMIN_PWD_INFO.source === 'generated') {
-    console.log('  Admin password:  ' + ADMIN_PASSWORD + '  (generated, saved to update-server/.admin-password)')
-    console.log('                   Set OTA_ADMIN_PASSWORD to change, or read .admin-password file')
-  } else {
-    console.log('  Admin password:  (loaded from update-server/.admin-password)')
-  }
+  console.log('  Admin password:  (from OTA_ADMIN_PASSWORD env var)')
   console.log('  Project root:    ' + (PROJECT_ROOT || 'NOT FOUND — admin builds disabled'))
   console.log('  Customers in DB: ' + dbApi.listCustomers().length)
   console.log('============================================')
