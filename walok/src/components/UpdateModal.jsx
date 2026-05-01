@@ -19,7 +19,7 @@ export default function UpdateModal() {
   const [speed, setSpeed] = useState(0)
   // Brand string for the kicker is pulled at runtime from ota-config.json
   // (via the ota:get-status IPC). It must NOT be hardcoded here, otherwise
-  // a rebrand-style OTA update (DENFI -> BLAST) would still ship the old
+  // a rebrand-style OTA update (O'BRIEN CAFE -> BLAST) would still ship the old
   // brand text in the modal until the next full re-build.
   const [brand, setBrand] = useState('')
   const speedTrackRef = useRef({ lastTime: 0, lastBytes: 0, samples: [] })
@@ -27,7 +27,7 @@ export default function UpdateModal() {
   useEffect(() => {
     let cancelled = false
     if (typeof window !== 'undefined' && window.location && window.location.search.includes('preview-update')) {
-      setBrand('EXAMPLE CAFE')
+      setBrand('O'BRIEN CAFE')
       return
     }
     if (!window.electronAPI || !window.electronAPI.ota) return

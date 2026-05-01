@@ -96,9 +96,9 @@ export default function App() {
 
     autoZoom = Math.max(100, Math.min(200, autoZoom))
 
-    if (!localStorage.getItem('example-cafe-zoom-set')) {
+    if (!localStorage.getItem('o-brien-cafe-zoom-set')) {
       updateSettings({ uiZoom: autoZoom })
-      localStorage.setItem('example-cafe-zoom-set', '1')
+      localStorage.setItem('o-brien-cafe-zoom-set', '1')
     }
   }, [])
 

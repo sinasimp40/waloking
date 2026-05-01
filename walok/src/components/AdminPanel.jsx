@@ -53,7 +53,7 @@ export default function AdminPanel() {
             </div>
             <div>
               <h2 className="font-orbitron font-bold text-base tracking-[0.2em]" style={{ color: accentColor, textShadow: `0 0 20px ${accentColor}30` }}>ADMIN PANEL</h2>
-              <p className="font-rajdhani text-white/35 text-[10px] uppercase tracking-[0.2em]">EXAMPLE CAFE Control Center</p>
+              <p className="font-rajdhani text-white/35 text-[10px] uppercase tracking-[0.2em]">O'BRIEN CAFE Control Center</p>
             </div>
           </div>
           <button onClick={closeAdmin} className="p-2.5 rounded-lg transition-colors hover:bg-white/5 group">
@@ -1030,7 +1030,7 @@ function AppearanceSection() {
           </div>
           <div>
             <label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Powered By</label>
-            <InputField value={settings.poweredBy || ''} onChange={e => updateSettings({ poweredBy: e.target.value })} placeholder="e.g. EXAMPLE CAFE" />
+            <InputField value={settings.poweredBy || ''} onChange={e => updateSettings({ poweredBy: e.target.value })} placeholder="e.g. O'BRIEN CAFE" />
           </div>
         </div>
       </CardBox>
@@ -1250,7 +1250,7 @@ function SettingsSection() {
 
       <CardBox>
         <div className="flex items-center gap-2"><Monitor size={13} style={{ color: accentColor }} /><h4 className="font-orbitron text-xs uppercase tracking-[0.15em]" style={{ color: `${accentColor}60` }}>Save & Load Server</h4></div>
-        <p className="font-rajdhani text-white/30 text-xs tracking-wider">Connect to a EXAMPLE CAFE Save & Load Server.</p>
+        <p className="font-rajdhani text-white/30 text-xs tracking-wider">Connect to a O'BRIEN CAFE Save & Load Server.</p>
         <div className="space-y-2">
           <InputField type="text" value={settings.saveLoadServerUrl} onChange={e => updateSettings({ saveLoadServerUrl: e.target.value })} placeholder="http://192.168.1.100:3456" />
           {settings.saveLoadServerUrl ? <p className="text-emerald-400/60 text-[10px] font-rajdhani">Server URL configured</p> : <p className="text-white/25 text-[10px] font-rajdhani">Not configured — Save & Load will show setup instructions</p>}
@@ -1270,7 +1270,7 @@ function SettingsSection() {
       <CardBox>
         <h4 className="font-orbitron text-xs uppercase tracking-[0.15em] mb-3" style={{ color: `${accentColor}60` }}>About</h4>
         <div className="space-y-2 font-rajdhani text-sm">
-          <div className="flex justify-between"><span className="text-white/20">Launcher</span><span style={{ color: accentColor }}>EXAMPLE CAFE</span></div>
+          <div className="flex justify-between"><span className="text-white/20">Launcher</span><span style={{ color: accentColor }}>O'BRIEN CAFE</span></div>
           <div className="flex justify-between"><span className="text-white/20">Framework</span><span className="text-white/35">Electron + React</span></div>
         </div>
       </CardBox>

@@ -24,7 +24,7 @@ const fileBackedStorage = {
 
 const defaultGames = []
 
-const ADMIN_SECRET_KEY = 'DENFI2024'
+const ADMIN_SECRET_KEY = 'EXAMPLE CAFE2024'
 
 const useStore = create(
   persist(
@@ -138,7 +138,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 31,
+      version: 30,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']

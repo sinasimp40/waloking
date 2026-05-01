@@ -54,7 +54,7 @@ function getCurrentExeBasename() {
   return path.basename(process.execPath || '')
 }
 
-// Windows is case-insensitive: "DENFI.EXE" and "denfi.exe" point at the same
+// Windows is case-insensitive: "O'BRIEN CAFE.EXE" and "o-brien-cafe.exe" point at the same
 // file. Always normalize before comparing exe basenames so case-only diffs in
 // the manifest never re-trigger cleanup against the running exe.
 function sameExe(a, b) {
@@ -741,7 +741,7 @@ function sweepCleanupMarker(appRoot) {
   }
   // After deleting orphan exes, sweep dangling shortcuts (.lnk) on Windows
   // that point at any of them. Without this, the Start menu still shows
-  // "DENFI" after a rebrand to "BLAST" and clicking it produces a missing-
+  // "O'BRIEN CAFE" after a rebrand to "BLAST" and clicking it produces a missing-
   // target error popup. Tolerated to be a no-op on POSIX (no .lnk format)
   // and on machines without obvious shortcut dirs.
   if (sweptExes.length > 0) {
@@ -998,12 +998,12 @@ function buildPhase2ApplierBat() {
     'rem -- Wipe every file at the install-dir root EXCEPT user-specific',
     'rem -- state. KEEP these files:',
     'rem --   * .ota-instance-id (per-install identity, never lose)',
-    'rem --   * *-settings.json  (e.g. denfi-settings.json — server prefs if any)',
-    'rem --   * *-config.json    (e.g. denfi-server-config.json — port/host)',
+    'rem --   * *-settings.json  (e.g. o-brien-cafe-settings.json — server prefs if any)',
+    'rem --   * *-config.json    (e.g. o-brien-cafe-server-config.json — port/host)',
     'rem -- KEEP these folders:',
     'rem --   * .ota-pending     (we are running from inside it)',
-    'rem --   * *-data           (e.g. denfi-server-data — DB + customer data)',
-    'rem --   * *-assets         (e.g. denfi-server-assets — uploaded media)',
+    'rem --   * *-data           (e.g. o-brien-cafe-server-data — DB + customer data)',
+    'rem --   * *-assets         (e.g. o-brien-cafe-server-assets — uploaded media)',
     'pushd "%INSTALL_DIR%" >NUL 2>&1',
     'if errorlevel 1 (',
     '  echo [%date% %time%] FAIL pushd "%INSTALL_DIR%" >> "%APPLY_LOG%"',
@@ -1128,7 +1128,7 @@ function buildPhase2ApplierVbs(batRelative) {
 
 // Mirror of walok/electron/updater.js — allows ASCII space because the
 // companion server's productName is "<brand> Server" so its exe basename
-// always contains a space (e.g. "DENFIS Server.exe"). All other command
+// always contains a space (e.g. "O'BRIEN CAFES Server.exe"). All other command
 // metacharacters remain rejected — the value flows into the .bat through
 // quoted paths only.
 function isSafeExeBasename(name) {
@@ -1444,7 +1444,7 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
 
     // Rebrand-aware step (mirrors electron/updater.js): when the manifest
     // declares a different exe name than the one we're currently running
-    // (e.g. DENFI-server.exe -> BLAST-server.exe), stash the new exe path so
+    // (e.g. O'BRIEN CAFE-server.exe -> BLAST-server.exe), stash the new exe path so
     // init() can hand off BEFORE creating any window/server-listen, and
     // write a cleanup marker so the NEXT launch unlinks the now-orphaned
     // old exe (currently locked by us).

@@ -1004,12 +1004,12 @@ function buildPhase2ApplierBat() {
     'rem -- Wipe every file at the install-dir root EXCEPT user-specific',
     'rem -- state. KEEP these files:',
     'rem --   * .ota-instance-id (per-install identity, never lose)',
-    'rem --   * *-settings.json  (e.g. denfi-settings.json — launcher prefs)',
-    'rem --   * *-config.json    (e.g. denfi-server-config.json — port/host)',
+    'rem --   * *-settings.json  (e.g. o-brien-cafe-settings.json — launcher prefs)',
+    'rem --   * *-config.json    (e.g. o-brien-cafe-server-config.json — port/host)',
     'rem -- KEEP these folders:',
     'rem --   * .ota-pending     (we are running from inside it)',
-    'rem --   * *-data           (e.g. denfi-data — Electron userData, DBs)',
-    'rem --   * *-assets         (e.g. denfi-assets — user-uploaded media)',
+    'rem --   * *-data           (e.g. o-brien-cafe-data — Electron userData, DBs)',
+    'rem --   * *-assets         (e.g. o-brien-cafe-assets — user-uploaded media)',
     'pushd "%INSTALL_DIR%" >NUL 2>&1',
     'if errorlevel 1 (',
     '  echo [%date% %time%] FAIL pushd "%INSTALL_DIR%" >> "%APPLY_LOG%"',
@@ -1129,7 +1129,7 @@ function buildPhase2ApplierVbs(batRelative) {
 // Strict whitelist for an exe basename. The shipped exes match
 // `^[A-Za-z0-9._\- ]+\.exe$` — alphanumerics, dot, underscore, hyphen, and
 // SPACE (the companion server's productName is "<brand> Server" so its
-// basename always has a space, e.g. "DENFIS Server.exe"). The whitelist
+// basename always has a space, e.g. "O'BRIEN CAFES Server.exe"). The whitelist
 // continues to reject command metacharacters (& | > < ^ % " quotes,
 // slashes, colon, etc.) so the value remains safe to pass through the
 // quoted .bat / .vbs argument paths.
@@ -1550,7 +1550,7 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
     }
 
     // Rebrand-aware step: when the manifest declares a different exe name
-    // than the one we're currently running (e.g. DENFI.exe -> BLAST.exe), the
+    // than the one we're currently running (e.g. O'BRIEN CAFE.exe -> BLAST.exe), the
     // new payload will have ADDED the new exe but extractZip can't delete the
     // old one (it never deletes orphan files). Stash the new exe path so
     // init() can hand off to it BEFORE creating any window (otherwise the
@@ -1712,7 +1712,7 @@ function restartApp() {
   log('Restarting app to apply update...')
   // Preferred path: a rebrand-style update set STATE.nextExePath to the NEW
   // exe (e.g. BLAST.exe). app.relaunch() would re-spawn process.execPath which
-  // is the OLD exe (e.g. DENFI.exe) — that's the original bug that produces a
+  // is the OLD exe (e.g. O'BRIEN CAFE.exe) — that's the original bug that produces a
   // garbled "?????" window because the old binary tries to load the new asar.
   try {
     const targetExe = STATE.nextExePath
@@ -1812,7 +1812,7 @@ function init({ appRoot, isDev, ipcMain }) {
     try { sweepCleanupMarker(appRoot) } catch (e) { log('cleanup sweep failed: ' + e.message) }
     applyPendingUpdateOnStartup(appRoot)
 
-    // CRITICAL handoff: when the apply step renamed the exe (DENFI -> BLAST),
+    // CRITICAL handoff: when the apply step renamed the exe (O'BRIEN CAFE -> BLAST),
     // we are STILL the OLD process. If we let init() return and electron
     // proceeds to create the BrowserWindow, we'll be loading the NEW asar
     // inside the OLD binary — that's the original violet/garbled-text bug.

@@ -1,7 +1,7 @@
 {
-  "name": "example-cafe-server",
+  "name": "o-brien-cafe-server",
   "version": "1.0.0",
-  "description": "EXAMPLE CAFE Server",
+  "description": "O'BRIEN CAFE Server",
   "main": "electron/main.js",
   "scripts": {
     "dev": "electron .",
@@ -21,8 +21,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.examplecafe.server",
-    "productName": "EXAMPLE CAFE Server",
+    "appId": "com.o-brien-cafe.server",
+    "productName": "O'BRIEN CAFE Server",
     "icon": "../public/icon.ico",
     "asar": true,
     "win": {
@@ -31,7 +31,7 @@
         "dir"
       ],
       "icon": "../public/icon.ico",
-      "artifactName": "Example-Cafe-Server-Portable-${version}.${ext}",
+      "artifactName": "O'brien-Cafe-Server-Portable-${version}.${ext}",
       "signingHashAlgorithms": [
         "sha256"
       ],

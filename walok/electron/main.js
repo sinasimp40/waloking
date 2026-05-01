@@ -57,7 +57,7 @@ function getAppRoot() {
 const appRoot = getAppRoot()
 
 // Rename leftover folders/files from any previous brand (or default
-// example-cafe) to the current BRAND_SLUG. Only renames when the old
+// o-brien-cafe) to the current BRAND_SLUG. Only renames when the old
 // path exists AND the new path does not — so it's safe to run on every
 // startup and won't clobber an existing current-brand folder.
 function migrateLegacyPaths() {
@@ -667,7 +667,7 @@ function createWindow(splash) {
       const https = require('https')
       const urlModule = require('url')
 
-      const boundary = '----ExampleCafeBoundary' + Date.now()
+      const boundary = '----O'brien-CafeBoundary' + Date.now()
       const sanitizedGameName = gameName.replace(/[^a-zA-Z0-9_\-. ]/g, '').trim()
 
       const preamble = Buffer.from(

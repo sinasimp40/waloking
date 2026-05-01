@@ -17,7 +17,7 @@ import './index.css'
 
 async function boot() {
   const legacyKeys = ['xyberzone-storage', 'denfi-storage', 'pikakz-storage', 'gamerzspot-storage', 'jahel-gamers-storage', 'nextreme-gaming-hub-storage']
-  const newKey = 'example-cafe-storage'
+  const newKey = 'o-brien-cafe-storage'
   if (!localStorage.getItem(newKey)) {
     for (const oldKey of legacyKeys) {
       if (localStorage.getItem(oldKey)) {
@@ -32,10 +32,10 @@ async function boot() {
     try {
       const fileData = await window.electronAPI.loadSettings()
       if (fileData) {
-        const current = localStorage.getItem('example-cafe-storage')
+        const current = localStorage.getItem('o-brien-cafe-storage')
         const fileStr = JSON.stringify(fileData)
         if (current !== fileStr) {
-          localStorage.setItem('example-cafe-storage', fileStr)
+          localStorage.setItem('o-brien-cafe-storage', fileStr)
         }
         const state = fileData?.state || fileData
         if (state?.games) {

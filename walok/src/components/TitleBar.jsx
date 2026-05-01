@@ -3,7 +3,7 @@ import { Minus, Square, X, HardDrive, User } from 'lucide-react'
 import useStore from '../store/useStore'
 
 function SaveLoadTitleButton({ onOpen }) {
-  const slUser = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('example-cafe-sl-user') : null
+  const slUser = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('o-brien-cafe-sl-user') : null
   const isLoggedIn = !!slUser
 
   return (
@@ -57,11 +57,11 @@ export default function TitleBar({ onOpenSaveLoad }) {
         <div className="w-1.5 h-1.5 rounded-full bg-neon-orange animate-pulse flex-shrink-0" />
         <span className="font-orbitron text-[9px] md:text-[10px] lg:text-[11px] font-black tracking-[0.2em] md:tracking-[0.25em] lg:tracking-[0.35em] uppercase flex-shrink-0"
           style={{ color: 'rgb(var(--accent-rgb))', textShadow: '0 0 8px rgb(var(--accent-rgb) / 0.5)' }}>
-          EXAMPLE CAFE
+          O'BRIEN CAFE
         </span>
         <div className="w-px h-3 bg-neon-orange/20 flex-shrink-0" />
         <span className="font-rajdhani text-[8px] md:text-[9px] lg:text-[10px] text-white/60 uppercase tracking-[0.08em] md:tracking-[0.1em] lg:tracking-[0.15em] truncate">
-          Premium Gaming Lounge
+          Test
         </span>
         {otaVersion && (
           <>

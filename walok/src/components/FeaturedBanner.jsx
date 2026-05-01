@@ -133,7 +133,7 @@ export default function FeaturedBanner() {
 }
 
 function BannerTitle({ settings }) {
-  const name = (settings.launcherName || 'EXAMPLE CAFE').toUpperCase()
+  const name = (settings.launcherName || 'O'BRIEN CAFE').toUpperCase()
   const scrambled = useScrambleText(name)
 
   return (

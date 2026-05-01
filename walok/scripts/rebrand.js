@@ -130,6 +130,50 @@ function rebuildDbLegacy(legacyPrefixes, newPrefix) {
   console.log('  [OK] server/electron/db.js (legacy db names)')
 }
 
+// Rewrites the three brand-defining constants in walok/electron/brand.js
+// and walok/server/electron/brand.js. These files are the runtime source of
+// truth for BRAND_SLUG (drives the per-install <slug>-data / <slug>-assets /
+// <slug>-settings.json folder + file names) and DISPLAY_NAME (window title,
+// log lines). They are NOT in the global string-replace `files` list because
+// LEGACY_BRAND_SLUGS contains literal old slugs (e.g. 'denfi') that must
+// survive a rebrand verbatim, and a blind string-replace would mangle them
+// or create duplicates. Instead we structurally rewrite just the three
+// constants and leave the surrounding documentation comments untouched.
+//
+// LEGACY_BRAND_SLUGS is rebuilt from `legacyPrefixes` (which already excludes
+// newPrefix) with newPrefix appended last as the current slug — the runtime
+// migration code skips `oldSlug === BRAND_SLUG` so duplicating it is safe but
+// wasteful, and explicit ordering keeps the diff readable.
+// Escape a value for use inside a single-quoted JS string literal. Brand
+// names like "O'BRIEN CAFE" would otherwise emit broken JS and crash the
+// launcher on startup. slugify() strips non-alphanumerics so newPrefix is
+// always safe, but we escape it anyway for symmetry.
+function escapeSingleQuoted(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+function rebuildBrandJs(filePath, newPrefix, newDisplayName, legacyPrefixes) {
+  if (!fs.existsSync(filePath)) {
+    console.warn('  [WARN] missing ' + path.relative(ROOT, filePath) + ' — runtime BRAND_SLUG will not be updated; data folder names will be wrong')
+    return
+  }
+  let content = fs.readFileSync(filePath, 'utf-8')
+  content = content.replace(
+    /const BRAND_SLUG = '[^']*'/,
+    "const BRAND_SLUG = '" + escapeSingleQuoted(newPrefix) + "'"
+  )
+  content = content.replace(
+    /const DISPLAY_NAME = '[^']*'/,
+    "const DISPLAY_NAME = '" + escapeSingleQuoted(newDisplayName) + "'"
+  )
+  const slugs = legacyPrefixes.concat([newPrefix])
+  const entries = slugs.map(function(s) { return "  '" + escapeSingleQuoted(s) + "'" }).join(',\n')
+  const newArray = 'const LEGACY_BRAND_SLUGS = [\n' + entries + '\n]'
+  content = content.replace(/const LEGACY_BRAND_SLUGS = \[[\s\S]*?\n\]/, newArray)
+  fs.writeFileSync(filePath, content)
+  console.log('  [OK] ' + path.relative(ROOT, filePath) + ' (BRAND_SLUG, DISPLAY_NAME, LEGACY_BRAND_SLUGS)')
+}
+
 function rebuildStorageKeys(legacyPrefixes) {
   const filePath = path.join(ROOT, 'src/main.jsx')
   let content = fs.readFileSync(filePath, 'utf-8')
@@ -348,6 +392,8 @@ async function main() {
   rebuildServerMigration(legacyPrefixes, newPrefix)
   rebuildDbLegacy(legacyPrefixes, newPrefix)
   rebuildStorageKeys(legacyPrefixes)
+  rebuildBrandJs(path.join(ROOT, 'electron/brand.js'), newPrefix, newName, legacyPrefixes)
+  rebuildBrandJs(path.join(ROOT, 'server/electron/brand.js'), newPrefix, newName, legacyPrefixes)
 
   console.log('')
   bumpStorageVersion(newVersion)
