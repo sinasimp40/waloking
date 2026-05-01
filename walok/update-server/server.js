@@ -1,3 +1,79 @@
+// =====================================================================
+// SELF-HEALING DEPENDENCY PREFLIGHT
+// =====================================================================
+// Operators sometimes unzip a fresh copy of update-server/ on a Windows RDP
+// box and run `node server.js` directly without first running `npm install`.
+// That used to crash with `Error: Cannot find module 'express'` and a
+// 30-line stack trace. The preflight below detects that failure mode and
+// auto-installs deps once, then re-execs the server. It costs ~0 ms on
+// normal startups (the require succeeds immediately and we fall through).
+//
+// We deliberately gate the auto-install on (a) node_modules/ being missing
+// AND (b) a package.json sitting next to server.js — that way a developer
+// who has intentionally deleted node_modules to debug something doesn't
+// get a surprise install, and we never run npm install in some unrelated
+// directory that happens to have the script symlinked.
+;(function preflight() {
+  const _path = require('path')
+  const _fs = require('fs')
+  const here = __dirname
+  const nodeModulesDir = _path.join(here, 'node_modules')
+  const pkgJson = _path.join(here, 'package.json')
+  // Guard 1: only act if package.json is present (i.e. we're sitting in
+  // the actual update-server folder, not some weird relocation).
+  if (!_fs.existsSync(pkgJson)) return
+  // Guard 2: skip the whole preflight if node_modules already has express
+  // resolvable. Cheap: try a require.resolve first.
+  try { require.resolve('express'); return } catch (_) { /* fall through */ }
+  console.log('')
+  console.log('============================================================')
+  console.log(' OTA SERVER — first-run dependency install')
+  console.log('============================================================')
+  console.log(' node_modules/ is missing or incomplete (express not found).')
+  console.log(' Running `npm install` once to fix this. This usually takes')
+  console.log(' 30-90 seconds depending on your internet connection.')
+  console.log('')
+  if (_fs.existsSync(nodeModulesDir)) {
+    console.log(' (Existing node_modules/ found but express is missing — npm')
+    console.log('  install will repair it.)')
+  }
+  console.log('------------------------------------------------------------')
+  const _cp = require('child_process')
+  // npm.cmd on Windows, npm elsewhere. shell:true on Windows is required so
+  // .cmd resolution works; on POSIX shell:false is fine and safer.
+  const isWin = process.platform === 'win32'
+  const npmCmd = isWin ? 'npm.cmd' : 'npm'
+  const r = _cp.spawnSync(npmCmd, ['install', '--no-audit', '--no-fund'], {
+    cwd: here,
+    stdio: 'inherit',
+    shell: isWin,
+  })
+  if (r.status !== 0) {
+    console.error('')
+    console.error('============================================================')
+    console.error(' [ERROR] npm install failed (exit code ' + r.status + ').')
+    console.error('============================================================')
+    console.error(' Please open a terminal in this folder and run manually:')
+    console.error('   cd ' + here)
+    console.error('   npm install')
+    console.error(' Then re-run:')
+    console.error('   node server.js')
+    console.error(' If npm itself is missing, install Node.js LTS from')
+    console.error(' https://nodejs.org/ (which bundles npm) and try again.')
+    console.error('============================================================')
+    process.exit(1)
+  }
+  console.log('------------------------------------------------------------')
+  console.log(' [OK] Dependencies installed. Starting OTA server…')
+  console.log('============================================================')
+  console.log('')
+  // Fall through to the normal require() chain below — express is now
+  // installed, so the requires that previously failed will now succeed.
+  // We deliberately don't re-exec the process: Node's require() looks at
+  // node_modules/ on disk for each call, so the next `require('express')`
+  // will find the freshly installed module without restart.
+})()
+
 const express = require('express')
 const path = require('path')
 const fs = require('fs')
