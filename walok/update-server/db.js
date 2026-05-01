@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS meta (
     ['launcher_published_at', 'INTEGER'],
     ['server_published_at',   'INTEGER'],
     ['last_build_at',         'INTEGER'],
+    // Rebump tracking — incremented every time the SAME version is
+    // republished (only "Build From Uploaded Source" allows that). Reset to 0
+    // whenever the version actually advances, so the counter always reflects
+    // "how many times the operator re-shipped this exact version".
+    ['launcher_rebuild_count', 'INTEGER'],
+    ['server_rebuild_count',   'INTEGER'],
+    ['launcher_rebuilt_at',    'INTEGER'],
+    ['server_rebuilt_at',      'INTEGER'],
   ]
   for (const [name, type] of adds) {
     if (!cols.has(name)) db.exec('ALTER TABLE customers ADD COLUMN ' + name + ' ' + type)
@@ -69,6 +77,10 @@ function rowToCustomer(r) {
     launcherPublishedAt: r.launcher_published_at || null,
     serverPublishedAt: r.server_published_at || null,
     lastBuildAt: r.last_build_at || null,
+    launcherRebuildCount: r.launcher_rebuild_count || 0,
+    serverRebuildCount: r.server_rebuild_count || 0,
+    launcherRebuiltAt: r.launcher_rebuilt_at || null,
+    serverRebuiltAt: r.server_rebuilt_at || null,
   }
 }
 
@@ -87,6 +99,13 @@ const stmts = {
   delete: db.prepare('DELETE FROM customers WHERE channel = ?'),
   setLauncherVersion: db.prepare(`UPDATE customers SET launcher_version=?, launcher_published_at=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
   setServerVersion: db.prepare(`UPDATE customers SET server_version=?, server_published_at=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
+  // Rebump bookkeeping — increment the per-version republish counter.
+  // Called when the new version equals the previously stored version.
+  bumpLauncherRebuild: db.prepare(`UPDATE customers SET launcher_rebuild_count=COALESCE(launcher_rebuild_count,0)+1, launcher_rebuilt_at=? WHERE channel=?`),
+  bumpServerRebuild:   db.prepare(`UPDATE customers SET server_rebuild_count=COALESCE(server_rebuild_count,0)+1,   server_rebuilt_at=?   WHERE channel=?`),
+  // Reset the rebump counter when the version actually changes.
+  resetLauncherRebuild: db.prepare(`UPDATE customers SET launcher_rebuild_count=0, launcher_rebuilt_at=NULL WHERE channel=?`),
+  resetServerRebuild:   db.prepare(`UPDATE customers SET server_rebuild_count=0,   server_rebuilt_at=NULL   WHERE channel=?`),
   setLastBuild: db.prepare(`UPDATE customers SET last_build_at=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
   metaGet: db.prepare('SELECT v FROM meta WHERE k = ?'),
   metaSet: db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'),
@@ -231,13 +250,43 @@ function setMeta(k, v) { stmts.metaSet.run(k, v == null ? null : String(v)) }
 // customer row. Called from the build pipeline AND from the manual upload
 // flow so the admin UI can show what's currently shipped per customer
 // without having to re-read every latest.json off disk.
+//
+// Rebump tracking: if the new version EQUALS the version already on file, the
+// per-version republish counter is incremented and `*_rebuilt_at` is set so
+// the admin UI can display "Rebump ×N · <date>". If the version actually
+// changed (forward OR backward — backward is technically a downgrade but the
+// upload endpoint already guards that, so we just trust whatever was passed),
+// the counter is reset to 0 and the rebuild timestamp is cleared. The reset
+// path is critical: without it, bumping from v1.0.2 → v1.0.3 → v1.0.2 would
+// show a stale "Rebump ×3" against v1.0.2 even on its first re-publish.
+//
+// Atomicity: read-then-write is wrapped in a sqlite transaction so the
+// "previous version" lookup and the version+counter update appear as a
+// single step. better-sqlite3 is synchronous and the build pipeline already
+// serializes per-channel via job-runner's channel mutex, but the deprecated
+// upload endpoints don't use job-runner — the transaction is defense-in-depth
+// against a future code path that calls record*Published outside the mutex.
+const _recordLauncherTx = db.transaction((channel, version, now) => {
+  const cur = stmts.get.get(channel)
+  const isRebump = !!(cur && cur.launcher_version === version)
+  stmts.setLauncherVersion.run(version, now, channel)
+  if (isRebump) stmts.bumpLauncherRebuild.run(now, channel)
+  else stmts.resetLauncherRebuild.run(channel)
+})
+const _recordServerTx = db.transaction((channel, version, now) => {
+  const cur = stmts.get.get(channel)
+  const isRebump = !!(cur && cur.server_version === version)
+  stmts.setServerVersion.run(version, now, channel)
+  if (isRebump) stmts.bumpServerRebuild.run(now, channel)
+  else stmts.resetServerRebuild.run(channel)
+})
 function recordLauncherPublished(channel, version, ts) {
   if (!channel || !version) return
-  stmts.setLauncherVersion.run(version, ts || Date.now(), channel)
+  _recordLauncherTx(channel, version, ts || Date.now())
 }
 function recordServerPublished(channel, version, ts) {
   if (!channel || !version) return
-  stmts.setServerVersion.run(version, ts || Date.now(), channel)
+  _recordServerTx(channel, version, ts || Date.now())
 }
 function recordBuild(channel, ts) {
   if (!channel) return

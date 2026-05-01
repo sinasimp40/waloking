@@ -569,6 +569,21 @@ button:disabled {
   font-style: italic;
   cursor: help;
 }
+.customer-card .meta .rebump-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: help;
+  vertical-align: 1px;
+}
 .customer-card .actions {
   display: flex;
   flex-wrap: wrap;

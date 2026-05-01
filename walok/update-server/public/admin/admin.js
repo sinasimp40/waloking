@@ -268,9 +268,28 @@ function renderCustomer(c) {
   }
   const launcherDl = dlMarkup(c._launcherVersion, c._launcherFileExists, c.channel, 'launcher')
   const serverDl = dlMarkup(c._serverVersion, c._serverFileExists, c.channel, 'server')
-  const launcherV = c._launcherVersion ? `v${escapeHtml(c._launcherVersion)}${launcherDl}` : '<em>no update yet</em>'
-  const serverV = c._serverVersion ? `v${escapeHtml(c._serverVersion)}${serverDl}` : '<em>no update yet</em>'
-  const released = c._launcherReleased ? new Date(c._launcherReleased).toLocaleString() : '—'
+  // Rebump pill — shown next to the version when the operator has reshipped
+  // the SAME version one or more times via "Build From Uploaded Source".
+  // Counter resets to 0 the moment the version actually changes, so a
+  // visible pill is always relevant to the version it sits next to.
+  function rebumpPill(count, ts) {
+    if (!count || count < 1) return ''
+    const when = ts ? new Date(ts).toLocaleString() : '—'
+    const tip = `This version was re-shipped ${count} time${count === 1 ? '' : 's'} via Build From Uploaded Source. Most recent: ${when}.`
+    return ` <span class="rebump-pill" title="${escapeHtml(tip)}">⟳ rebump ×${count} · ${escapeHtml(when)}</span>`
+  }
+  const launcherV = c._launcherVersion
+    ? `v${escapeHtml(c._launcherVersion)}${launcherDl}${rebumpPill(c._launcherRebumpCount, c._launcherRebumpAt)}`
+    : '<em>no update yet</em>'
+  const serverV = c._serverVersion
+    ? `v${escapeHtml(c._serverVersion)}${serverDl}${rebumpPill(c._serverRebumpCount, c._serverRebumpAt)}`
+    : '<em>no update yet</em>'
+  // "Last release" reflects the most recent publish event across launcher OR
+  // server (rebumps update those timestamps too), so the operator immediately
+  // sees activity from a re-shipped version.
+  const lastTs = Math.max(c._launcherReleased || 0, c._serverReleased || 0,
+                          c._launcherRebumpAt || 0, c._serverRebumpAt || 0)
+  const released = lastTs ? new Date(lastTs).toLocaleString() : '—'
   const placeholder = c._placeholderUrl
   let warnBlock = ''
   if (c._urlIssue === 'loopback-when-remote') {

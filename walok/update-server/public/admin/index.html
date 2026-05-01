@@ -88,7 +88,7 @@
           <label>Notes <span class="hint">optional</span>
             <input type="text" id="bup-notes" />
           </label>
-          <p class="hint">Version must be strictly newer than the chosen target's currently shipped version <em>for the role being uploaded</em> (launcher-only uploads are not blocked by a newer server version, and vice-versa). To re-issue, bump the version.</p>
+          <p class="hint">Version must be the same as, or newer than, the chosen target's currently shipped version <em>for the role being uploaded</em> (launcher-only uploads are not blocked by a newer server version, and vice-versa). Strict downgrades are blocked. Re-shipping the SAME version is allowed and is recorded as a "rebump" on the customer card with a timestamp, so you can confirm the re-upload went out.</p>
           <button type="submit" class="btn-primary">Build &amp; Ship</button>
         </form>
         <div id="bup-busy" class="muted hidden">Building… please wait. This can take several minutes per customer.</div>

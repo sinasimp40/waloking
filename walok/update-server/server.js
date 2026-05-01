@@ -632,8 +632,18 @@ app.get('/api/admin/customers', requireAdmin, (req, res) => {
       _launcherVersion: launcherVersion,
       _serverVersion: serverVersion,
       _launcherReleased: launcherInfo?.releasedAt || null,
+      _serverReleased: serverInfo?.releasedAt || null,
       _launcherFileExists: launcherFileExists,
       _serverFileExists: serverFileExists,
+      // Rebump indicators — non-zero means the operator has reshipped the
+      // current version that many times via Build From Uploaded Source.
+      // The UI shows a small pill next to the version with the latest
+      // rebump timestamp so the operator can confirm "did my re-upload
+      // actually go out?".
+      _launcherRebumpCount: c.launcherRebuildCount || 0,
+      _launcherRebumpAt: c.launcherRebuiltAt || null,
+      _serverRebumpCount: c.serverRebuildCount || 0,
+      _serverRebumpAt: c.serverRebuiltAt || null,
       _placeholderUrl: cls !== '',
       _urlIssue: cls || null,
       _online: online,
@@ -1354,7 +1364,15 @@ app.post('/api/admin/build-from-source',
     const launcherBuf = launcherFile ? launcherFile.buffer : null
     const serverBuf   = serverFile   ? serverFile.buffer   : null
 
-    // Strict role-specific monotonicity (matches /upload-update semantics).
+    // Role-specific NO-DOWNGRADE guard. Unlike the deprecated pre-built
+    // upload endpoint, "Build From Uploaded Source" intentionally permits
+    // re-shipping the SAME version: the operator may have caught a logo
+    // typo, a rebrand misstep, or simply wants to re-roll a clean payload
+    // from a corrected source zip. The republish is recorded as a "rebump"
+    // (counter + timestamp on the customer row) so the admin UI can show
+    // exactly when, and how many times, that version was reshipped.
+    // Strict downgrades are still blocked — pushing v1.0.1 over v1.0.2 would
+    // make connected installs roll backward, which is never intentional.
     {
       const cmp = (a, b) => {
         const pa = a.split('.').map(n => parseInt(n, 10) || 0)
@@ -1365,14 +1383,14 @@ app.post('/api/admin/build-from-source',
       for (const ch of channels) {
         if (launcherBuf) {
           const l = getChannelInfo(ch)
-          if (l && l.version && cmp(version, l.version) <= 0) {
-            return res.status(409).json({ error: `version ${version} is not newer than ${ch} launcher v${l.version}. Bump the version and re-upload.` })
+          if (l && l.version && cmp(version, l.version) < 0) {
+            return res.status(409).json({ error: `version ${version} is older than ${ch} launcher v${l.version}. Downgrades are blocked — bump the version (or use the same version to re-ship).` })
           }
         }
         if (serverBuf) {
           const s = getChannelInfo(ch + '-server')
-          if (s && s.version && cmp(version, s.version) <= 0) {
-            return res.status(409).json({ error: `version ${version} is not newer than ${ch} server v${s.version}. Bump the version and re-upload.` })
+          if (s && s.version && cmp(version, s.version) < 0) {
+            return res.status(409).json({ error: `version ${version} is older than ${ch} server v${s.version}. Downgrades are blocked — bump the version (or use the same version to re-ship).` })
           }
         }
       }
