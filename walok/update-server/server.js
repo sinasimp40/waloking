@@ -1001,9 +1001,17 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
 // server-payload.zip) into update-server/public/updates/<channel>/<version>/
 // without re-running the build pipeline. Useful when a build was produced
 // out-of-band (e.g. on a different machine or by hand).
+// Per-zip upload cap. Real-world launcher source bundles routinely run past
+// the legacy 500 MB cap once electron prebuilt binaries and large assets are
+// included. Lifted to 2 GB.
+//
+// CAVEAT: multer.memoryStorage buffers the entire upload in RAM. The OTA
+// server is a single-operator internal tool, so this is acceptable, but a
+// 2 GB upload will spike resident memory by ~2 GB during the request — make
+// sure the host has the headroom before sending one that big.
 const uploadPayload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB per zip
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2GB per zip
 })
 
 function sha256OfBuffer(buf) {

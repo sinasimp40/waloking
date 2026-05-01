@@ -32,14 +32,18 @@ const NPM_CMD = IS_WIN ? 'npm.cmd' : 'npm'
 const NPX_CMD = IS_WIN ? 'npx.cmd' : 'npx'
 const NODE_CMD = process.execPath
 
-// Per-entry size cap. A legitimate launcher source zip is well under this; a
-// zip bomb that decompresses to multiple GB is refused before we touch the
-// disk. 200 MB is generous (electron prebuilt binaries can be ~100MB).
-const MAX_ENTRY_SIZE = 200 * 1024 * 1024
+// Per-entry size cap. Real source zips can include large prebuilt binaries
+// (electron itself is ~100 MB; certain native modules + assets can push a
+// single entry well past 200 MB). The cap exists ONLY to refuse pathological
+// zip bombs — operator uploads are authenticated, so we set this generously
+// at 4 GB.
+const MAX_ENTRY_SIZE = 4 * 1024 * 1024 * 1024
 
 // Total uncompressed size cap — second line of defence so a zip with many
-// "small" entries summing to multiple GB still gets refused. 800 MB.
-const MAX_TOTAL_SIZE = 800 * 1024 * 1024
+// small entries summing to absurd totals still gets refused. 16 GB matches
+// the multer upload-side cap with comfortable headroom for a fully
+// decompressed source tree.
+const MAX_TOTAL_SIZE = 16 * 1024 * 1024 * 1024
 
 // Validate a path inside the zip is safe to extract under destDir. Refuses
 // absolute paths, drive letters, or any sequence that escapes destDir via ..
