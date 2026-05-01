@@ -684,18 +684,32 @@ function renderCustomer(c) {
     ? 'Updates ENABLED. Click to stop sending OTA updates to this customer.'
     : 'Updates DISABLED. Click to resume sending OTA updates to this customer.'
 
-  // Avatar — first letter of the brand name (fallback to first letter of
-  // channel) with a stable per-channel gradient so each customer card has a
+  // Avatar — when the customer has uploaded a logo, render the real brand
+  // mark (auth-gated /api/admin/customers/:channel/logo). When the logo is
+  // missing or fails to load, fall back to the first letter of the brand
+  // name on a stable per-channel gradient so every card still has a
   // visually distinct identity at a glance.
   const displayName = c.brandName || c.channel
   const initial = (displayName || '?').trim().charAt(0).toUpperCase()
   const grad = _avatarGradient(c.channel)
+  const logoUrl = c.logo
+    ? '/api/admin/customers/' + encodeURIComponent(c.channel) + '/logo?v=' + encodeURIComponent(c.logo)
+    : ''
+  // Fallback chain: when the <img> loads OK the .cc-avatar.has-logo CSS
+  // hides the fallback letter so only the brand mark is visible. When the
+  // <img> errors (404 / decode failure), onerror strips the has-logo class
+  // (re-showing the letter) and removes the broken <img>. alt="" suppresses
+  // the broken-image glyph during the brief failure window.
+  const avatarInner = logoUrl
+    ? `<img class="cc-avatar-img" src="${escapeHtml(logoUrl)}" alt="" loading="lazy" onerror="this.parentElement.classList.remove('has-logo'); this.remove();">
+       <span class="cc-avatar-fallback">${escapeHtml(initial)}</span>`
+    : `<span class="cc-avatar-fallback">${escapeHtml(initial)}</span>`
 
   return `
   <div class="${cardClasses}" data-channel="${escapeHtml(c.channel)}">
     <div class="cc-header">
       <div class="cc-id-block">
-        <div class="cc-avatar" style="--cc-avatar-1:${grad[0]};--cc-avatar-2:${grad[1]};" aria-hidden="true">${escapeHtml(initial)}</div>
+        <div class="cc-avatar${logoUrl ? ' has-logo' : ''}" style="--cc-avatar-1:${grad[0]};--cc-avatar-2:${grad[1]};" aria-hidden="true">${avatarInner}</div>
         <div class="cc-title-block">
           <div class="cc-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div>
           <div class="cc-channel-pill" title="${escapeHtml(c.channel)}">${escapeHtml(c.channel)}</div>

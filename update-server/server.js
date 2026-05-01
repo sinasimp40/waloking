@@ -879,6 +879,36 @@ app.post('/api/admin/customers/:channel/logo', requireAdmin, (req, res) => {
   })
 })
 
+// Serve the customer's uploaded logo to the admin UI so the customer card
+// can render the real brand mark inside the avatar tile (instead of just
+// the brand initial). Auth-gated — branding files are not part of the
+// public update payload, so we never expose them via express.static.
+//
+// Returns 404 (not 4xx + JSON) when missing so an <img onerror> can swap
+// to the letter-fallback without firing console errors as JSON parses.
+app.get('/api/admin/customers/:channel/logo', requireAdmin, (req, res) => {
+  if (!isValidChannel(req.params.channel)) return res.status(400).end()
+  if (!PROJECT_ROOT) return res.status(503).end()
+  const c = dbApi.getCustomer(req.params.channel)
+  if (!c || !c.logo) return res.status(404).end()
+  // c.logo is stored as a relative POSIX path like "branding/<channel>-logo.png".
+  // Resolve against PROJECT_ROOT and then verify the resolved path is STILL
+  // inside BRANDING_DIR — defends against a maliciously-crafted DB row with
+  // "../" or absolute paths sneaking outside the branding directory.
+  const abs = path.isAbsolute(c.logo) ? c.logo : path.resolve(PROJECT_ROOT, c.logo)
+  if (!BRANDING_DIR || !abs.startsWith(BRANDING_DIR + path.sep)) {
+    return res.status(404).end()
+  }
+  if (!fs.existsSync(abs)) return res.status(404).end()
+  // Use revalidation (not max-age) so a re-upload of a logo with the same
+  // filename — which is the common case for "<channel>-logo.png" — is
+  // picked up by the browser immediately. express.sendFile sets ETag +
+  // Last-Modified automatically, so the conditional GET that follows is
+  // a tiny 304 round-trip and not a full re-download.
+  res.setHeader('Cache-Control', 'private, no-cache, must-revalidate')
+  res.sendFile(abs)
+})
+
 app.post('/api/admin/version', requireAdmin, (req, res) => {
   if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found' })
   const { version } = req.body || {}
