@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node test-job-runner.js && node test-cleanup.js && node test-install-lock.js && node test-build-endpoint.js && node test-publish-paths.js && node test-build-e2e.js"
+    "test": "node test-job-runner.js && node test-cleanup.js && node test-install-lock.js && node test-build-endpoint.js && node test-publish-paths.js && node test-build-e2e.js && node test-update-source.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

@@ -297,23 +297,54 @@ async function main() {
   // the next build's wipe — a fresh per-job folder has no stale handles.
   const launcherOutDir = process.env.BUILD_OUTPUT_DIR || path.join(ROOT, 'dist-electron')
   const serverOutDir = process.env.BUILD_SERVER_OUTPUT_DIR || path.join(ROOT, 'server', 'dist-electron')
-  rmrfWithRetrySync(launcherOutDir)
-  substep('vite build (launcher)', () => {
-    log('Step 2/5: Vite build (launcher)...')
-    run('npm run build')
-  })
-  substep('electron-builder (launcher)', () => {
-    log('Step 3/5: electron-builder (launcher) -> ' + path.relative(ROOT, launcherOutDir))
-    run('npx electron-builder -c.directories.output=' + JSON.stringify(launcherOutDir))
-  })
 
-  rmrfWithRetrySync(serverOutDir)
-  substep('electron-builder (server)', () => {
-    log('Step 4/5: electron-builder (server) -> ' + path.relative(ROOT, serverOutDir))
-    // dist:server is `electron-builder --config server/package.json` per the
-    // launcher package.json; override its output dir the same way.
-    run('npm run dist:server -- -c.directories.output=' + JSON.stringify(serverOutDir))
-  })
+  // BUILD_ROLE — set by the OTA admin's role-filtered build button on each
+  // customer card so the operator can ship JUST a launcher OR JUST a server
+  // payload for one customer (e.g. emergency launcher hotfix while the
+  // server is mid-game and shouldn't be replaced).
+  //
+  //   BUILD_ROLE=launcher → run vite + electron-builder (launcher) ONLY,
+  //                         skip electron-builder (server). publish-update
+  //                         only ships roles whose <role>-unpacked/ exists,
+  //                         so omitting the server build correctly results
+  //                         in a launcher-only manifest write — no separate
+  //                         flag plumbed into publish-update.js needed.
+  //   BUILD_ROLE=server   → skip vite + launcher, run electron-builder
+  //                         (server) ONLY.
+  //   (unset)             → both, full build, original behavior.
+  //
+  // Anything else (including '', 'both', 'all') means both — defensive
+  // default so a typo can't accidentally ship nothing.
+  const role = (process.env.BUILD_ROLE || '').toLowerCase()
+  const buildLauncher = role !== 'server'
+  const buildServer = role !== 'launcher'
+  if (role) log('BUILD_ROLE=' + role + ' → launcher=' + buildLauncher + ', server=' + buildServer)
+
+  if (buildLauncher) {
+    rmrfWithRetrySync(launcherOutDir)
+    substep('vite build (launcher)', () => {
+      log('Step 2/5: Vite build (launcher)...')
+      run('npm run build')
+    })
+    substep('electron-builder (launcher)', () => {
+      log('Step 3/5: electron-builder (launcher) -> ' + path.relative(ROOT, launcherOutDir))
+      run('npx electron-builder -c.directories.output=' + JSON.stringify(launcherOutDir))
+    })
+  } else {
+    log('Skipping launcher build (BUILD_ROLE=server)')
+  }
+
+  if (buildServer) {
+    rmrfWithRetrySync(serverOutDir)
+    substep('electron-builder (server)', () => {
+      log('Step 4/5: electron-builder (server) -> ' + path.relative(ROOT, serverOutDir))
+      // dist:server is `electron-builder --config server/package.json` per the
+      // launcher package.json; override its output dir the same way.
+      run('npm run dist:server -- -c.directories.output=' + JSON.stringify(serverOutDir))
+    })
+  } else {
+    log('Skipping server build (BUILD_ROLE=launcher)')
+  }
 
   substep('collect artifacts', () => {
     log('Step 5/5: Collecting artifacts to releases/' + customer.channel + '/' + version + '/')

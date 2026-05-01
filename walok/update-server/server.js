@@ -830,9 +830,35 @@ app.post('/api/admin/version', requireAdmin, (req, res) => {
 // No more separate BUILD-only or PUBLISH-only flows in the admin UI.
 app.post('/api/admin/build', requireAdmin, async (req, res) => {
   if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found — cannot run builds' })
-  const { channel, all, version, dryRun } = req.body || {}
+  // Mutex with /api/admin/update-source: refuse to enqueue while a master
+  // source replacement is in flight, otherwise the new job could dequeue
+  // and start reading the source dir mid-rename.
+  if (_sourceUpdateInFlight) {
+    return res.status(409).json({
+      error: 'master source is being replaced right now — wait for the upload to finish, then try again',
+    })
+  }
+  const { channel, all, version, dryRun, roles } = req.body || {}
   if (!all && !isValidChannel(channel)) return res.status(400).json({ error: 'channel required (or pass all:true)' })
   if (version && !isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
+
+  // roles: optional ['launcher'] | ['server']. undefined / null / [] / both
+  // present = full build (default). Plumbed to the build-customer.js child
+  // process as BUILD_ROLE which controls which electron-builder substeps
+  // run; publish-update.js then auto-skips the role whose <role>-unpacked/
+  // doesn't exist, so a launcher-only build correctly leaves the customer's
+  // server payload untouched (and vice versa).
+  let roleFilter = null
+  if (Array.isArray(roles) && roles.length > 0) {
+    const valid = ['launcher', 'server']
+    const filtered = roles.filter(r => valid.includes(r))
+    if (filtered.length === 0) {
+      return res.status(400).json({ error: 'roles must contain "launcher" and/or "server"' })
+    }
+    // Single-role filter only makes sense when exactly one is selected; when
+    // both are listed treat it as "no filter" (= both, the default).
+    if (filtered.length === 1) roleFilter = filtered[0]
+  }
 
   const reqIp = req.ip || req.connection?.remoteAddress || ''
   const targetChannels = all ? dbApi.listCustomers().map(c => c.channel) : [channel]
@@ -932,11 +958,20 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
   function enqueueOneCustomerJob(ch) {
     const v = perChannelVersion[ch]
     const steps = []
+    // When the operator clicked the per-customer "Launcher" or "Server"
+    // button, roleFilter is set and we tag the step label + child env so
+    // the build-customer.js script knows to skip the other role's
+    // electron-builder substep. Tag flows up to the BUILD CONSOLE header
+    // ("Build customer FOO v1.2.3 [LAUNCHER ONLY]") so the operator can
+    // tell at a glance that this isn't a full build.
+    const roleTag = roleFilter ? ' [' + roleFilter.toUpperCase() + ' ONLY]' : ''
+    const stepEnv = { BUILD_VERSION: v }
+    if (roleFilter) stepEnv.BUILD_ROLE = roleFilter
     steps.push({
-      label: 'Build customer "' + ch + '" v' + v,
+      label: 'Build customer "' + ch + '" v' + v + roleTag,
       cmd: process.execPath, args: ['scripts/build-customer.js', ch],
       cwd: '.',
-      env: { BUILD_VERSION: v },
+      env: stepEnv,
       // No `phase` here — build-customer.js prints [SUBSTEP_BEGIN] markers
       // for each of its 5 inner phases (rebrand → vite → pack-launcher →
       // pack-server → collect), and the job-runner translates those into
@@ -944,10 +979,15 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
       // step instead of jumping from `workspace` straight to `publish`.
     })
     steps.push({
-      label: 'Ship "' + ch + '" v' + v + ' to update server',
+      label: 'Ship "' + ch + '" v' + v + roleTag + ' to update server',
       cmd: process.execPath, args: ['scripts/publish-update.js', ch],
       cwd: '.',
-      env: { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR },
+      // BUILD_ROLE plumbed through for log-clarity only — publish-update.js
+      // already auto-skips a role whose <role>-unpacked/ doesn't exist on
+      // disk, so the actual filtering happens implicitly.
+      env: roleFilter
+        ? { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR, BUILD_ROLE: roleFilter }
+        : { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR },
       phase: 'publish', // single-process step — emit at step entry.
     })
 
@@ -978,16 +1018,30 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
         } catch (e) {
           jobAppend(j, '[cleanup] WARN: ' + ch + ': ' + e.message)
         }
+        // ROLE-AWARE BOOKKEEPING. When the operator clicked the per-customer
+        // "Launcher" or "Server" button (roleFilter set), we must only
+        // record + push the role we actually built — recording the
+        // untouched role would (a) bump its rebump counter against the
+        // wrong manifest and (b) push a stale "update available" to clients
+        // that don't have a new payload waiting. roleFilter === null means
+        // a full build (both roles).
+        const didLauncher = roleFilter === null || roleFilter === 'launcher'
+        const didServer   = roleFilter === null || roleFilter === 'server'
         try {
-          dbApi.recordLauncherPublished(ch, v)
-          dbApi.recordServerPublished(ch, v)
+          if (didLauncher) dbApi.recordLauncherPublished(ch, v)
+          if (didServer)   dbApi.recordServerPublished(ch, v)
           dbApi.recordBuild(ch)
         } catch (e) {
           jobAppend(j, '[db] WARN: failed to record version for ' + ch + ': ' + e.message)
         }
-        const launcherCount = live.broadcast(ch, { type: 'update', version: v, role: 'launcher' })
-        const serverCount = live.broadcast(ch, { type: 'update', version: v, role: 'server' })
-        jobAppend(j, '[live-push] ' + ch + ' v' + v + ' -> ' + (launcherCount + serverCount) + ' online client(s)')
+        const launcherCount = didLauncher
+          ? live.broadcast(ch, { type: 'update', version: v, role: 'launcher' })
+          : 0
+        const serverCount = didServer
+          ? live.broadcast(ch, { type: 'update', version: v, role: 'server' })
+          : 0
+        const roleLabel = roleFilter ? ' [' + roleFilter + ' only]' : ''
+        jobAppend(j, '[live-push] ' + ch + ' v' + v + roleLabel + ' -> ' + (launcherCount + serverCount) + ' online client(s)')
       },
       onCancel: (j) => {
         // CRITICAL: only sweep filesystem state if THIS job actually ran a
@@ -1072,609 +1126,248 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
   res.json(body)
 })
 
-// ============ MANUAL UPLOAD-PRE-BUILT-UPDATE ============
-// Lets the operator drop a pre-built launcher-payload.zip (and optionally a
-// server-payload.zip) into update-server/public/updates/<channel>/<version>/
-// without re-running the build pipeline. Useful when a build was produced
-// out-of-band (e.g. on a different machine or by hand).
-// Per-zip upload cap. Real-world launcher source bundles routinely run past
-// the legacy 500 MB cap once electron prebuilt binaries and large assets are
-// included. Lifted to 2 GB.
+// ============ UPDATE SOURCE FILES (master source replacement) ============
+// One-shot endpoint: operator uploads a .zip of the launcher source (replaces
+// walok/src/) OR the server source (replaces walok/server/). The next time
+// the operator clicks "Build All Customers" (or any per-customer Build /
+// Launcher / Server button), the build pipeline reads from the freshly
+// replaced master source — there is NO per-build source upload anymore.
 //
-// CAVEAT: multer.memoryStorage buffers the entire upload in RAM. The OTA
-// server is a single-operator internal tool, so this is acceptable, but a
-// 2 GB upload will spike resident memory by ~2 GB during the request — make
-// sure the host has the headroom before sending one that big.
-const uploadPayload = multer({
+// This replaces the old "Build From Uploaded Source" + per-customer
+// "Upload Update" flows, both of which uploaded a payload PER BUILD. The new
+// model is: master source on disk is the source of truth, the operator
+// updates it explicitly when needed, and builds reuse it.
+//
+// Safety:
+//   - 500 MB upload cap (multer). Source trees fit comfortably; rejecting
+//     larger uploads protects the OTA host's RAM (multer.memoryStorage
+//     buffers the entire upload before we touch disk).
+//   - Refuses with 409 if any build job is currently RUNNING — replacing
+//     master source mid-build would corrupt the in-progress copy.
+//   - Atomic replace via tmp + rename + async-rmrf-trash. Concurrent reads
+//     (an in-flight build that started before this request) always see
+//     either the old or the new tree, never a half-extracted state.
+//   - Strict zip validation: PK magic, zip-slip refusal, per-entry +
+//     total-size caps (reuses primitives from source-build.js).
+//   - Validates extracted shape: launcher must contain package.json (and
+//     either electron/main.js or main.js); server must contain package.json
+//     and electron/main.js. Hard-fail before the rename, so a bad upload
+//     doesn't take down the master source.
+//
+// Per-zip upload cap. Source trees fit easily under 500 MB even with images
+// and prebuilt binaries; if you legitimately need more, raise this and the
+// host's RAM headroom together.
+const uploadSource = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2GB per zip
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
 })
 
-function sha256OfBuffer(buf) {
-  return crypto.createHash('sha256').update(buf).digest('hex')
-}
-
-// Mirror electron-builder's productName -> .exe filename behavior. The new
-// launcher uses this manifest field to identify the NEW exe after a rebrand
-// (so it can spawn it on restart and delete the old DENFI.exe afterwards).
-function sanitizeExeName(productName) {
-  if (!productName) return null
-  const safe = String(productName).replace(/[\\/:*?"<>|]/g, '').trim()
-  return safe ? safe + '.exe' : null
-}
-
-function writePayloadAndManifest({ channel, version, launcherZip, serverZip, notes }) {
-  const channelDir = path.join(UPDATES_DIR, channel, version)
-  fs.mkdirSync(channelDir, { recursive: true })
-  let launcherInfo = null
-  if (launcherZip) {
-    const dest = path.join(channelDir, 'launcher-payload.zip')
-    fs.writeFileSync(dest, launcherZip)
-    launcherInfo = {
-      url: '/updates/' + channel + '/' + version + '/launcher-payload.zip',
-      size: launcherZip.length,
-      sha256: sha256OfBuffer(launcherZip),
-    }
-  }
-  let serverInfo = null
-  if (serverZip) {
-    const serverDir = path.join(UPDATES_DIR, channel + '-server', version)
-    fs.mkdirSync(serverDir, { recursive: true })
-    const dest = path.join(serverDir, 'server-payload.zip')
-    fs.writeFileSync(dest, serverZip)
-    serverInfo = {
-      url: '/updates/' + channel + '-server/' + version + '/server-payload.zip',
-      size: serverZip.length,
-      sha256: sha256OfBuffer(serverZip),
-    }
-  }
-  if (launcherInfo) {
-    let exeName = null
-    try {
-      const cust = dbApi.getCustomer(channel)
-      if (cust && cust.brandName) exeName = sanitizeExeName(cust.brandName)
-    } catch (e) {}
-    const m = {
-      version, channel,
-      releasedAt: new Date().toISOString(),
-      launcher: launcherInfo,
-      ...(exeName ? { exeName } : {}),
-      notes: notes || ('Manual upload v' + version),
-    }
-    fs.writeFileSync(path.join(UPDATES_DIR, channel, 'latest.json'), JSON.stringify(m, null, 2))
-  }
-  if (serverInfo) {
-    // Match the contract enforced by scripts/publish-update.js:251-258 — the
-    // server manifest MUST include exeName ("<brandName> Server" sanitized),
-    // otherwise the launcher's stageOutOfProcessApply() refuses to apply the
-    // update and writes .ota-pending/FAILED. Without this the server folder
-    // never wipes and the payload never extracts on the customer's machine.
-    let serverExeName = null
-    try {
-      const cust = dbApi.getCustomer(channel)
-      if (cust && cust.brandName) serverExeName = sanitizeExeName(cust.brandName + ' Server')
-    } catch (e) {}
-    const m = {
-      version, channel: channel + '-server',
-      releasedAt: new Date().toISOString(),
-      launcher: serverInfo,
-      ...(serverExeName ? { exeName: serverExeName } : {}),
-      notes: notes || ('Manual upload server v' + version),
-    }
-    fs.writeFileSync(path.join(UPDATES_DIR, channel + '-server', 'latest.json'), JSON.stringify(m, null, 2))
-  }
-  return { launcherInfo, serverInfo }
-}
-
-app.post('/api/admin/customers/:channel/upload-update',
-  requireAdmin,
-  (req, res, next) => {
-    uploadPayload.fields([
-      { name: 'launcher', maxCount: 1 },
-      { name: 'server', maxCount: 1 },
-    ])(req, res, (err) => {
-      if (err) return res.status(400).json({ error: err.message })
-      next()
-    })
-  },
-  (req, res) => {
-    // [deprecated] /api/admin/customers/:channel/upload-update accepts pre-built
-    // payload zips and is kept alive for one release while operators migrate
-    // to /api/admin/build-from-source. Remove after one release.
-    console.log('[deprecated] /api/admin/customers/' + req.params.channel + '/upload-update was called — migrate caller to /api/admin/build-from-source')
-    const channel = req.params.channel
-    if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
-    if (!dbApi.getCustomer(channel)) return res.status(404).json({ error: 'unknown channel' })
-    const version = (req.body && req.body.version) || ''
-    if (!isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
-
-    const launcherFile = req.files?.launcher?.[0]
-    const serverFile = req.files?.server?.[0]
-    if (!launcherFile && !serverFile) return res.status(400).json({ error: 'at least one of launcher / server payload zip required' })
-
-    // Refuse uploads of an older or same version FOR THE ROLE BEING UPLOADED.
-    // We must NOT block a launcher-only upload because the server channel is
-    // already at a newer version (operator legitimately wants to ship a
-    // launcher-only patch). Strict monotonicity per role, no override — to
-    // re-issue an existing version number, bump it (e.g. 1.2.3 → 1.2.4).
-    const cmp = (a, b) => {
-      const pa = a.split('.').map(n => parseInt(n, 10) || 0)
-      const pb = b.split('.').map(n => parseInt(n, 10) || 0)
-      for (let i = 0; i < 3; i++) { if (pa[i] !== pb[i]) return pa[i] - pb[i] }
-      return 0
-    }
-    if (launcherFile) {
-      const l = getChannelInfo(channel)
-      if (l && l.version && cmp(version, l.version) <= 0) {
-        return res.status(409).json({ error: `version ${version} is not newer than the currently shipped launcher version ${l.version}. Bump the version and re-upload.` })
-      }
-    }
-    if (serverFile) {
-      const s = getChannelInfo(channel + '-server')
-      if (s && s.version && cmp(version, s.version) <= 0) {
-        return res.status(409).json({ error: `version ${version} is not newer than the currently shipped server version ${s.version}. Bump the version and re-upload.` })
-      }
-    }
-
-    // Tolerate clients sending other zip types but flag it so the operator notices.
-    for (const f of [launcherFile, serverFile]) {
-      if (!f) continue
-      if (f.mimetype && !['application/zip', 'application/x-zip-compressed', 'application/octet-stream'].includes(f.mimetype)) {
-        // Not fatal — we still proceed, but log the mismatch.
-        console.log('[upload-update] note: mimetype "' + f.mimetype + '" for ' + f.fieldname + ', proceeding anyway')
-      }
-    }
-
-    let result
-    try {
-      result = writePayloadAndManifest({
-        channel, version,
-        launcherZip: launcherFile ? launcherFile.buffer : null,
-        serverZip: serverFile ? serverFile.buffer : null,
-        notes: (req.body && req.body.notes) || null,
-      })
-    } catch (e) {
-      return res.status(500).json({ error: 'failed to write payload: ' + e.message })
-    }
-
-    // Clean up older versions for this channel (keep newest only)
-    try {
-      cleanupAfterBuild({
-        projectRoot: PROJECT_ROOT,
-        updatesPublicDir: UPDATES_DIR,
-        channels: [channel],
-        version,
-      })
-    } catch (e) {
-      console.log('[upload-update] cleanup warn: ' + e.message)
-    }
-
-    // Record published version + timestamp so the admin pill reflects the
-    // upload immediately (without waiting for a manifest re-read).
-    try {
-      if (launcherFile) dbApi.recordLauncherPublished(channel, version)
-      if (serverFile) dbApi.recordServerPublished(channel, version)
-    } catch (e) {
-      console.log('[upload-update] db record warn: ' + e.message)
-    }
-
-    // Live push
-    const launcherCount = live.broadcast(channel, { type: 'update', version, role: 'launcher' })
-    const serverCount = live.broadcast(channel, { type: 'update', version, role: 'server' })
-
-    res.json({
-      ok: true,
-      channel, version,
-      launcher: result.launcherInfo,
-      server: result.serverInfo,
-      pushedTo: launcherCount + serverCount,
-    })
-  }
-)
-
-// Multi-target upload — same payload as /api/admin/customers/:channel/upload-update
-// but accepts a `target` form field that can be a single channel OR the literal
-// "__all__" to push the same zip(s) to every customer in the DB. Runs as a
-// tracked job so progress streams to the BUILD CONSOLE via the existing SSE
-// pipeline (/api/admin/jobs/:id/stream).
-app.post('/api/admin/upload-update',
-  requireAdmin,
-  (req, res, next) => {
-    uploadPayload.fields([
-      { name: 'launcher', maxCount: 1 },
-      { name: 'server', maxCount: 1 },
-    ])(req, res, (err) => {
-      if (err) return res.status(400).json({ error: err.message })
-      next()
-    })
-  },
-  (req, res) => {
-    // [deprecated] /api/admin/upload-update accepts pre-built payload zips
-    // and is kept alive for one release while operators migrate to
-    // /api/admin/build-from-source (which builds from uploaded source).
-    // Remove this endpoint after one release if no callers remain.
-    console.log('[deprecated] /api/admin/upload-update was called — migrate caller to /api/admin/build-from-source')
-    const target = (req.body && req.body.target) || ''
-    const version = (req.body && req.body.version) || ''
-    const notes = (req.body && req.body.notes) || null
-    if (!isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
-
-    let channels
-    if (target === '__all__') {
-      channels = dbApi.listCustomers().map(c => c.channel)
-      if (channels.length === 0) return res.status(400).json({ error: 'no customers in database' })
-    } else if (isValidChannel(target) && dbApi.getCustomer(target)) {
-      channels = [target]
-    } else {
-      return res.status(400).json({ error: 'target must be a known channel or "__all__"' })
-    }
-
-    const launcherFile = req.files?.launcher?.[0]
-    const serverFile = req.files?.server?.[0]
-    if (!launcherFile && !serverFile) {
-      return res.status(400).json({ error: 'at least one of launcher / server payload zip required' })
-    }
-
-    // Strict monotonicity guard — per channel, BUT role-specific. A
-    // launcher-only upload must not be blocked because the server channel is
-    // already on a newer version (operator legitimately wants to ship a
-    // launcher patch). Same the other way for server-only uploads.
-    {
-      const cmp = (a, b) => {
-        const pa = a.split('.').map(n => parseInt(n, 10) || 0)
-        const pb = b.split('.').map(n => parseInt(n, 10) || 0)
-        for (let i = 0; i < 3; i++) { if (pa[i] !== pb[i]) return pa[i] - pb[i] }
-        return 0
-      }
-      for (const ch of channels) {
-        if (launcherFile) {
-          const l = getChannelInfo(ch)
-          if (l && l.version && cmp(version, l.version) <= 0) {
-            return res.status(409).json({ error: `version ${version} is not newer than ${ch} launcher v${l.version}. Bump the version and re-upload.` })
-          }
-        }
-        if (serverFile) {
-          const s = getChannelInfo(ch + '-server')
-          if (s && s.version && cmp(version, s.version) <= 0) {
-            return res.status(409).json({ error: `version ${version} is not newer than ${ch} server v${s.version}. Bump the version and re-upload.` })
-          }
-        }
-      }
-    }
-
-    // upload-update never runs an external child process — it just writes
-    // payloads + does cleanup + live-pushes. We still get a queue slot via
-    // enqueueInlineJob so the upload is properly serialised against builds
-    // for the same channel (no race on writePayloadAndManifest + manifest
-    // write), and the existing SSE/progress UI works unchanged.
-    const job = jobRunner.enqueueInlineJob({
-      label: target === '__all__' ? 'UPLOAD UPDATE -> ALL CUSTOMERS' : 'UPLOAD UPDATE -> ' + target,
-      channels: target === '__all__' ? [] : channels,
-      work: async (j) => {
-        jobAppend(j, '== upload-update v' + version + ' -> ' + channels.length + ' channel(s): ' + channels.join(', ') + ' ==')
-        let totalPushed = 0
-        for (const ch of channels) {
-          jobAppend(j, '[upload] ' + ch + ' v' + version + ' staging...')
-          try {
-            writePayloadAndManifest({
-              channel: ch, version,
-              launcherZip: launcherFile ? launcherFile.buffer : null,
-              serverZip: serverFile ? serverFile.buffer : null,
-              notes,
-            })
-          } catch (e) {
-            jobAppend(j, '[upload] ' + ch + ' FAILED: ' + e.message)
-            continue
-          }
-          try {
-            const summary = cleanupAfterBuild({
-              projectRoot: PROJECT_ROOT,
-              updatesPublicDir: UPDATES_DIR,
-              channels: [ch],
-              version,
-            })
-            for (const s of summary) {
-              const removed = [
-                ...(s.released?.removed || s.releases?.removed || []).map(v => 'releases/' + v),
-                ...(s.published.removed || []).map(v => 'updates/' + v),
-                ...(s.publishedServer.removed || []).map(v => 'updates-server/' + v),
-              ]
-              if (removed.length > 0) jobAppend(j, '[cleanup] ' + ch + ' — removed: ' + removed.join(', '))
-            }
-          } catch (e) {
-            jobAppend(j, '[cleanup] ' + ch + ' WARN: ' + e.message)
-          }
-          try {
-            if (launcherFile) dbApi.recordLauncherPublished(ch, version)
-            if (serverFile) dbApi.recordServerPublished(ch, version)
-          } catch (e) {
-            jobAppend(j, '[db] ' + ch + ' WARN: failed to record version: ' + e.message)
-          }
-          const launcherCount = live.broadcast(ch, { type: 'update', version, role: 'launcher' })
-          const serverCount = live.broadcast(ch, { type: 'update', version, role: 'server' })
-          totalPushed += launcherCount + serverCount
-          jobAppend(j, '[live-push] ' + ch + ' v' + version + ' -> ' + (launcherCount + serverCount) + ' online client(s)')
-        }
-        jobAppend(j, '== Done. Total live notifications: ' + totalPushed + ' ==')
-      },
-    })
-    res.json({ jobId: job.id, status: job.status })
-  }
-)
-
-// ============ BUILD FROM UPLOADED SOURCE ============
-// New replacement for the (now [deprecated]) /api/admin/upload-update flow.
-// The operator uploads a launcher source zip, server source zip, or both.
-// We extract → install deps → rebrand per customer → build → pack → publish.
-// Per-channel fan-out under the existing channel mutex so two customers
-// build in parallel up to MAX_CONCURRENT, but two builds for the SAME
-// customer serialize cleanly.
-app.post('/api/admin/build-from-source',
-  requireAdmin,
-  (req, res, next) => {
-    uploadPayload.fields([
-      { name: 'launcher', maxCount: 1 },
-      { name: 'server', maxCount: 1 },
-    ])(req, res, (err) => {
-      if (err) return res.status(400).json({ error: err.message })
-      next()
-    })
-  },
-  (req, res) => {
-    const target = (req.body && req.body.target) || ''
-    const version = (req.body && req.body.version) || ''
-    const notes = (req.body && req.body.notes) || null
-    // mode: 'full' (default) ships a whole repo zip into each slot AND
-    // refreshes the cached baseline. 'patch' ships only the contents of src/
-    // (launcher slot) or server/ (server slot) and overlays them on the
-    // cached baseline. The two modes are mutually exclusive per request —
-    // mixing them would mean baseline gets refreshed for one half and not
-    // the other, which is a confusing footgun.
-    const mode = ((req.body && req.body.mode) || 'full').toString()
-    if (mode !== 'full' && mode !== 'patch') {
-      return res.status(400).json({ error: 'mode must be "full" or "patch"' })
-    }
-    if (!isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
-
-    let channels
-    if (target === '__all__') {
-      channels = dbApi.listCustomers().map(c => c.channel)
-      if (channels.length === 0) return res.status(400).json({ error: 'no customers in database' })
-    } else if (isValidChannel(target) && dbApi.getCustomer(target)) {
-      channels = [target]
-    } else {
-      return res.status(400).json({ error: 'target must be a known channel or "__all__"' })
-    }
-
-    const launcherFile = req.files?.launcher?.[0]
-    const serverFile = req.files?.server?.[0]
-    if (!launcherFile && !serverFile) {
-      return res.status(400).json({ error: 'at least one of launcher / server source zip required' })
-    }
-
-    // Patch mode: refuse early if no baseline has ever been established for
-    // the kind(s) the operator is patching. Without this check the per-
-    // customer jobs would all fan out and then each fail with the same
-    // baseline-missing error — a single up-front 400 is much friendlier.
-    if (mode === 'patch') {
-      const baselineLauncher = path.join(sourceBuild.BASELINE_DIR, 'launcher')
-      const baselineServer = path.join(sourceBuild.BASELINE_DIR, 'server')
-      if (launcherFile && !fs.existsSync(baselineLauncher)) {
-        return res.status(409).json({ error: 'no baseline cached for LAUNCHER — upload a Full Repo zip first to establish a baseline, then patch builds will work.' })
-      }
-      if (serverFile && !fs.existsSync(baselineServer)) {
-        return res.status(409).json({ error: 'no baseline cached for SERVER — upload a Full Repo zip first to establish a baseline, then patch builds will work.' })
-      }
-    }
-
-    // Hold the buffers in closure scope. multer's memoryStorage gives us
-    // already-buffered Buffers — we must NOT count on req.files surviving
-    // past the handler return; the per-channel inline-job runs async.
-    const launcherBuf = launcherFile ? launcherFile.buffer : null
-    const serverBuf   = serverFile   ? serverFile.buffer   : null
-
-    // Role-specific NO-DOWNGRADE guard. Unlike the deprecated pre-built
-    // upload endpoint, "Build From Uploaded Source" intentionally permits
-    // re-shipping the SAME version: the operator may have caught a logo
-    // typo, a rebrand misstep, or simply wants to re-roll a clean payload
-    // from a corrected source zip. The republish is recorded as a "rebump"
-    // (counter + timestamp on the customer row) so the admin UI can show
-    // exactly when, and how many times, that version was reshipped.
-    // Strict downgrades are still blocked — pushing v1.0.1 over v1.0.2 would
-    // make connected installs roll backward, which is never intentional.
-    {
-      const cmp = (a, b) => {
-        const pa = a.split('.').map(n => parseInt(n, 10) || 0)
-        const pb = b.split('.').map(n => parseInt(n, 10) || 0)
-        for (let i = 0; i < 3; i++) { if (pa[i] !== pb[i]) return pa[i] - pb[i] }
-        return 0
-      }
-      for (const ch of channels) {
-        if (launcherBuf) {
-          const l = getChannelInfo(ch)
-          if (l && l.version && cmp(version, l.version) < 0) {
-            return res.status(409).json({ error: `version ${version} is older than ${ch} launcher v${l.version}. Downgrades are blocked — bump the version (or use the same version to re-ship).` })
-          }
-        }
-        if (serverBuf) {
-          const s = getChannelInfo(ch + '-server')
-          if (s && s.version && cmp(version, s.version) < 0) {
-            return res.status(409).json({ error: `version ${version} is older than ${ch} server v${s.version}. Downgrades are blocked — bump the version (or use the same version to re-ship).` })
-          }
-        }
-      }
-    }
-
-    // Per-fan-out closure: only the first per-customer job to actually start
-    // executing should refresh the cached baseline. We can't decide that at
-    // enqueue time because customers run in parallel up to MAX_CONCURRENT
-    // and the order of who-runs-first isn't deterministic. _baselineWriterClaim
-    // is a one-shot — it returns true exactly once across all jobs in this
-    // fan-out, then false forever after. Subsequent jobs see false and pass
-    // setBaselineMeta:null which makes buildOneFromSource skip snapshot.
-    let _baselineClaimed = false
-    function _baselineWriterClaim() {
-      if (_baselineClaimed) return false
-      _baselineClaimed = true
-      return true
-    }
-
-    // Per-channel fan-out — one inline job per customer. Each job claims its
-    // own channel via channels:[ch] so the existing per-channel mutex
-    // serializes any duplicate (channel, version) submissions while
-    // independent customers build in parallel up to MAX_CONCURRENT.
-    function enqueueOnePerCustomer(ch) {
-      const customer = dbApi.getCustomer(ch)
-      // Pre-resolve the customer's logo absolute path so the job doesn't
-      // need to know how customer.logo is stored (relative to PROJECT_ROOT).
-      let logoAbsPath = null
-      if (customer && customer.logo) {
-        logoAbsPath = path.isAbsolute(customer.logo)
-          ? customer.logo
-          : path.join(PROJECT_ROOT || path.join(__dirname, '..'), customer.logo)
-      }
-      return jobRunner.enqueueInlineJob({
-        label: 'BUILD-FROM-SOURCE -> ' + ch + ' v' + version +
-               ' (' + [launcherBuf ? 'launcher' : null, serverBuf ? 'server' : null].filter(Boolean).join('+') + ')',
-        channels: [ch],
-        work: async (job) => {
-          // Per-job workspace under the update-server's own dir so we never
-          // litter PROJECT_ROOT with extracted source. Cleaned in finally so
-          // the operator's disk doesn't fill up if a build fails or
-          // cancels mid-way.
-          const workspaceRoot = path.join(__dirname, '.build-jobs', job.id)
-          await fs.promises.mkdir(workspaceRoot, { recursive: true })
-          let launcherPayload = null
-          let serverPayload = null
-          try {
-            // Baseline meta callback — only the FIRST per-customer job in
-            // the fan-out should refresh the cached baseline (subsequent
-            // customers see identical input, so re-snapshotting is wasted
-            // I/O). We gate that here with a closure flag captured from the
-            // request scope; full-mode jobs after the first one pass `null`
-            // for setBaselineMeta which makes buildOneFromSource skip the
-            // snapshot step entirely.
-            const baselineCb = (mode === 'full' && _baselineWriterClaim()) ? dbApi.setBaselineRefreshedAt : null
-
-            if (launcherBuf) {
-              if (job.cancelRequested) throw new Error('cancelled before launcher build')
-              const r = await sourceBuild.buildOneFromSource({
-                job, channel: ch, kind: 'launcher',
-                sourceZipBuffer: launcherBuf, version, customer,
-                customerLogoAbsPath: logoAbsPath, workspaceRoot,
-                mode, setBaselineMeta: baselineCb,
-              })
-              launcherPayload = r.payloadBuffer
-            }
-            if (serverBuf) {
-              if (job.cancelRequested) throw new Error('cancelled before server build')
-              const r = await sourceBuild.buildOneFromSource({
-                job, channel: ch, kind: 'server',
-                sourceZipBuffer: serverBuf, version, customer,
-                customerLogoAbsPath: logoAbsPath, workspaceRoot,
-                mode, setBaselineMeta: baselineCb,
-              })
-              serverPayload = r.payloadBuffer
-            }
-
-            // Hard cancel-gate immediately before the irreversible publish.
-            // Architect review (2026-05-01) flagged a race: if the operator
-            // hit Cancel after the last build step finished but before this
-            // line ran, the per-channel work was committed to disk anyway
-            // (no live child existed to kill). Re-check job.cancelRequested
-            // here so a cancel during that micro-window aborts cleanly and
-            // the finally{} below still wipes the workspace.
-            if (job.cancelRequested) throw new Error('cancelled before publish — no payload was shipped')
-
-            // Publish — same path the deprecated upload-update uses.
-            jobEmitPhase(job, 'sb-publish')
-            jobAppend(job, '== Publishing v' + version + ' to ' + ch + '…')
-            writePayloadAndManifest({
-              channel: ch, version,
-              launcherZip: launcherPayload,
-              serverZip: serverPayload,
-              notes,
-            })
-
-            // Sweep older releases / payloads (same as the existing build flow).
-            try {
-              const summary = cleanupAfterBuild({
-                projectRoot: PROJECT_ROOT,
-                updatesPublicDir: UPDATES_DIR,
-                channels: [ch],
-                version,
-              })
-              for (const s of summary) {
-                const removed = [
-                  ...(s.released?.removed || s.releases?.removed || []).map(v => 'releases/' + v),
-                  ...(s.published.removed || []).map(v => 'updates/' + v),
-                  ...(s.publishedServer.removed || []).map(v => 'updates-server/' + v),
-                ]
-                if (removed.length > 0) jobAppend(job, '[cleanup] ' + ch + ' — removed: ' + removed.join(', '))
-              }
-            } catch (e) {
-              jobAppend(job, '[cleanup] WARN: ' + e.message)
-            }
-
-            try {
-              if (launcherPayload) dbApi.recordLauncherPublished(ch, version)
-              if (serverPayload)   dbApi.recordServerPublished(ch, version)
-              dbApi.recordBuild(ch)
-            } catch (e) {
-              jobAppend(job, '[db] WARN: failed to record version: ' + e.message)
-            }
-
-            const launcherCount = launcherPayload ? live.broadcast(ch, { type: 'update', version, role: 'launcher' }) : 0
-            const serverCount   = serverPayload   ? live.broadcast(ch, { type: 'update', version, role: 'server' })   : 0
-            jobAppend(job, '[live-push] ' + ch + ' v' + version + ' -> ' + (launcherCount + serverCount) + ' online client(s)')
-          } finally {
-            // Always remove the per-job workspace. rmrfWithRetry handles
-            // Windows file-lock retries (electron-builder occasionally
-            // leaves a temp .exe held open by AV for a few hundred ms).
-            try { await jobRunner.rmrfWithRetry(workspaceRoot) }
-            catch (e) { jobAppend(job, '[cleanup] WARN: could not remove workspace ' + workspaceRoot + ' (' + e.message + ') — safe to ignore') }
-          }
-        },
-        // onCancel: the inline-job's finally{} above runs regardless, which
-        // already cleans the workspace. There's no half-published payload
-        // to sweep because writePayloadAndManifest is the very last write
-        // before the live-push and the cancel path bails BEFORE it.
-      })
-    }
-
-    const jobs = channels.map(enqueueOnePerCustomer)
-    const queueState = jobRunner.getQueueState()
-    const jobSummaries = jobs.map(j => ({
-      jobId: j.id,
-      channel: j.channels[0],
-      version,
-      status: j.status,
-      queuePosition: j.status === 'queued' ? queueState.queued.indexOf(j.id) + 1 : null,
-    }))
-
-    // Same response shape as /api/admin/build so the admin UI can reuse the
-    // multi-job streamJob fan-out helper.
-    const body = { jobs: jobSummaries, jobIds: jobSummaries.map(s => s.jobId) }
-    if (target !== '__all__' && jobs.length === 1) {
-      body.jobId = jobs[0].id
-      body.status = jobs[0].status
-      body.queuePosition = jobSummaries[0].queuePosition
-    }
-    res.json(body)
-  }
-)
-
-// Baseline-status — surfaces whether a cached baseline exists for launcher
-// and/or server, and when it was last refreshed. Drives the "Patch Mode"
-// availability indicator in the admin form.
-app.get('/api/admin/baseline-status', requireAdmin, async (req, res) => {
+function _hasActiveBuildJob() {
+  // job-runner exposes listJobs() returning every known job (queued +
+  // running + finished). Treat 'running' AND 'cancelling' as blocking
+  // for a master-source swap — both can still have a child build process
+  // alive that's reading walok/src or walok/server. 'queued' is OK since
+  // those jobs haven't read anything yet, and the build endpoint's own
+  // 409 against `_sourceUpdateInFlight` prevents new ones from queuing
+  // while we're swapping.
   try {
-    const launcher = await sourceBuild.getBaselineStatus('launcher', dbApi.getBaselineRefreshedAt)
-    const server   = await sourceBuild.getBaselineStatus('server',   dbApi.getBaselineRefreshedAt)
-    res.json({ launcher, server })
-  } catch (e) {
-    res.status(500).json({ error: 'baseline-status: ' + e.message })
+    const jobs = jobRunner.listJobs()
+    return jobs.some(j => j.status === 'running' || j.status === 'cancelling')
+  } catch (_) { return false }
+}
+
+// Mutex flag: TRUE while /api/admin/update-source is between its initial
+// 409 gate and its final rename/cleanup. Cleared in `finally`. The build
+// endpoint refuses 409 while this is set, closing the TOCTOU window where
+// a build could enqueue + start running mid-extract and then read a
+// half-swapped source tree. Set/cleared synchronously to avoid races
+// between concurrent /api/admin/update-source requests too.
+let _sourceUpdateInFlight = false
+
+function _validateExtractedSourceShape(rootDir, kind) {
+  // The launcher zip = the CONTENTS of walok/src/ (App.jsx, main.jsx,
+  // index.css, components/, store/, ...). It does NOT contain a top-level
+  // package.json or electron/ — those live one level up in walok/. Reject
+  // an obviously-wrong "full repo" upload (which would clobber walok/src
+  // with a totally different tree shape).
+  // The server zip = the CONTENTS of walok/server/ (electron/, src/,
+  // package.json, package-lock.json) — package.json + electron/main.js
+  // ARE expected here.
+  if (kind === 'launcher') {
+    const required = ['main.jsx', 'App.jsx']
+    const missing = required.filter(f => !fs.existsSync(path.join(rootDir, f)))
+    if (missing.length > 0) {
+      throw new Error('launcher zip is missing ' + missing.join(' + ') + ' — expected the CONTENTS of walok/src/ (App.jsx, main.jsx, index.css, components/, store/), not a full project')
+    }
+    // Belt-and-suspenders: a top-level electron/ directory means the
+    // operator zipped walok/ instead of walok/src/. Catch that too.
+    if (fs.existsSync(path.join(rootDir, 'electron'))) {
+      throw new Error('launcher zip contains a top-level electron/ directory — looks like you zipped walok/ instead of walok/src/. Re-zip with the CONTENTS of walok/src/ at the top level.')
+    }
+  } else if (kind === 'server') {
+    if (!fs.existsSync(path.join(rootDir, 'package.json'))) {
+      throw new Error('server zip is missing top-level package.json — expected the CONTENTS of walok/server/')
+    }
+    if (!fs.existsSync(path.join(rootDir, 'electron', 'main.js'))) {
+      throw new Error('server zip is missing electron/main.js — expected the CONTENTS of walok/server/')
+    }
   }
+}
+
+// rmrf the trash dir without blocking the response. We don't care if it
+// fails — the worst case is leftover .trash-* dirs which the operator can
+// clean up manually. Logged but never thrown.
+function _scheduleTrashRemoval(trashDir) {
+  setImmediate(() => {
+    fs.promises.rm(trashDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
+      .catch(e => console.log('[update-source] WARN: failed to rm trash dir ' + trashDir + ': ' + e.message))
+  })
+}
+
+app.post('/api/admin/update-source',
+  requireAdmin,
+  (req, res, next) => {
+    uploadSource.single('file')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message })
+      next()
+    })
+  },
+  async (req, res) => {
+    if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found' })
+    const kind = (req.body && req.body.kind) || ''
+    if (kind !== 'launcher' && kind !== 'server') {
+      return res.status(400).json({ error: 'kind must be "launcher" or "server"' })
+    }
+    const file = req.file
+    if (!file || !file.buffer || file.buffer.length === 0) {
+      return res.status(400).json({ error: 'no file uploaded (use field name "file")' })
+    }
+    if (!sourceBuild._internal.looksLikeZip(file.buffer)) {
+      return res.status(400).json({ error: 'uploaded file is not a valid zip (PK magic missing)' })
+    }
+    // ATOMIC GATE: read both pre-conditions and SET the in-flight flag in
+    // the same synchronous block so two concurrent update-source requests
+    // can't both pass the check. Once set, every other code path that
+    // might race with the swap (the build endpoint, a sibling
+    // update-source) sees the flag and 409s.
+    if (_sourceUpdateInFlight) {
+      return res.status(409).json({
+        error: 'another source replacement is already in progress — wait for it to finish',
+      })
+    }
+    if (_hasActiveBuildJob()) {
+      return res.status(409).json({
+        error: 'a build is currently running — wait for it to finish (or cancel it) before replacing master source',
+      })
+    }
+    _sourceUpdateInFlight = true
+
+    const targetDirName = kind === 'launcher' ? 'src' : 'server'
+    const targetDir = path.join(PROJECT_ROOT, targetDirName)
+    const stamp = Date.now() + '-' + crypto.randomBytes(3).toString('hex')
+    const tmpDir = path.join(PROJECT_ROOT, targetDirName + '.tmp-' + stamp)
+    const trashDir = path.join(PROJECT_ROOT, targetDirName + '.trash-' + stamp)
+
+    try {
+      let extractStats = null
+      try {
+        // Step 1: extract into a sibling tmp dir so the rest of the system
+        // never sees a half-extracted state (the rename below is atomic on a
+        // single filesystem).
+        fs.mkdirSync(tmpDir, { recursive: true })
+        extractStats = await sourceBuild._internal.extractZipBuffer(file.buffer, tmpDir)
+        // Strip a single common top-level dir (GitHub-style zips wrap
+        // everything in <repo>-<sha>/).
+        await sourceBuild._internal.maybeStripCommonRoot(tmpDir)
+        // Step 2: validate the extracted shape BEFORE the destructive rename.
+        // If this throws, only the tmp dir is cleaned up; the live source is
+        // untouched.
+        _validateExtractedSourceShape(tmpDir, kind)
+      } catch (e) {
+        try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
+        return res.status(400).json({ error: 'extract/validate failed: ' + e.message })
+      }
+
+      // Step 2.5: re-check that no build sneaked into 'running' during the
+      // (potentially slow) extract + validate phase. The build endpoint
+      // already 409s while `_sourceUpdateInFlight` is true, so the only
+      // way to land here is a job that was 'queued' before we set the flag
+      // and has since dequeued + started. Better to abort + ask the
+      // operator to retry than swap underneath a live build.
+      if (_hasActiveBuildJob()) {
+        try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
+        return res.status(409).json({
+          error: 'a build started during upload — cancel it (or wait) and retry',
+        })
+      }
+
+      // Step 3: atomic swap. If the live targetDir doesn't exist yet, just
+      // rename tmp into place. Otherwise: rename live → trash, rename tmp →
+      // live, schedule trash for async rmrf. If the second rename fails (e.g.
+      // because Windows still has a file handle on the trash), roll back by
+      // renaming trash back to live and bubble the error.
+      try {
+        const liveExists = fs.existsSync(targetDir)
+        if (liveExists) {
+          fs.renameSync(targetDir, trashDir)
+          try {
+            fs.renameSync(tmpDir, targetDir)
+          } catch (renameErr) {
+            // Roll back: move trash back to live so the system stays usable.
+            try { fs.renameSync(trashDir, targetDir) } catch (rollbackErr) {
+              console.error('[update-source] CRITICAL: rename failed AND rollback failed. Live source dir: ' + targetDir + ' / trash: ' + trashDir)
+              return res.status(500).json({ error: 'atomic swap failed AND rollback failed: ' + renameErr.message + ' / rollback: ' + rollbackErr.message })
+            }
+            try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
+            return res.status(500).json({ error: 'atomic swap failed (rolled back to old source): ' + renameErr.message })
+          }
+          _scheduleTrashRemoval(trashDir)
+        } else {
+          fs.renameSync(tmpDir, targetDir)
+        }
+      } catch (e) {
+        try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
+        return res.status(500).json({ error: 'failed to install new source: ' + e.message })
+      }
+
+      // Step 4: record the swap timestamp so the admin UI can show
+      // "Last updated: 2 minutes ago" on the panel.
+      const ts = Date.now()
+      try { dbApi.setSourceUpdatedAt(kind, ts) } catch (e) {
+        console.log('[update-source] WARN: failed to record updated-at: ' + e.message)
+      }
+
+      res.json({
+        ok: true,
+        kind,
+        updatedAt: ts,
+        entryCount: extractStats.entryCount,
+        totalUncompressed: extractStats.totalUncompressed,
+        uploadBytes: file.buffer.length,
+      })
+    } finally {
+      _sourceUpdateInFlight = false
+    }
+  }
+)
+
+// Lightweight status endpoint the admin panel calls on load + after every
+// successful upload to refresh the "Last updated" indicators on each card.
+app.get('/api/admin/source-status', requireAdmin, (req, res) => {
+  if (!PROJECT_ROOT) return res.json({ launcher: null, server: null, projectRoot: null })
+  function describe(kind) {
+    const dir = path.join(PROJECT_ROOT, kind === 'launcher' ? 'src' : 'server')
+    const present = fs.existsSync(dir) && fs.statSync(dir).isDirectory()
+    let updatedAt = null
+    try { updatedAt = dbApi.getSourceUpdatedAt(kind) } catch (_) {}
+    return { present, updatedAt, path: dir }
+  }
+  res.json({
+    launcher: describe('launcher'),
+    server: describe('server'),
+    projectRoot: PROJECT_ROOT,
+    activeBuild: _hasActiveBuildJob(),
+  })
 })
 
 // ============ JOBS API (queue + cancel + stream) ============
@@ -1882,7 +1575,20 @@ app.get('/api/admin/channels', requireAdmin, (req, res) => {
 
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }))
 
-app.listen(PORT, HOST, () => {
+// Test-friendly export so test harnesses can require this file without
+// auto-binding to PORT/HOST. Production launch path (the one the OTA host
+// runs in npm start) still binds via the require.main check below.
+module.exports = {
+  app,
+  jobRunner,
+  _internal: {
+    _hasActiveBuildJob,
+    _validateExtractedSourceShape,
+    _scheduleTrashRemoval,
+  },
+}
+
+if (require.main === module) app.listen(PORT, HOST, () => {
   console.log('')
   console.log('============================================')
   console.log('  OTA UPDATE SERVER  v' + (SERVER_VERSION || '?'))

@@ -309,6 +309,24 @@ function setBaselineRefreshedAt(kind, ts) {
   setMeta('baseline_' + kind + '_refreshed_at', String(ts || Date.now()))
 }
 
+// Master-source updated tracking — when did the operator last replace the
+// on-disk master source folder (walok/src or walok/server) by uploading a
+// new .zip via /api/admin/update-source. Independent from baseline_*_*
+// (which belonged to the now-removed Build From Uploaded Source flow);
+// this one is the canonical "did we rebuild from current code" indicator
+// the admin UI shows on the Update Source Files panel.
+function getSourceUpdatedAt(kind) {
+  if (kind !== 'launcher' && kind !== 'server') return null
+  const v = getMeta('source_' + kind + '_updated_at')
+  if (!v) return null
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) ? n : null
+}
+function setSourceUpdatedAt(kind, ts) {
+  if (kind !== 'launcher' && kind !== 'server') return
+  setMeta('source_' + kind + '_updated_at', String(ts || Date.now()))
+}
+
 // One-time migration: pull every customers/*.json into the DB if the DB has no
 // rows yet. Idempotent — re-running after the migration is a no-op.
 //
@@ -446,4 +464,6 @@ module.exports = {
   recordBuild,
   getBaselineRefreshedAt,
   setBaselineRefreshedAt,
+  getSourceUpdatedAt,
+  setSourceUpdatedAt,
 }

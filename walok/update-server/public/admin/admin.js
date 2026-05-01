@@ -165,7 +165,7 @@ async function loadCustomers() {
     }
     $('#current-version').textContent = state.version || '?'
     $('#version-input').placeholder = state.version ? bumpPatch(state.version) : '1.0.1'
-    populateBulkUploadTargets()
+    refreshSourceStatus()
     if (state.customers.length === 0) {
       list.innerHTML = '<div class="muted">No customers yet. Click "+ Add Customer" to create the first one.</div>'
       return
@@ -176,43 +176,12 @@ async function loadCustomers() {
   }
 }
 
-function populateBulkUploadTargets() {
-  const sel = $('#bup-target')
-  if (!sel) return
-  const prev = sel.value
-  sel.innerHTML = '<option value="__all__">All Customers</option>' +
-    state.customers.map(c => `<option value="${escapeHtml(c.channel)}">${escapeHtml(c.channel)} — ${escapeHtml(c.brandName || '')}</option>`).join('')
-  if (prev) sel.value = prev
-}
-
-// ---- Build From Source: mode toggle + baseline status -----------------
-// Re-paints the file-input labels + hint copy + baseline banner whenever
-// the operator picks Full vs Patch. Patch mode is what the operator
-// uses for tiny incremental uploads (just src/ or just server/) so the
-// labels and hints have to make it obvious that the upload should be the
-// CONTENTS of those folders, not the full repo.
-function applyBuildModeUI() {
-  const mode = (document.querySelector('input[name="bup-mode"]:checked') || {}).value || 'full'
-  const isPatch = mode === 'patch'
-  const lTitle = $('#bup-launcher-title'); const lHint = $('#bup-launcher-hint')
-  const sTitle = $('#bup-server-title');   const sHint = $('#bup-server-hint')
-  const rules  = $('#bup-rules-hint')
-  if (isPatch) {
-    if (lTitle) lTitle.textContent = 'Launcher Patch — contents of src/ (.zip)'
-    if (lHint)  lHint.innerHTML = 'optional — zip the <strong>contents</strong> of <code>walok\\src</code> (App.jsx, main.jsx, components/, …). NOT the parent folder.'
-    if (sTitle) sTitle.textContent = 'Server Patch — contents of server/ (.zip)'
-    if (sHint)  sHint.innerHTML = 'optional — zip the <strong>contents</strong> of <code>walok\\server</code> (package.json, electron/, …). NOT the parent folder.'
-    if (rules) rules.innerHTML = 'Patch mode overlays your tiny upload onto the cached baseline. The unchanged parts of the repo (electron/, scripts/, etc.) come from whatever Full Repo upload last refreshed the baseline. Version rules and rebump tracking work the same as Full mode.'
-  } else {
-    if (lTitle) lTitle.textContent = 'Launcher Source (.zip)'
-    if (lHint)  lHint.innerHTML = 'optional — full repo zip with package.json + electron/main.js'
-    if (sTitle) sTitle.textContent = 'Server Source (.zip)'
-    if (sHint)  sHint.innerHTML = 'optional — full repo zip with server/package.json + server/electron/main.js'
-    if (rules) rules.innerHTML = 'Version must be the same as, or newer than, the chosen target\'s currently shipped version <em>for the role being uploaded</em>. Strict downgrades are blocked. Re-shipping the SAME version is allowed and is recorded as a "rebump" on the customer card. <strong>A successful Full Repo upload also refreshes the cached baseline</strong> so subsequent Patch uploads will work.'
-  }
-  refreshBaselineStatus()
-}
-
+// ---- Update Source Files panel ---------------------------------------
+// Pulls /api/admin/source-status and re-paints the two source cards
+// (launcher / server) with "present + last replaced N ago" or a
+// "not yet uploaded" placeholder. Fired once on load and again after each
+// successful source replace + after each successful build (so the operator
+// always sees fresh "last replaced" timestamps).
 function fmtAge(ms) {
   if (!ms) return ''
   const s = Math.floor((Date.now() - ms) / 1000)
@@ -221,52 +190,65 @@ function fmtAge(ms) {
   const h = Math.floor(m / 60); if (h < 48) return h + 'h ago'
   const d = Math.floor(h / 24); return d + 'd ago'
 }
-function fmtBytes(n) {
-  if (!n) return '0 B'
-  if (n < 1024) return n + ' B'
-  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'
-  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB'
-  return (n / 1073741824).toFixed(2) + ' GB'
-}
 
-let _baselineStatusCache = null
-async function refreshBaselineStatus(force) {
-  const banner = $('#bup-baseline-status')
-  if (!banner) return
-  const mode = (document.querySelector('input[name="bup-mode"]:checked') || {}).value || 'full'
-  // Always fetch on first load OR when caller forces (after a build); cache
-  // otherwise to avoid spamming the endpoint every keystroke.
-  if (force || !_baselineStatusCache) {
-    try {
-      _baselineStatusCache = await api('GET', '/api/admin/baseline-status')
-    } catch (e) {
-      _baselineStatusCache = null
-      banner.innerHTML = '<span class="baseline-warn">Could not load baseline status: ' + escapeHtml(e.message) + '</span>'
+async function refreshSourceStatus() {
+  const lEl = $('#src-launcher-status')
+  const sEl = $('#src-server-status')
+  if (!lEl && !sEl) return
+  let data
+  try {
+    data = await api('GET', '/api/admin/source-status')
+  } catch (e) {
+    if (lEl) lEl.innerHTML = '<span class="src-warn">Could not load: ' + escapeHtml(e.message) + '</span>'
+    if (sEl) sEl.innerHTML = '<span class="src-warn">Could not load: ' + escapeHtml(e.message) + '</span>'
+    return
+  }
+  const paint = (el, st) => {
+    if (!el) return
+    if (!st || !st.present) {
+      el.innerHTML = '<span class="src-pill missing">not present on disk</span>'
       return
     }
+    const age = st.updatedAt ? fmtAge(st.updatedAt) : 'unknown'
+    const when = st.updatedAt ? new Date(st.updatedAt).toLocaleString() : '—'
+    el.innerHTML = `<span class="src-pill ok" title="${escapeHtml(when)}">on disk · last replaced ${escapeHtml(age)}</span>`
   }
-  const s = _baselineStatusCache
-  const launcher = s.launcher || {}
-  const server = s.server || {}
-  const part = (kind, st) => {
-    if (!st.exists) {
-      return `<span class="baseline-pill missing"><strong>${kind}</strong> baseline: <em>not established</em> · upload Full Repo first</span>`
-    }
-    const age = st.refreshedAt ? fmtAge(st.refreshedAt) : 'unknown age'
-    return `<span class="baseline-pill ok"><strong>${kind}</strong> baseline: ${escapeHtml(age)} · ${escapeHtml(fmtBytes(st.byteSize))}</span>`
-  }
-  const intro = mode === 'patch'
-    ? '<span class="baseline-mode">Patch mode — uploads will overlay these baselines:</span>'
-    : '<span class="baseline-mode">Full mode — a successful upload will refresh:</span>'
-  banner.innerHTML = intro + ' ' + part('launcher', launcher) + ' ' + part('server', server)
+  paint(lEl, data.launcher)
+  paint(sEl, data.server)
 }
 
-// Wire mode-toggle change → repaint UI. Run once at boot too.
-function wireBuildModeToggle() {
-  document.querySelectorAll('input[name="bup-mode"]').forEach(r => {
-    r.addEventListener('change', applyBuildModeUI)
-  })
-  applyBuildModeUI()
+// Submits one source-card form. Disables the button, shows the busy line,
+// then POSTs multipart to /api/admin/update-source. On success: clears the
+// file input + repaints status. On 409 (build running) or 4xx: surfaces the
+// server error in the card-local error slot.
+async function submitUpdateSource(form) {
+  const kind = form.dataset.sourceKind
+  if (kind !== 'launcher' && kind !== 'server') return
+  const fileInput = form.querySelector('input[type="file"]')
+  const file = fileInput && fileInput.files[0]
+  const errEl = $('#src-' + kind + '-error')
+  const busyEl = $('#src-' + kind + '-busy')
+  const submitBtn = form.querySelector('button[type="submit"]')
+  const origLabel = submitBtn ? submitBtn.textContent : null
+  if (errEl) errEl.textContent = ''
+  if (!file) { if (errEl) errEl.textContent = 'pick a .zip first'; return }
+  const fd = new FormData()
+  fd.append('kind', kind)
+  fd.append('file', file)
+  if (busyEl) busyEl.classList.remove('hidden')
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Replacing…' }
+  try {
+    const res = await fetch('/api/admin/update-source', { method: 'POST', body: fd, credentials: 'same-origin' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || ('http ' + res.status))
+    form.reset()
+    refreshSourceStatus()
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message
+  } finally {
+    if (busyEl) busyEl.classList.add('hidden')
+    if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
+  }
 }
 
 function renderCustomerList() {
@@ -397,8 +379,9 @@ function renderCustomer(c) {
     </div>
     <div class="actions">
       <button class="btn-secondary small" data-action="edit">Edit</button>
-      <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'}>Build</button>
-      <button class="btn-secondary small" data-action="upload">Upload Update</button>
+      <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship BOTH launcher and server for this customer using the master source on disk.">Build</button>
+      <button class="btn-secondary small" data-action="build-launcher" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the launcher (skips the server electron-builder substep).">Launcher</button>
+      <button class="btn-secondary small" data-action="build-server" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the server (skips the vite + launcher electron-builder substep).">Server</button>
       <button class="btn-danger" data-action="delete">Delete</button>
     </div>
   </div>`
@@ -418,8 +401,10 @@ async function handleCustomerAction(channel, action) {
     openCustomerModal(state.customers.find(c => c.channel === channel))
   } else if (action === 'build') {
     triggerBuild({ channel })
-  } else if (action === 'upload') {
-    openUploadModal(channel)
+  } else if (action === 'build-launcher') {
+    triggerBuild({ channel, roles: ['launcher'] })
+  } else if (action === 'build-server') {
+    triggerBuild({ channel, roles: ['server'] })
   } else if (action === 'delete') {
     if (!confirm('Delete customer "' + channel + '"?\n\nThis removes the customer config AND all of its published builds (launcher + server payloads under /updates/' + channel + ', plus any local releases/' + channel + ' folder). This cannot be undone.')) return
     try {
@@ -818,8 +803,7 @@ function streamJob(jobId, label) {
         // the baseline, but the refetch is harmless and keeps the banner
         // accurate even if a parallel Full upload landed during this build.
         if (ok) {
-          _baselineStatusCache = null
-          refreshBaselineStatus(true)
+          refreshSourceStatus()
         }
         // T005: Only successful builds auto-clear. Failed/cancelled cards
         // stay so the operator never misses a failure. startAutoClear is a
@@ -1255,60 +1239,6 @@ function autoFillLogoPathFromUpload() {
   $('#cm-logo').value = 'branding/' + channel + '-logo' + safeExt
 }
 
-// ---- Upload pre-built update modal ----
-function openUploadModal(channel) {
-  $('#up-channel').textContent = channel
-  $('#upload-form').dataset.channel = channel
-  $('#up-version').value = state.version ? bumpPatch(state.version) : '1.0.1'
-  $('#up-launcher').value = ''
-  $('#up-server').value = ''
-  $('#up-notes').value = ''
-  $('#up-error').textContent = ''
-  $('#up-busy').classList.add('hidden')
-  $('#upload-modal').classList.remove('hidden')
-}
-function closeUploadModal() {
-  $('#upload-modal').classList.add('hidden')
-}
-
-async function submitUpload(e) {
-  e.preventDefault()
-  const channel = $('#upload-form').dataset.channel
-  const version = $('#up-version').value.trim()
-  if (!/^\d+\.\d+\.\d+/.test(version)) {
-    $('#up-error').textContent = 'Version must be x.y.z'
-    return
-  }
-  const launcher = $('#up-launcher').files[0] || null
-  const server = $('#up-server').files[0] || null
-  if (!launcher && !server) {
-    $('#up-error').textContent = 'Pick at least one zip (launcher and/or server payload)'
-    return
-  }
-  const fd = new FormData()
-  fd.append('version', version)
-  if (launcher) fd.append('launcher', launcher)
-  if (server) fd.append('server', server)
-  const notes = $('#up-notes').value.trim()
-  if (notes) fd.append('notes', notes)
-
-  $('#up-error').textContent = ''
-  $('#up-busy').classList.remove('hidden')
-  try {
-    const r = await api('POST', '/api/admin/customers/' + encodeURIComponent(channel) + '/upload-update', fd, true)
-    closeUploadModal()
-    // The bulk-upload route doesn't fan out per-customer (it accepts pre-built
-    // ZIPs for one channel) so its confirmation goes to the dev console plus
-    // the customer-list refresh.
-    console.info('[upload-update] ' + channel + ' v' + version + ' shipped — pushed to ' + (r.pushedTo || 0) + ' live install(s)')
-    await loadCustomers()
-  } catch (e) {
-    $('#up-error').textContent = e.message
-  } finally {
-    $('#up-busy').classList.add('hidden')
-  }
-}
-
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault()
   $('#login-error').textContent = ''
@@ -1344,80 +1274,12 @@ $('#customer-modal').addEventListener('click', (e) => {
   if (e.target === $('#customer-modal')) closeCustomerModal()
 })
 
-$('#up-cancel').addEventListener('click', closeUploadModal)
-$('#upload-form').addEventListener('submit', submitUpload)
-$('#upload-modal').addEventListener('click', (e) => {
-  if (e.target === $('#upload-modal')) closeUploadModal()
+// ---- Update Source Files: wire the two source-card forms ------------
+// Each form carries a data-source-kind="launcher|server" attribute and
+// posts to /api/admin/update-source via submitUpdateSource(). Wired with
+// addEventListener (not onsubmit) so we can attach to both at once.
+document.querySelectorAll('.source-card-form').forEach(f => {
+  f.addEventListener('submit', (e) => { e.preventDefault(); submitUpdateSource(f) })
 })
-
-// ---- Top-level BUILD FROM UPLOADED SOURCE form ----
-// Posts to /api/admin/build-from-source which fans out one job per customer
-// when target=__all__. Response shape mirrors /api/admin/build:
-// { jobs: [{jobId, channel, version, status, queuePosition}, ...], jobIds:[...] }
-async function submitBulkUpload(e) {
-  e.preventDefault()
-  const target = $('#bup-target').value
-  const version = $('#bup-version').value.trim()
-  const launcher = $('#bup-launcher').files[0] || null
-  const server = $('#bup-server').files[0] || null
-  const notes = $('#bup-notes').value.trim()
-  const mode = (document.querySelector('input[name="bup-mode"]:checked') || {}).value || 'full'
-  const submitBtn = $('#bulk-upload-form').querySelector('button[type="submit"]')
-  const submitBtnLabel = submitBtn ? submitBtn.textContent : null
-  $('#bup-error').textContent = ''
-  if (!target) { $('#bup-error').textContent = 'choose a target'; return }
-  if (!/^\d+\.\d+\.\d+$/.test(version)) { $('#bup-error').textContent = 'version must be x.y.z'; return }
-  if (!launcher && !server) { $('#bup-error').textContent = 'pick at least one source zip'; return }
-  $('#bup-busy').classList.remove('hidden')
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Building…' }
-  try {
-    const fd = new FormData()
-    fd.append('target', target)
-    fd.append('version', version)
-    fd.append('mode', mode)
-    if (notes) fd.append('notes', notes)
-    if (launcher) fd.append('launcher', launcher)
-    if (server) fd.append('server', server)
-    const res = await fetch('/api/admin/build-from-source', { method: 'POST', body: fd, credentials: 'same-origin' })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || ('http ' + res.status))
-
-    // Match /api/admin/build's fan-out shape: prefer data.jobs[], fall back
-    // to the single-job convenience fields for back-compat with single-target
-    // responses.
-    const jobs = Array.isArray(data.jobs) ? data.jobs : (data.jobId ? [{
-      jobId: data.jobId,
-      channel: target,
-      version,
-      status: data.status,
-    }] : [])
-    if (jobs.length === 0) throw new Error('server returned no job ids')
-    for (const j of jobs) {
-      const ch = j.channel || (target === '__all__' ? 'all' : target)
-      streamJob(j.jobId, 'Build From Source → ' + ch)
-    }
-    $('#bulk-upload-form').reset()
-    populateBulkUploadTargets()
-    // NOTE: don't refresh baseline-status here — the build hasn't finished
-    // yet, the server will only snapshot the baseline AFTER sb-validate
-    // succeeds in the worker. The actual refresh fires from streamJob's
-    // success branch when the SSE end-of-job event arrives.
-    // The form reset() above clears the radio default — re-tick Full + repaint
-    // so the labels return to their full-mode wording for the next upload.
-    const fullRadio = document.querySelector('input[name="bup-mode"][value="full"]')
-    if (fullRadio) { fullRadio.checked = true; applyBuildModeUI() }
-  } catch (err) {
-    $('#bup-error').textContent = err.message
-  } finally {
-    $('#bup-busy').classList.add('hidden')
-    if (submitBtn) { submitBtn.disabled = false; if (submitBtnLabel) submitBtn.textContent = submitBtnLabel }
-  }
-}
-$('#bulk-upload-form').addEventListener('submit', submitBulkUpload)
-
-// Mode toggle + initial baseline-status fetch. Fires once at boot so the
-// banner is populated before the operator picks a file. Subsequent changes
-// (clicking Full ↔ Patch) re-paint the file labels and re-fetch from cache.
-wireBuildModeToggle()
 
 init()
