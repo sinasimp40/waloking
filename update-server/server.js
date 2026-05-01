@@ -176,9 +176,15 @@ function resolveAdminPassword() {
 const ADMIN_PASSWORD = resolveAdminPassword()
 
 function findProjectRoot() {
+  // As of May 2026, update-server/ lives at the REPO ROOT, sibling of walok/
+  // (rather than inside walok/) so that "zip walok/" produces a clean,
+  // unambiguous launcher source bundle. The old in-walok layout is still
+  // supported by the `__dirname + '..'` candidate so a user on the RDP who
+  // hasn't migrated yet keeps working.
   const candidates = [
     process.env.OTA_PROJECT_ROOT,
-    path.join(__dirname, '..'),
+    path.join(__dirname, '..', 'walok'),  // NEW layout: ../walok
+    path.join(__dirname, '..'),            // LEGACY layout: walok was parent of update-server
     path.join(__dirname, '..', '..'),
     process.cwd(),
   ].filter(Boolean)
@@ -1445,6 +1451,10 @@ app.post('/api/admin/update-source',
       })
     }
     _sourceUpdateInFlight = true
+    // Pause job-runner dispatch so a queued job can't autonomously start
+    // mid-swap (drainQueue is fired from job cleanup tails). Resumed in
+    // finally below.
+    jobRunner.pauseDispatch()
 
     const targetDirName = kind === 'launcher' ? 'src' : 'server'
     const targetDir = path.join(PROJECT_ROOT, targetDirName)
@@ -1540,6 +1550,338 @@ app.post('/api/admin/update-source',
       })
     } finally {
       _sourceUpdateInFlight = false
+      try { jobRunner.resumeDispatch() } catch (_) {}
+    }
+  }
+)
+
+// ============ UNIFIED PROJECT-SOURCE UPLOAD (May 2026) ============
+//
+// PROBLEM: the per-kind /api/admin/update-source endpoint above only
+// replaces walok/src/ (launcher) OR walok/server/ (server). It has NO
+// way to ship changes to walok/electron/, walok/scripts/, walok/public/,
+// walok/package.json, etc. — which is why a fix in walok/electron/main.js
+// could never reach customers. Operators were also confused by having
+// two separate uploads + having to remember which subdir went where.
+//
+// SOLUTION: this endpoint accepts ONE zip whose root is the CONTENTS of
+// walok/ (so the zip contains src/, server/, electron/, scripts/,
+// public/, package.json, vite.config.js, build.bat, etc. at the top
+// level). It replaces every "code" subdir + top-level file from the zip
+// in one atomic-ish operation, while preserving operator-managed state
+// (customers/, branding/<channel>-logo.png, releases/, node_modules/,
+// dist/, .build-jobs/).
+//
+// After a successful upload, BOTH launcher and server baselines are
+// updated together — so a subsequent "Build All" produces both .exes
+// from a known-consistent source tree.
+//
+// Subdirs that are FULLY REPLACED (atomic swap each, via the same
+// _swapDirSafely used by /api/admin/update-source). Anything inside
+// these dirs that's NOT in the zip is deleted.
+const _PROJECT_REPLACE_DIRS = [
+  'src',       // React launcher source — feeds the launcher .exe
+  'server',    // Companion local server — feeds the server .exe
+  'electron',  // Electron main process for the launcher (single-instance lock lives here)
+  'scripts',   // build-customer.js / build-all.js / publish-update.js
+  'public',    // Static assets bundled into the launcher
+  'docs',      // Operator-facing docs shipped with the project
+]
+
+// Top-level files in walok/ that are FULLY REPLACED if present in the
+// zip. Files NOT in this list are left alone (so an unexpected file in
+// the upload won't accidentally clobber operator state).
+const _PROJECT_REPLACE_FILES = [
+  'package.json',
+  'package-lock.json',
+  'index.html',
+  'vite.config.js',
+  'vite-igdb-plugin.js',
+  'tailwind.config.js',
+  'postcss.config.js',
+  'build.bat',
+  'build-all.bat',
+  'build-customer.bat',
+  'publish-update.bat',
+  '.gitignore',
+  'replit.md',
+  'UPDATING.md',
+]
+
+// Subdirs we OVERLAY (copy new files in, but NEVER delete files that
+// aren't in the zip). Used for branding/ because per-customer logos
+// (e.g. branding/example-cafe-logo.png) are uploaded by the operator
+// through the admin UI, NOT shipped in the source zip — a full replace
+// would silently delete them.
+const _PROJECT_OVERLAY_DIRS = [
+  'branding',
+]
+
+// Subdirs we NEVER touch — operator-managed runtime state. Listed here
+// for documentation; nothing in this endpoint reads or writes them.
+//   customers/      per-customer JSON configs (admin UI managed)
+//   node_modules/   npm install output
+//   releases/       build outputs
+//   dist/           vite build output
+//   .build-jobs/    job-runner runtime state
+//   .canvas/        Replit canvas metadata
+//   .github/        CI configs
+
+function _validateProjectZipShape(rootDir) {
+  // The zip must contain enough of walok/ to actually build both kinds.
+  // If any of these markers is missing the upload is almost certainly
+  // wrong (e.g. operator zipped walok/src/ instead of walok/) — fail
+  // BEFORE the destructive swap.
+  //
+  // We also require ALL required managed dirs to be present as
+  // directories, so we never silently skip half the project (which
+  // would leave a mixed old/new tree). Optional dirs ('docs') may be
+  // missing without rejecting; they'll just appear in skippedDirs.
+  const requiredDirs = ['src', 'server', 'electron', 'scripts', 'public']
+  const markers = [
+    ['src', 'main.jsx'],
+    ['src', 'App.jsx'],
+    ['server', 'package.json'],
+    ['server', 'electron', 'main.js'],
+    ['package.json'],
+    ['electron', 'main.js'],
+  ]
+  const missing = []
+  for (const parts of markers) {
+    if (!fs.existsSync(path.join(rootDir, ...parts))) missing.push(parts.join('/'))
+  }
+  for (const d of requiredDirs) {
+    const p = path.join(rootDir, d)
+    if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) {
+      missing.push(d + '/ (directory)')
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      'project zip is missing required entries: ' + missing.join(', ') +
+      ' — expected the CONTENTS of walok/ at the top level (so the zip should contain src/, server/, electron/, scripts/, public/, package.json, etc.). Did you zip walok/src/ instead of walok/?',
+    )
+  }
+}
+
+// Overlay copy: walks srcDir, copies every file into destDir (mkdir-p
+// as needed). Files in destDir that aren't in srcDir are LEFT ALONE.
+// Returns { copied: number, skipped: number }.
+async function _overlayDirNoDelete(srcDir, destDir) {
+  let copied = 0
+  if (!fs.existsSync(srcDir)) return { copied }
+  await fs.promises.mkdir(destDir, { recursive: true })
+  async function walk(dir, rel) {
+    const ents = await fs.promises.readdir(dir, { withFileTypes: true })
+    for (const ent of ents) {
+      const r = rel ? rel + path.sep + ent.name : ent.name
+      const abs = path.join(dir, ent.name)
+      if (ent.isDirectory()) {
+        await fs.promises.mkdir(path.join(destDir, r), { recursive: true })
+        await walk(abs, r)
+      } else if (ent.isFile()) {
+        await _copyFileWithRetry(abs, path.join(destDir, r))
+        copied++
+      }
+    }
+  }
+  await walk(srcDir, '')
+  return { copied }
+}
+
+app.post('/api/admin/update-source-project',
+  requireAdmin,
+  (req, res, next) => {
+    uploadSource.single('file')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message })
+      next()
+    })
+  },
+  async (req, res) => {
+    if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found' })
+    const file = req.file
+    if (!file || !file.buffer || file.buffer.length === 0) {
+      return res.status(400).json({ error: 'no file uploaded (use field name "file")' })
+    }
+    if (!sourceBuild._internal.looksLikeZip(file.buffer)) {
+      return res.status(400).json({ error: 'uploaded file is not a valid zip (PK magic missing)' })
+    }
+    // Same atomic gate + mutex as /api/admin/update-source. We hold the
+    // mutex through the entire multi-dir swap so a build can't read a
+    // half-replaced tree (e.g. new src/ but old electron/).
+    if (_sourceUpdateInFlight) {
+      return res.status(409).json({
+        error: 'another source replacement is already in progress — wait for it to finish',
+      })
+    }
+    if (_hasActiveBuildJob()) {
+      return res.status(409).json({
+        error: 'a build is currently running — wait for it to finish (or cancel it) before replacing project source',
+      })
+    }
+    _sourceUpdateInFlight = true
+    // Pause the job-runner dispatcher BEFORE we touch the queue check, so
+    // any queued job is frozen in 'queued' until we resume in finally.
+    // Without this, a queued job could autonomously dequeue between
+    // phases (drainQueue is called from finishJob's cleanup tail) and
+    // start running against a half-replaced source tree.
+    jobRunner.pauseDispatch()
+
+    const stamp = Date.now() + '-' + crypto.randomBytes(3).toString('hex')
+    // Single tmp dir holds the entire extracted walok zip. Each replaced
+    // subdir is atomic-swapped from <tmpRoot>/<subdir> into PROJECT_ROOT.
+    const tmpRoot = path.join(PROJECT_ROOT, '.upload-project-' + stamp)
+
+    try {
+      let extractStats = null
+      try {
+        fs.mkdirSync(tmpRoot, { recursive: true })
+        extractStats = await sourceBuild._internal.extractZipBuffer(file.buffer, tmpRoot)
+        await sourceBuild._internal.maybeStripCommonRoot(tmpRoot)
+        _validateProjectZipShape(tmpRoot)
+      } catch (e) {
+        try { await fs.promises.rm(tmpRoot, { recursive: true, force: true }) } catch (_) {}
+        return res.status(400).json({ error: 'extract/validate failed: ' + e.message })
+      }
+
+      // Re-check no build snuck into 'running' during the (slow) extract.
+      if (_hasActiveBuildJob()) {
+        try { await fs.promises.rm(tmpRoot, { recursive: true, force: true }) } catch (_) {}
+        return res.status(409).json({
+          error: 'a build started during upload — cancel it (or wait) and retry',
+        })
+      }
+
+      // Mark BOTH baselines partial BEFORE the first destructive write.
+      // If the swap crashes midway, builds will refuse for both kinds
+      // until the operator successfully re-uploads. Cleared on success.
+      try { dbApi.setSourcePartial('launcher', true) } catch (_) {}
+      try { dbApi.setSourcePartial('server', true) } catch (_) {}
+
+      const replacedDirs = []
+      const skippedDirs = []
+      const replacedFiles = []
+      const overlaidDirs = {}
+      const swapStrategies = {}
+
+      // Phase 1: replace each managed subdir present in the zip.
+      for (const sub of _PROJECT_REPLACE_DIRS) {
+        const srcDir = path.join(tmpRoot, sub)
+        if (!fs.existsSync(srcDir) || !fs.statSync(srcDir).isDirectory()) {
+          skippedDirs.push(sub)
+          continue
+        }
+        const targetDir = path.join(PROJECT_ROOT, sub)
+        const trashDir = path.join(PROJECT_ROOT, sub + '.trash-' + stamp)
+        // Move srcDir from tmpRoot into PROJECT_ROOT as a sibling tmp,
+        // because _swapDirSafely expects (tmpDir, targetDir, trashDir)
+        // where tmpDir is a sibling of targetDir on the same filesystem.
+        const tmpAdjacent = path.join(PROJECT_ROOT, sub + '.tmp-' + stamp)
+        try {
+          await _renameWithRetry(srcDir, tmpAdjacent, sub + ' (tmpRoot→tmpAdjacent)')
+          const swapResult = await _swapDirSafely(tmpAdjacent, targetDir, trashDir, () => {
+            // Per-dir partial: the OVERLAY fallback here means THIS
+            // subdir is mid-replace. Both kind flags are already set
+            // above so builds are already refused; this is for accuracy
+            // if we ever surface per-subdir state.
+          })
+          swapStrategies[sub] = swapResult.strategy
+          replacedDirs.push(sub)
+        } catch (e) {
+          // Best-effort cleanup of any leftover tmp/trash.
+          try { await fs.promises.rm(tmpAdjacent, { recursive: true, force: true }) } catch (_) {}
+          try { await fs.promises.rm(trashDir, { recursive: true, force: true }) } catch (_) {}
+          try { await fs.promises.rm(tmpRoot, { recursive: true, force: true }) } catch (_) {}
+          return res.status(500).json({
+            error: 'failed to install ' + sub + '/: ' + e.message,
+            partial: true,
+            replacedSoFar: replacedDirs,
+          })
+        }
+      }
+
+      // Phase 2: overlay branding/ (and any other no-delete subdirs).
+      for (const sub of _PROJECT_OVERLAY_DIRS) {
+        const srcDir = path.join(tmpRoot, sub)
+        if (!fs.existsSync(srcDir) || !fs.statSync(srcDir).isDirectory()) continue
+        const targetDir = path.join(PROJECT_ROOT, sub)
+        try {
+          const r = await _overlayDirNoDelete(srcDir, targetDir)
+          overlaidDirs[sub] = r.copied
+        } catch (e) {
+          try { await fs.promises.rm(tmpRoot, { recursive: true, force: true }) } catch (_) {}
+          return res.status(500).json({
+            error: 'failed to overlay ' + sub + '/: ' + e.message,
+            partial: true,
+            replacedSoFar: replacedDirs,
+          })
+        }
+      }
+
+      // Phase 3: replace each managed top-level file present in the zip.
+      // Atomic-ish: copy to a sibling tmp file then rename over the
+      // target. _copyFileWithRetry handles transient Windows EBUSY.
+      for (const fname of _PROJECT_REPLACE_FILES) {
+        const srcFile = path.join(tmpRoot, fname)
+        if (!fs.existsSync(srcFile) || !fs.statSync(srcFile).isFile()) continue
+        const targetFile = path.join(PROJECT_ROOT, fname)
+        const tmpFile = path.join(PROJECT_ROOT, fname + '.tmp-' + stamp)
+        try {
+          await _copyFileWithRetry(srcFile, tmpFile)
+          await _renameWithRetry(tmpFile, targetFile, fname)
+          replacedFiles.push(fname)
+        } catch (e) {
+          try { await fs.promises.unlink(tmpFile) } catch (_) {}
+          try { await fs.promises.rm(tmpRoot, { recursive: true, force: true }) } catch (_) {}
+          return res.status(500).json({
+            error: 'failed to install ' + fname + ': ' + e.message,
+            partial: true,
+            replacedSoFar: replacedDirs,
+            replacedFilesSoFar: replacedFiles,
+          })
+        }
+      }
+
+      // All swaps succeeded. Clear both partial flags + record both
+      // timestamps so the admin UI shows BOTH baselines as freshly
+      // updated.
+      try { dbApi.setSourcePartial('launcher', false) } catch (_) {}
+      try { dbApi.setSourcePartial('server', false) } catch (_) {}
+      const ts = Date.now()
+      try { dbApi.setSourceUpdatedAt('launcher', ts) } catch (e) {
+        console.log('[update-source-project] WARN: failed to record launcher updated-at: ' + e.message)
+      }
+      try { dbApi.setSourceUpdatedAt('server', ts) } catch (e) {
+        console.log('[update-source-project] WARN: failed to record server updated-at: ' + e.message)
+      }
+
+      // Best-effort cleanup of the tmp extraction dir (any subdirs we
+      // kept were already moved out; what's left is whatever wasn't in
+      // _PROJECT_REPLACE_DIRS or _PROJECT_OVERLAY_DIRS or
+      // _PROJECT_REPLACE_FILES — i.e. ignored extras).
+      setImmediate(() => {
+        fs.promises.rm(tmpRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
+          .catch(e => console.log('[update-source-project] WARN: failed to rm tmpRoot ' + tmpRoot + ': ' + e.message))
+      })
+
+      res.json({
+        ok: true,
+        updatedAt: ts,
+        replacedDirs,
+        skippedDirs,
+        replacedFiles,
+        overlaidDirs,
+        swapStrategies,
+        entryCount: extractStats.entryCount,
+        totalUncompressed: extractStats.totalUncompressed,
+        uploadBytes: file.buffer.length,
+      })
+    } finally {
+      _sourceUpdateInFlight = false
+      // Always resume — even on early-return error paths above. resumeDispatch
+      // also kicks drainQueue() so any builds that piled up while we held
+      // the gate start immediately.
+      try { jobRunner.resumeDispatch() } catch (_) {}
     }
   }
 )

@@ -6,11 +6,26 @@ You can manage everything from the **web admin panel** at `http://<YOUR-RDP-IP>:
 
 ---
 
+## RECOMMENDED FLOW (May 2026 onwards): one zip, one upload
+
+The simplest way to ship an update — works for code changes anywhere in the project (`src/`, `server/`, `electron/`, `scripts/`, `package.json`, etc.):
+
+1. **Make your code changes** locally to the `walok/` folder.
+2. **Zip the entire `walok/` folder** so the zip contains `src/`, `server/`, `electron/`, `scripts/`, `public/`, `package.json`, etc. **at the top level**. (You can exclude `node_modules/`, `releases/`, `dist/`, `customers/`, and `.build-jobs/` — they'll be preserved on the server.)
+3. Open the admin panel → **Update Source Files** → click the blue **"Update Project Source"** card → pick your zip → **Replace Project Source**. Wait ~10–60s.
+4. Click **Build All Customers**. The server rebuilds + publishes for every customer in `customers/`. Within 2 minutes every running launcher detects the update and prompts to restart.
+
+That's it. One zip updates BOTH the launcher AND the server (and `electron/`, and the scripts). Operator-managed state — your customer JSON configs in `customers/`, per-customer logos `branding/<channel>-logo.png`, build outputs in `releases/`, and `node_modules/` — is preserved.
+
+> **Why not the per-piece "Launcher Source" / "Server Source" cards?** Those are now in the **Advanced** dropdown. Use them only when you want to ship a launcher-only or server-only change without touching the other half. Most of the time, the unified "Update Project Source" card is what you want.
+
+---
+
 ## ONE-TIME SETUP (do these once)
 
 ### A. Set up the update server on your RDP
 
-1. Copy the entire project (or at minimum the `update-server/`, `customers/`, `scripts/`, `branding/` folders, `package.json`, `server/package.json`, and source) to your RDP machine.
+1. Copy the entire project to your RDP machine. The two folders that matter are `update-server/` (the OTA server itself, lives at the **repo root** as of May 2026 — it used to be `walok/update-server/`) and `walok/` (the launcher source the OTA server builds from). Both folders should be siblings in the same parent directory (e.g. `C:\walok-project\update-server\` and `C:\walok-project\walok\`).
 2. Open the `update-server/` folder, **right-click `start.bat` → Run as Administrator** (the first time only — it needs admin rights to add the firewall rule).
 3. You should see:
    ```

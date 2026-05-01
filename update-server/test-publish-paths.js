@@ -52,7 +52,15 @@ function ok(msg) { passed++; console.log('  PASS  ' + msg) }
 function fail(msg, err) { failed++; console.log('  FAIL  ' + msg + '\n        ' + (err && err.stack || err)) }
 
 const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'test-publish-paths-'))
-const REAL_PROJECT = path.resolve(__dirname, '..')
+// As of May 2026 update-server/ lives at the REPO ROOT (sibling of walok/),
+// so the publish script we're testing lives at <repo>/walok/scripts/. Fall
+// back to the legacy location (<repo>/scripts/) if walok/scripts is missing,
+// for compatibility with older check-out layouts.
+const REAL_PROJECT = (() => {
+  const newP = path.resolve(__dirname, '..', 'walok')
+  if (fs.existsSync(path.join(newP, 'scripts', 'publish-update.js'))) return newP
+  return path.resolve(__dirname, '..')
+})()
 const REAL_PUBLISH_SCRIPT = path.join(REAL_PROJECT, 'scripts', 'publish-update.js')
 
 // ---- helpers ----

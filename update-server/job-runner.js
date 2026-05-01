@@ -314,10 +314,24 @@ function jobHasConflict(job) {
   return false
 }
 
+// Dispatch gate: when set, drainQueue refuses to start any new job even if
+// slots are free. Used by /api/admin/update-source-project (and the per-kind
+// /api/admin/update-source) to guarantee no queued job can transition to
+// running while we are mid-swap of PROJECT_ROOT — otherwise a job could
+// dequeue between phases and read a half-replaced source tree.
+let _dispatchPaused = false
+function pauseDispatch() { _dispatchPaused = true }
+function resumeDispatch() {
+  _dispatchPaused = false
+  drainQueue()
+}
+function isDispatchPaused() { return _dispatchPaused }
+
 // Drain: walk the queue and start jobs that fit (slot available + no channel
 // conflict). Stops when no more jobs can start in this pass. Called whenever
 // the queue or ACTIVE set changes.
 function drainQueue() {
+  if (_dispatchPaused) return
   let started = false
   for (let i = 0; i < QUEUE.length; ) {
     if (ACTIVE.size >= MAX_CONCURRENT_BUILDS) break
@@ -740,6 +754,9 @@ module.exports = {
   getQueueState,
   attachListener,
   setOnSlotChange,
+  pauseDispatch,
+  resumeDispatch,
+  isDispatchPaused,
   jobAppend,
   jobEmitPhase,
   // Exposed so source-build.js can spawn its own steps (npm install, rebrand,

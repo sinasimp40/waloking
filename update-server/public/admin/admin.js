@@ -222,6 +222,29 @@ async function refreshSourceStatus() {
   }
   paint(lEl, data.launcher)
   paint(sEl, data.server)
+  // Unified "Project Source" card status: derived from launcher + server.
+  // Green only when BOTH are present + non-partial + share the same
+  // updatedAt timestamp (within 2s — a unified upload sets both at once).
+  // Yellow if either is partial. Grey if not yet uploaded together.
+  const pEl = $('#src-project-status')
+  if (pEl) {
+    const L = data.launcher, S = data.server
+    if ((L && L.partial) || (S && S.partial)) {
+      pEl.innerHTML = '<span class="src-pill partial" title="A previous source upload failed midway. Re-upload to clear.">⚠ PARTIAL — re-upload required (builds blocked)</span>'
+    } else if (!L || !L.present || !S || !S.present) {
+      pEl.innerHTML = '<span class="src-pill missing">launcher and/or server source not present on disk</span>'
+    } else if (L.updatedAt && S.updatedAt && Math.abs(L.updatedAt - S.updatedAt) < 2000) {
+      const age = fmtAge(L.updatedAt)
+      const when = new Date(L.updatedAt).toLocaleString()
+      pEl.innerHTML = `<span class="src-pill ok" title="${escapeHtml(when)}">launcher + server replaced together · ${escapeHtml(age)}</span>`
+    } else {
+      // Both present but updated independently (one or both came from
+      // the per-piece advanced uploads). Show the older of the two ages.
+      const older = Math.min(L.updatedAt || Infinity, S.updatedAt || Infinity)
+      const age = older === Infinity ? 'unknown' : fmtAge(older)
+      pEl.innerHTML = `<span class="src-pill ok" title="launcher + server were replaced separately">on disk · oldest piece ${escapeHtml(age)}</span>`
+    }
+  }
 }
 
 // Submits one source-card form. Disables the button, shows the busy line,
@@ -1281,12 +1304,60 @@ $('#customer-modal').addEventListener('click', (e) => {
   if (e.target === $('#customer-modal')) closeCustomerModal()
 })
 
-// ---- Update Source Files: wire the two source-card forms ------------
-// Each form carries a data-source-kind="launcher|server" attribute and
-// posts to /api/admin/update-source via submitUpdateSource(). Wired with
-// addEventListener (not onsubmit) so we can attach to both at once.
-document.querySelectorAll('.source-card-form').forEach(f => {
+// ---- Update Source Files: wire the source-card forms ----------------
+// Per-kind forms carry data-source-kind="launcher|server" and post to
+// /api/admin/update-source. The unified form (#src-project-form) posts
+// ONE walok zip to /api/admin/update-source-project and updates BOTH
+// baselines at once.
+document.querySelectorAll('.source-card-form[data-source-kind]').forEach(f => {
   f.addEventListener('submit', (e) => { e.preventDefault(); submitUpdateSource(f) })
 })
+
+const _projectForm = $('#src-project-form')
+if (_projectForm) {
+  _projectForm.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const form = _projectForm
+    const fileInput = form.querySelector('input[type="file"]')
+    const file = fileInput && fileInput.files[0]
+    const errEl = $('#src-project-error')
+    const busyEl = $('#src-project-busy')
+    const submitBtn = form.querySelector('button[type="submit"]')
+    const origLabel = submitBtn ? submitBtn.textContent : null
+    if (errEl) errEl.textContent = ''
+    if (!file) { if (errEl) errEl.textContent = 'pick a .zip first'; return }
+    const fd = new FormData()
+    fd.append('file', file)
+    if (busyEl) { busyEl.classList.remove('hidden'); busyEl.textContent = 'Extracting + swapping subdirs (this can take 30–60s on Windows)…' }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Replacing…' }
+    try {
+      const res = await fetch('/api/admin/update-source-project', { method: 'POST', body: fd, credentials: 'same-origin' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || ('http ' + res.status))
+      form.reset()
+      // Surface a brief success summary so the operator sees what got
+      // replaced (handy when debugging "did my electron/main.js fix
+      // actually land?").
+      if (errEl) {
+        const parts = []
+        if (Array.isArray(data.replacedDirs) && data.replacedDirs.length) parts.push('replaced: ' + data.replacedDirs.join(', '))
+        if (Array.isArray(data.replacedFiles) && data.replacedFiles.length) parts.push('files: ' + data.replacedFiles.length)
+        if (data.overlaidDirs && Object.keys(data.overlaidDirs).length) {
+          const ov = Object.entries(data.overlaidDirs).map(([k,v]) => k + '(' + v + ')').join(', ')
+          parts.push('overlay: ' + ov)
+        }
+        errEl.style.color = '#1a7f37'
+        errEl.textContent = '✓ ' + (parts.join(' · ') || 'done')
+        setTimeout(() => { errEl.textContent = ''; errEl.style.color = '' }, 8000)
+      }
+      refreshSourceStatus()
+    } catch (e) {
+      if (errEl) { errEl.style.color = ''; errEl.textContent = e.message }
+    } finally {
+      if (busyEl) { busyEl.classList.add('hidden'); busyEl.textContent = 'Extracting…' }
+      if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
+    }
+  })
+}
 
 init()

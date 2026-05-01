@@ -69,39 +69,59 @@
         <h2>Update Source Files</h2>
       </div>
       <div class="panel-body">
-        <p class="muted small">Upload a new <strong>master source</strong> zip to replace what lives on disk. The next build (Build All Customers, or any per-customer Build / Launcher / Server button) will rebrand and ship from this freshly replaced source. The launcher and server sources are independent — uploading one leaves the other untouched.</p>
+        <p class="muted small">Upload a new <strong>master source</strong> zip to replace what lives on disk. The next build (Build All Customers, or any per-customer Build / Launcher / Server button) will rebrand and ship from this freshly replaced source.</p>
 
-        <div class="source-cards">
-          <div class="source-card" id="src-launcher-card">
-            <div class="source-card-head">
-              <h3>Launcher Source</h3>
-              <span class="source-card-target">replaces <code>walok/src/</code></span>
-            </div>
-            <div class="source-card-status" id="src-launcher-status">checking…</div>
-            <p class="hint">Zip the <strong>contents</strong> of <code>walok/src/</code> (App.jsx, main.jsx, index.css, components/, store/) — not the whole project.</p>
-            <form class="source-card-form" data-source-kind="launcher">
-              <input type="file" name="file" accept=".zip,application/zip" required />
-              <button type="submit" class="btn-primary">Replace Launcher Source</button>
-            </form>
-            <div class="source-card-error error" id="src-launcher-error"></div>
-            <div class="source-card-busy muted hidden" id="src-launcher-busy">Extracting…</div>
+        <div class="source-card source-card-primary" id="src-project-card">
+          <div class="source-card-head">
+            <h3>Update Project Source <span class="recommended-badge">recommended</span></h3>
+            <span class="source-card-target">updates launcher + server + electron + scripts together</span>
           </div>
-
-          <div class="source-card" id="src-server-card">
-            <div class="source-card-head">
-              <h3>Server Source</h3>
-              <span class="source-card-target">replaces <code>walok/server/</code></span>
-            </div>
-            <div class="source-card-status" id="src-server-status">checking…</div>
-            <p class="hint">Zip the <strong>contents</strong> of <code>walok/server/</code> (electron/, src/, package.json, package-lock.json).</p>
-            <form class="source-card-form" data-source-kind="server">
-              <input type="file" name="file" accept=".zip,application/zip" required />
-              <button type="submit" class="btn-primary">Replace Server Source</button>
-            </form>
-            <div class="source-card-error error" id="src-server-error"></div>
-            <div class="source-card-busy muted hidden" id="src-server-busy">Extracting…</div>
-          </div>
+          <div class="source-card-status" id="src-project-status">checking…</div>
+          <p class="hint">Zip the <strong>contents</strong> of the entire <code>walok/</code> folder (so the zip contains <code>src/</code>, <code>server/</code>, <code>electron/</code>, <code>scripts/</code>, <code>package.json</code>, etc. at the top level). One upload updates everything the build needs — both launcher AND server. Operator state (customers, logos, releases, node_modules) is preserved.</p>
+          <form class="source-card-form" id="src-project-form">
+            <input type="file" name="file" accept=".zip,application/zip" required />
+            <button type="submit" class="btn-primary">Replace Project Source</button>
+          </form>
+          <div class="source-card-error error" id="src-project-error"></div>
+          <div class="source-card-busy muted hidden" id="src-project-busy">Extracting…</div>
         </div>
+
+        <details class="source-advanced">
+          <summary>Advanced: replace just one piece (launcher OR server only)</summary>
+          <p class="muted small">Use the per-piece uploads below only when you specifically want to ship a launcher-only or server-only change. Most of the time, "Update Project Source" above is what you want.</p>
+
+          <div class="source-cards">
+            <div class="source-card" id="src-launcher-card">
+              <div class="source-card-head">
+                <h3>Launcher Source</h3>
+                <span class="source-card-target">replaces <code>walok/src/</code> only</span>
+              </div>
+              <div class="source-card-status" id="src-launcher-status">checking…</div>
+              <p class="hint">Zip the <strong>contents</strong> of <code>walok/src/</code> (App.jsx, main.jsx, index.css, components/, store/) — not the whole project.</p>
+              <form class="source-card-form" data-source-kind="launcher">
+                <input type="file" name="file" accept=".zip,application/zip" required />
+                <button type="submit" class="btn-primary">Replace Launcher Source</button>
+              </form>
+              <div class="source-card-error error" id="src-launcher-error"></div>
+              <div class="source-card-busy muted hidden" id="src-launcher-busy">Extracting…</div>
+            </div>
+
+            <div class="source-card" id="src-server-card">
+              <div class="source-card-head">
+                <h3>Server Source</h3>
+                <span class="source-card-target">replaces <code>walok/server/</code> only</span>
+              </div>
+              <div class="source-card-status" id="src-server-status">checking…</div>
+              <p class="hint">Zip the <strong>contents</strong> of <code>walok/server/</code> (electron/, src/, package.json, package-lock.json).</p>
+              <form class="source-card-form" data-source-kind="server">
+                <input type="file" name="file" accept=".zip,application/zip" required />
+                <button type="submit" class="btn-primary">Replace Server Source</button>
+              </form>
+              <div class="source-card-error error" id="src-server-error"></div>
+              <div class="source-card-busy muted hidden" id="src-server-busy">Extracting…</div>
+            </div>
+          </div>
+        </details>
 
         <p class="hint">Source replacement is refused while a build is running — finish or cancel any in-progress build first. The old source is moved to a sibling <code>.trash-*</code> folder and removed in the background, so a failed swap rolls back automatically.</p>
       </div>

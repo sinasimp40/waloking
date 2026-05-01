@@ -2,6 +2,10 @@
 
 A small Express server that hosts launcher + server updates for all your customers. Runs on port **4231**.
 
+> **Folder layout (May 2026):** this `update-server/` lives at the **repo root**, alongside `walok/` (not inside it). When deploying to your RDP, keep both folders side-by-side as siblings (e.g. `C:\walok-project\update-server\` + `C:\walok-project\walok\`). The OTA server auto-detects the `walok/` source folder via the `findProjectRoot()` helper.
+
+> **Recommended update flow:** open the admin panel → **Update Source Files** → use the blue **"Update Project Source"** card to upload one zip of the entire `walok/` folder, then click **Build All Customers**. Operator state (customers, logos, releases, node_modules) is preserved. See `walok/UPDATING.md` for the full step-by-step.
+
 ## Quick start (on your RDP / Windows server)
 
 1. Copy this `update-server/` folder to your RDP machine.

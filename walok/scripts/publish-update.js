@@ -13,9 +13,14 @@ const RELEASES_DIR = path.join(ROOT, 'releases')
 // "[file missing — rebuild]" + "Last release: ---" despite a "successful"
 // build. The OTA server passes OTA_UPDATES_DIR pointing at the REAL updates
 // dir for exactly this reason; honor it when set.
+// Fallback path used only when OTA_UPDATES_DIR isn't set (manual CLI use).
+// As of May 2026 update-server/ lives at the REPO ROOT (sibling of walok/);
+// try the new path first, fall back to the legacy in-walok layout.
 const UPDATE_SERVER_PUBLIC = process.env.OTA_UPDATES_DIR
   ? path.resolve(process.env.OTA_UPDATES_DIR)
-  : path.join(ROOT, 'update-server', 'public', 'updates')
+  : (fs.existsSync(path.join(ROOT, '..', 'update-server'))
+      ? path.join(ROOT, '..', 'update-server', 'public', 'updates')
+      : path.join(ROOT, 'update-server', 'public', 'updates'))
 
 function log(msg) { console.log('[publish-update] ' + msg) }
 function err(msg) { console.error('[publish-update] ERROR: ' + msg) }

@@ -2,13 +2,33 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execSync, execFileSync } = require('child_process')
-const { cleanupAfterBuild } = require('../update-server/cleanup')
+
+// As of May 2026 update-server/ lives at the REPO ROOT (sibling of walok/),
+// not inside walok/. We try the new path first, then fall back to the old
+// in-walok location so older RDP installs keep working. If neither resolves,
+// degrade gracefully — the OTA server runs cleanupAfterBuild() itself in its
+// onComplete hook (see server.js), so this require is duplicative for OTA-
+// driven builds and only mattered for manual `node scripts/build-customer.js`
+// invocations.
+let cleanupAfterBuild = null
+try { cleanupAfterBuild = require('../../update-server/cleanup').cleanupAfterBuild }
+catch (_) {
+  try { cleanupAfterBuild = require('../update-server/cleanup').cleanupAfterBuild }
+  catch (_) { cleanupAfterBuild = null }
+}
 
 const ROOT = path.join(__dirname, '..')
 const CUSTOMERS_DIR = path.join(ROOT, 'customers')
 const RELEASES_DIR = path.join(ROOT, 'releases')
 const BRANDING_DIR = path.join(ROOT, 'branding')
-const UPDATES_PUBLIC_DIR = path.join(ROOT, 'update-server', 'public', 'updates')
+// Fallback path used only when OTA_UPDATES_DIR env isn't set (operator
+// running this manually from the CLI). Try new layout first (repo-root
+// sibling), then legacy in-walok.
+const UPDATES_PUBLIC_DIR = (() => {
+  const newP = path.join(ROOT, '..', 'update-server', 'public', 'updates')
+  if (fs.existsSync(path.join(ROOT, '..', 'update-server'))) return newP
+  return path.join(ROOT, 'update-server', 'public', 'updates')
+})()
 
 function log(msg) { console.log('[build-customer] ' + msg) }
 function err(msg) { console.error('[build-customer] ERROR: ' + msg) }
@@ -257,7 +277,14 @@ async function main() {
   // this channel from releases/ AND update-server/public/updates/ so the
   // about-to-run build is the sole tenant. Failures are logged but non-fatal;
   // a half-cleaned tree is still a valid input for a fresh build.
+  // Skipped silently when cleanup module isn't available (update-server/ not
+  // resolvable from this build workspace) — the OTA server runs cleanup
+  // independently in its onComplete hook.
   try {
+    if (!cleanupAfterBuild) {
+      log('[cleanup] skipped — update-server/cleanup module not reachable from this workspace (OTA server will clean up post-build instead)')
+      throw { skipCleanup: true }
+    }
     const summary = cleanupAfterBuild({
       projectRoot: ROOT,
       updatesPublicDir: UPDATES_PUBLIC_DIR,
@@ -274,7 +301,8 @@ async function main() {
       if (removed.length > 0) log('[cleanup] removed: ' + removed.join(', '))
     }
   } catch (e) {
-    log('[cleanup] WARN: pre-build cleanup failed: ' + e.message)
+    if (e && e.skipCleanup) { /* already logged */ }
+    else log('[cleanup] WARN: pre-build cleanup failed: ' + (e && e.message ? e.message : String(e)))
   }
 
   substep('sync logo + rebrand source', () => {

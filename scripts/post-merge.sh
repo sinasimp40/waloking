@@ -5,7 +5,7 @@
 # every command must be non-interactive. Idempotent — safe to re-run.
 #
 # Three package.json roots in this repo:
-#   1. walok/update-server/  — the live workflow ("Start application")
+#   1. update-server/        — the live workflow ("Start application")  ← lives at REPO ROOT (May 2026 move)
 #   2. walok/                — Electron launcher build pipeline
 #   3. walok/server/         — Companion local server
 #
@@ -17,7 +17,7 @@
 set -e
 
 echo "[post-merge] update-server: npm install"
-( cd walok/update-server && npm install --no-audit --no-fund --prefer-offline )
+( cd update-server && npm install --no-audit --no-fund --prefer-offline )
 
 echo "[post-merge] walok (launcher): npm install (best-effort)"
 ( cd walok && npm install --no-audit --no-fund --prefer-offline ) || echo "[post-merge] WARN: walok npm install failed (non-blocking)"

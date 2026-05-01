@@ -76,7 +76,14 @@ const PROJ_DIR = path.join(TMP_ROOT, 'proj')
 const DATA_DIR = path.join(TMP_ROOT, 'data')
 const BIN_DIR = path.join(TMP_ROOT, 'bin')
 const SERVER_LOG = path.join(TMP_ROOT, 'server.log')
-const REAL_PUBLISH_SCRIPT = path.resolve(__dirname, '..', 'scripts', 'publish-update.js')
+// As of May 2026 update-server/ is a sibling of walok/ at the repo root, so
+// scripts/ lives at <repo>/walok/scripts/. Fall back to the legacy in-walok
+// layout if walok/scripts/ doesn't exist.
+const REAL_PUBLISH_SCRIPT = (() => {
+  const newP = path.resolve(__dirname, '..', 'walok', 'scripts', 'publish-update.js')
+  if (fs.existsSync(newP)) return newP
+  return path.resolve(__dirname, '..', 'scripts', 'publish-update.js')
+})()
 
 // Build a synthetic project root that mirrors the real walok layout enough
 // to drive POST /api/admin/build end-to-end. Specifically:

@@ -39,7 +39,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd walok/update-server && node server.js"
+args = "cd update-server && node server.js"
 waitForPort = 5000
 
 [postMerge]
