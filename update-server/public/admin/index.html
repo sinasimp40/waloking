@@ -153,6 +153,12 @@
           <input type="search" id="customer-search" class="customer-search" placeholder="Search by name, channel, or subtitle…" autocomplete="off" />
           <span class="customer-count muted small" id="customer-count"></span>
         </div>
+        <div class="customer-filters" id="customer-filters" role="tablist" aria-label="Filter customers">
+          <button type="button" class="cf-chip is-active" data-filter="all" role="tab" aria-selected="true">All</button>
+          <button type="button" class="cf-chip" data-filter="with-updates" role="tab" aria-selected="false">With updates</button>
+          <button type="button" class="cf-chip" data-filter="no-updates" role="tab" aria-selected="false">No updates yet</button>
+          <button type="button" class="cf-chip" data-filter="disabled" role="tab" aria-selected="false">Updates disabled</button>
+        </div>
         <div id="customer-list" class="customer-grid customer-list-scroll">
           <div class="muted">Loading customers…</div>
         </div>

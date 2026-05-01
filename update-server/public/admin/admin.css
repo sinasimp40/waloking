@@ -703,78 +703,219 @@ button:disabled {
   overflow-y: auto;
   padding-right: 4px;
 }
+/* ============ PREMIUM CUSTOMER CARD ============
+ * Layout (top → bottom):
+ *   [accent strip — colored by status]
+ *   .cc-header       — brand name + channel pill | receive-updates switch
+ *   placeholder-warn — only when the URL is wrong
+ *   .cc-versions     — two side-by-side mini "Launcher" + "Server" cards
+ *   .cc-meta         — Subtitle / Server URL / Logo (compact, truncated)
+ *   .cc-action-bar   — Edit · Build · Launcher · Server · Delete
+ *
+ * State classes (added by the renderer):
+ *   .has-warning  → amber accent strip + amber border
+ *   .is-disabled  → muted card, gray accent strip, “OTA paused” badge
+ */
 .customer-card {
-  background: var(--bg-elev-2);
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.0) 100%),
+    var(--bg-elev-2);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  padding: 14px;
-  transition: border-color .15s, transform .15s, box-shadow .15s;
+  padding: 16px 14px 14px;
+  /* leave room for the accent strip drawn via ::before */
+  padding-top: 18px;
+  transition: border-color .15s, transform .15s, box-shadow .15s, opacity .2s;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
+.customer-card::before {
+  /* Status accent strip across the top of the card. Color is tied to state:
+   *   default                  → accent (orange)
+   *   .has-warning             → amber
+   *   .is-disabled             → muted gray
+   *   .has-shipped (got builds)→ teal/green
+   */
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.customer-card.has-shipped::before { background: linear-gradient(90deg, #34d399 0%, #10b981 100%); }
+.customer-card.has-warning::before { background: var(--warning); }
+.customer-card.is-disabled::before { background: var(--text-faint); }
+
+.customer-card.has-warning { border-color: rgba(251,191,36,0.3); }
+.customer-card.is-disabled {
+  opacity: 0.72;
+  background: var(--bg-elev-1);
+}
+
 .customer-card:hover {
   border-color: var(--border-strong);
   transform: translateY(-1px);
   box-shadow: var(--shadow-2);
 }
-.customer-card .name {
-  font-size: 17px;
+
+/* --- Header row: brand name + channel pill | toggle switch --- */
+.cc-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cc-title-block { min-width: 0; flex: 1 1 auto; }
+.cc-name {
+  font-size: 16px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.2px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.customer-card .channel {
+.cc-channel-pill {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
   color: var(--text-faint);
-  margin-top: 2px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.customer-card.has-warning { border-color: rgba(251,191,36,0.3); }
+
+/* --- Receive updates toggle (iOS-style switch) --- */
+.cc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  user-select: none;
+}
+.cc-toggle-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.cc-toggle.is-on .cc-toggle-label { color: #34d399; }
+.cc-toggle.is-off .cc-toggle-label { color: var(--text-faint); }
+.cc-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  transition: background .18s, border-color .18s;
+  flex-shrink: 0;
+}
+.cc-switch::after {
+  content: "";
+  position: absolute;
+  top: 1px; left: 1px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform .18s, background .18s;
+}
+.cc-toggle.is-on  .cc-switch { background: rgba(52,211,153,0.18); border-color: rgba(52,211,153,0.6); }
+.cc-toggle.is-on  .cc-switch::after { transform: translateX(16px); background: #34d399; }
+.cc-toggle:hover .cc-switch { border-color: var(--border-strong); }
+.cc-toggle:focus-visible {
+  outline: none;
+}
+.cc-toggle:focus-visible .cc-switch {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.cc-toggle.is-busy { opacity: 0.6; pointer-events: none; }
+
+/* --- Placeholder-URL warning (kept) --- */
 .customer-card .placeholder-warn {
   margin-top: 12px;
   background: var(--warning-soft);
   border: 1px solid rgba(251,191,36,0.25);
   color: var(--warning);
-  padding: 10px 12px;
+  padding: 9px 11px;
   border-radius: var(--r-sm);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
 }
 .customer-card .placeholder-warn strong { color: var(--warning); }
-.customer-card .meta {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.55;
+
+/* --- Versions row: two mini-cards (Launcher / Server) --- */
+.cc-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
 }
-.customer-card .meta > div {
-  /* Truncate very long server URLs / logo paths instead of letting them blow
-   * out the now-narrower card width. Hover via title attribute already shows
-   * the full value when needed; renderer adds title on long fields. */
+.cc-vbox {
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  min-width: 0;
+}
+.cc-vbox-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cc-vbox-version {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.customer-card .meta strong { color: var(--text); font-weight: 600; }
-.customer-card .meta .dl-link {
+.cc-vbox-version em {
+  color: var(--text-faint);
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+}
+.cc-vbox.cc-vbox-launcher { border-left: 2px solid var(--accent); }
+.cc-vbox.cc-vbox-server   { border-left: 2px solid var(--info); }
+.cc-vbox .dl-link {
   color: var(--info);
   text-decoration: none;
-  font-size: 11px;
+  font-size: 10.5px;
   margin-left: 4px;
 }
-.customer-card .meta .dl-link:hover { color: #93c5fd; text-decoration: underline; }
-.customer-card .meta .dl-missing {
+.cc-vbox .dl-link:hover { color: #93c5fd; text-decoration: underline; }
+.cc-vbox .dl-missing {
   color: var(--warning);
-  font-size: 11px;
+  font-size: 10.5px;
   margin-left: 4px;
   font-style: italic;
   cursor: help;
 }
-.customer-card .meta .rebump-pill {
+.cc-vbox .rebump-pill {
   display: inline-block;
-  margin-left: 6px;
+  margin-top: 4px;
   padding: 1px 7px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: #fde68a;
@@ -783,8 +924,48 @@ button:disabled {
   border-radius: 999px;
   white-space: nowrap;
   cursor: help;
-  vertical-align: 1px;
 }
+
+/* --- Meta lines (Subtitle / Server / Logo / Last release) --- */
+.cc-meta {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+}
+.cc-meta-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-meta-line strong {
+  color: var(--text-faint);
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+}
+
+/* --- Action bar --- */
+.cc-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.cc-action-bar .btn-primary,
+.cc-action-bar .btn-secondary,
+.cc-action-bar .btn-danger {
+  flex: 0 0 auto;
+}
+
+/* Legacy class kept for the live-pill block + add-customer-modal. */
 .customer-card .actions {
   display: flex;
   flex-wrap: wrap;
@@ -820,6 +1001,36 @@ button:disabled {
 }
 .customer-search::placeholder { color: var(--text-faint); }
 .customer-count { flex: 0 0 auto; white-space: nowrap; }
+
+/* Filter chips: compact pill row that sits between the search input and the
+ * grid. Active chip uses the accent border + bolded text so the operator can
+ * see the current filter without reading the chip text. */
+.customer-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.cf-chip {
+  appearance: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.cf-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.cf-chip.is-active {
+  color: var(--accent);
+  background: var(--accent-soft, rgba(255,107,0,0.08));
+  border-color: var(--accent);
+}
 
 .customer-pagination {
   display: flex;

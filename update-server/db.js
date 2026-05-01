@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS meta (
     ['server_rebuild_count',   'INTEGER'],
     ['launcher_rebuilt_at',    'INTEGER'],
     ['server_rebuilt_at',      'INTEGER'],
+    // Per-customer "receive OTA updates" master switch. NULL on legacy rows
+    // is treated as enabled (=1) by rowToCustomer below, so existing customers
+    // never silently lose updates after migration. Operator toggles via the
+    // admin UI; when 0 the server returns 404 for /updates/<channel>/latest.json
+    // so launchers see "no update available" without any client-side change.
+    ['updates_enabled',        'INTEGER'],
   ]
   for (const [name, type] of adds) {
     if (!cols.has(name)) db.exec('ALTER TABLE customers ADD COLUMN ' + name + ' ' + type)
@@ -81,6 +87,12 @@ function rowToCustomer(r) {
     serverRebuildCount: r.server_rebuild_count || 0,
     launcherRebuiltAt: r.launcher_rebuilt_at || null,
     serverRebuiltAt: r.server_rebuilt_at || null,
+    // NULL (legacy row, never toggled) ⇒ treat as ENABLED. Only an explicit
+    // 0 disables OTA delivery. This means the migration does NOT silently
+    // disable updates for any existing customer.
+    updatesEnabled: (r.updates_enabled === null || r.updates_enabled === undefined)
+      ? true
+      : !!r.updates_enabled,
   }
 }
 
@@ -107,6 +119,9 @@ const stmts = {
   resetLauncherRebuild: db.prepare(`UPDATE customers SET launcher_rebuild_count=0, launcher_rebuilt_at=NULL WHERE channel=?`),
   resetServerRebuild:   db.prepare(`UPDATE customers SET server_rebuild_count=0,   server_rebuilt_at=NULL   WHERE channel=?`),
   setLastBuild: db.prepare(`UPDATE customers SET last_build_at=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
+  // Cheap one-field toggle endpoint — avoids round-tripping the full upsert
+  // payload from the admin UI just to flip a single boolean.
+  setUpdatesEnabled: db.prepare(`UPDATE customers SET updates_enabled=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
   metaGet: db.prepare('SELECT v FROM meta WHERE k = ?'),
   metaSet: db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'),
 }
@@ -291,6 +306,15 @@ function recordServerPublished(channel, version, ts) {
 function recordBuild(channel, ts) {
   if (!channel) return
   stmts.setLastBuild.run(ts || Date.now(), channel)
+}
+
+// Master switch for OTA delivery to a single customer. Stored as 0/1.
+// Returns the updated customer row, or null if the channel doesn't exist.
+function setUpdatesEnabled(channel, enabled) {
+  if (!channel) return null
+  if (!stmts.get.get(channel)) return null
+  stmts.setUpdatesEnabled.run(enabled ? 1 : 0, channel)
+  return getCustomer(channel)
 }
 
 // Baseline refresh tracking — when did the operator last upload a Full Repo
@@ -479,6 +503,7 @@ module.exports = {
   recordLauncherPublished,
   recordServerPublished,
   recordBuild,
+  setUpdatesEnabled,
   getBaselineRefreshedAt,
   setBaselineRefreshedAt,
   getSourceUpdatedAt,

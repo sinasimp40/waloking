@@ -501,6 +501,54 @@ app.get('/health', (req, res) => res.json({
   serverVersion: SERVER_VERSION,
 }))
 
+// Per-customer "receive OTA updates" gate. Mounted BEFORE the /updates static
+// mount so when an admin disables a customer the latest.json fetch returns 404
+// (launcher's checkForUpdate already treats !=200 as "no update"). Both the
+// launcher channel (`<ch>/latest.json`) and the server-side channel
+// (`<ch>-server/latest.json`) are gated by the SAME customer row — disabling
+// a customer cuts off both halves at once. Requests for any other path under
+// /updates (e.g. payload zips) fall through to the static handler unchanged
+// so an in-progress download already begun by an enabled-then-disabled client
+// is not interrupted mid-stream.
+app.get('/updates/:channelOrServer/latest.json', (req, res, next) => {
+  const param = req.params.channelOrServer
+  // Resolve `param` to a customer row. There are two channel shapes that hit
+  // this gate:
+  //   1. `<ch>/latest.json`         — launcher manifest for customer `<ch>`.
+  //   2. `<ch>-server/latest.json`  — server manifest for customer `<ch>`.
+  // Naively stripping `-server` is unsafe: a real customer whose channel
+  // genuinely ENDS in `-server` (e.g. someone names their cafe
+  // "old-server") would have its launcher manifest mistakenly mapped to
+  // a different (or nonexistent) customer, defeating the gate. So we try
+  // an EXACT lookup first, and only fall back to the suffix-stripped
+  // lookup when the literal channel doesn't exist as a customer.
+  let customer = null
+  let dbFailed = false
+  try {
+    customer = dbApi.getCustomer(param)
+    if (!customer && param.endsWith('-server')) {
+      const base = param.slice(0, -'-server'.length)
+      customer = dbApi.getCustomer(base)
+    }
+  } catch (e) {
+    // DB read failed unexpectedly. For a kill-switch we fail CLOSED — better
+    // to serve a temporary 503 than to silently leak an update to a customer
+    // who is supposed to be disabled. The launcher already treats !=200 as
+    // "no update available", so this is a safe stall.
+    dbFailed = true
+    console.warn('[ota-gate] customer lookup failed for', param, e && e.message)
+  }
+  if (dbFailed) {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    return res.status(503).json({ error: 'temporary lookup failure, retry later' })
+  }
+  if (customer && customer.updatesEnabled === false) {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    return res.status(404).json({ error: 'updates disabled for this customer' })
+  }
+  return next()
+})
+
 app.use('/updates', express.static(UPDATES_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.json')) {
@@ -752,6 +800,21 @@ app.post('/api/admin/customers', requireAdmin, (req, res) => {
   const stored = dbApi.upsertCustomer({ channel, brandName, subtitle, updateServer, logo: logo || null })
   dbApi.syncJsonMirror(CUSTOMERS_DIR, channel)
   res.json({ ok: true, customer: stored })
+})
+
+// Toggle the per-customer "receive OTA updates" master switch. Single-field
+// PATCH-style endpoint (modeled as POST since the rest of this API is POST).
+// Body: { enabled: boolean }. Returns the updated customer row, or 404 when
+// the channel doesn't exist. Disabling causes /updates/<ch>/latest.json (and
+// the matching `-server` variant) to return 404, which the launcher treats
+// as "no update available" — no client-side change required.
+app.post('/api/admin/customers/:channel/updates-enabled', requireAdmin, (req, res) => {
+  const channel = req.params.channel
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  const enabled = !!(req.body && req.body.enabled)
+  const updated = dbApi.setUpdatesEnabled(channel, enabled)
+  if (!updated) return res.status(404).json({ error: 'customer not found' })
+  res.json({ ok: true, customer: updated })
 })
 
 app.delete('/api/admin/customers/:channel', requireAdmin, (req, res) => {

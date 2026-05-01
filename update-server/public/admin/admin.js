@@ -27,6 +27,9 @@ const state = {
   // monitor). Both reset to defaults when state.customers is reloaded.
   customerSearch: '',
   customerPage: 1,
+  // Filter chip — one of: 'all' | 'with-updates' | 'no-updates' | 'disabled'.
+  // Combined with customerSearch (search runs first, then filter narrows).
+  customerFilter: 'all',
 }
 const CUSTOMER_PAGE_SIZE = 12
 
@@ -410,16 +413,59 @@ async function submitUpdateSource(form) {
   }
 }
 
-// Filter state.customers by the current search query. Case-insensitive
-// substring match across channel, brandName, and subtitle. Empty query
-// returns all customers unmodified.
+// "Has any published build?" — true when either the launcher or server
+// channel has a known version. Used by the filter chips and by the card's
+// status accent strip.
+function _hasAnyUpdate(c) {
+  return !!(c._launcherVersion || c._serverVersion)
+}
+
+// Human label for the empty-state message + count badge.
+function _filterLabel(f) {
+  if (f === 'with-updates') return 'With updates'
+  if (f === 'no-updates') return 'No updates yet'
+  if (f === 'disabled') return 'Updates disabled'
+  return 'All'
+}
+
+// Toggle .is-active on the filter chips to match state.customerFilter.
+// Called from chip click handlers and from the empty-state Clear button.
+function _syncFilterChipsUI() {
+  document.querySelectorAll('#customer-filters .cf-chip').forEach(btn => {
+    const isActive = btn.dataset.filter === state.customerFilter
+    btn.classList.toggle('is-active', isActive)
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false')
+  })
+}
+
+// Filter state.customers by the current search query AND the active filter
+// chip. Search runs first (case-insensitive substring match across channel,
+// brandName, subtitle), then the chip narrows further. Empty query + 'all'
+// returns the unmodified list.
 function _filteredCustomers() {
   const q = (state.customerSearch || '').trim().toLowerCase()
-  if (!q) return state.customers
-  return state.customers.filter(c => {
-    const fields = [c.channel, c.brandName, c.subtitle].map(v => String(v || '').toLowerCase())
-    return fields.some(f => f.includes(q))
-  })
+  let out = state.customers
+  if (q) {
+    out = out.filter(c => {
+      const fields = [c.channel, c.brandName, c.subtitle].map(v => String(v || '').toLowerCase())
+      return fields.some(f => f.includes(q))
+    })
+  }
+  switch (state.customerFilter) {
+    case 'with-updates':
+      out = out.filter(c => _hasAnyUpdate(c) && c.updatesEnabled !== false)
+      break
+    case 'no-updates':
+      out = out.filter(c => !_hasAnyUpdate(c) && c.updatesEnabled !== false)
+      break
+    case 'disabled':
+      out = out.filter(c => c.updatesEnabled === false)
+      break
+    case 'all':
+    default:
+      break
+  }
+  return out
 }
 
 // Render the customer list with search + pagination applied. Three states:
@@ -445,14 +491,26 @@ function renderCustomerList() {
   const start = (state.customerPage - 1) * CUSTOMER_PAGE_SIZE
   const slice = filtered.slice(start, start + CUSTOMER_PAGE_SIZE)
 
-  if (total === 0 && (state.customerSearch || '').trim()) {
-    list.innerHTML = `<div class="customer-empty">No customers match "${escapeHtml(state.customerSearch)}". <button type="button" class="btn-secondary small" id="customer-clear-search">Clear search</button></div>`
+  const hasSearch = !!(state.customerSearch || '').trim()
+  const hasFilter = state.customerFilter && state.customerFilter !== 'all'
+  if (total === 0 && (hasSearch || hasFilter)) {
+    let msg
+    if (hasSearch && hasFilter) {
+      msg = `No customers match "${escapeHtml(state.customerSearch)}" with the "${escapeHtml(_filterLabel(state.customerFilter))}" filter.`
+    } else if (hasSearch) {
+      msg = `No customers match "${escapeHtml(state.customerSearch)}".`
+    } else {
+      msg = `No customers in the "${escapeHtml(_filterLabel(state.customerFilter))}" view.`
+    }
+    list.innerHTML = `<div class="customer-empty">${msg} <button type="button" class="btn-secondary small" id="customer-clear-search">Clear filters</button></div>`
     const clearBtn = document.getElementById('customer-clear-search')
     if (clearBtn) clearBtn.addEventListener('click', () => {
       state.customerSearch = ''
+      state.customerFilter = 'all'
       const input = $('#customer-search')
       if (input) input.value = ''
       state.customerPage = 1
+      _syncFilterChipsUI()
       renderCustomerList()
     })
   } else {
@@ -572,12 +630,16 @@ function renderCustomer(c) {
     const tip = `This version was re-shipped ${count} time${count === 1 ? '' : 's'} via Build From Uploaded Source. Most recent: ${when}.`
     return ` <span class="rebump-pill" title="${escapeHtml(tip)}">⟳ rebump ×${count} · ${escapeHtml(when)}</span>`
   }
-  const launcherV = c._launcherVersion
-    ? `v${escapeHtml(c._launcherVersion)}${launcherDl}${rebumpPill(c._launcherRebumpCount, c._launcherRebumpAt)}`
-    : '<em>no update yet</em>'
-  const serverV = c._serverVersion
-    ? `v${escapeHtml(c._serverVersion)}${serverDl}${rebumpPill(c._serverRebumpCount, c._serverRebumpAt)}`
-    : '<em>no update yet</em>'
+  // Build the inner HTML for a single version mini-card. When no version has
+  // been published yet, render a muted placeholder so the box still has the
+  // same height — keeps the two-column versions row tidy.
+  function vboxInner(version, dl, rebump) {
+    if (!version) return '<em>no update yet</em>'
+    return `v${escapeHtml(version)}${dl}${rebump}`
+  }
+  const launcherInner = vboxInner(c._launcherVersion, launcherDl, rebumpPill(c._launcherRebumpCount, c._launcherRebumpAt))
+  const serverInner   = vboxInner(c._serverVersion,   serverDl,   rebumpPill(c._serverRebumpCount,   c._serverRebumpAt))
+
   // "Last release" reflects the most recent publish event across launcher OR
   // server (rebumps update those timestamps too), so the operator immediately
   // sees activity from a re-shipped version.
@@ -591,21 +653,55 @@ function renderCustomer(c) {
   } else if (placeholder) {
     warnBlock = `<div class="placeholder-warn"><strong>⚠ Placeholder update server URL.</strong> Click <strong>Edit</strong> and set <code>Update Server URL</code> to your real RDP/server IP (e.g. <code>http://203.0.113.45:4231</code>) before building, otherwise installed launchers will never receive OTA updates.</div>`
   }
+
+  // Status modifier classes for the card root.
+  const updatesEnabled = c.updatesEnabled !== false  // legacy rows / undefined ⇒ enabled
+  const hasShipped = !!(c._launcherVersion || c._serverVersion)
+  const cardClasses = [
+    'customer-card',
+    placeholder && 'has-warning',
+    !updatesEnabled && 'is-disabled',
+    updatesEnabled && hasShipped && !placeholder && 'has-shipped',
+  ].filter(Boolean).join(' ')
+
+  // Receive-updates toggle — clicking the whole .cc-toggle flips it.
+  const toggleClass = updatesEnabled ? 'cc-toggle is-on' : 'cc-toggle is-off'
+  const toggleLabel = updatesEnabled ? 'On' : 'Off'
+  const toggleTitle = updatesEnabled
+    ? 'Updates ENABLED. Click to stop sending OTA updates to this customer.'
+    : 'Updates DISABLED. Click to resume sending OTA updates to this customer.'
+
   return `
-  <div class="customer-card${placeholder ? ' has-warning' : ''}" data-channel="${escapeHtml(c.channel)}">
-    <div class="name">${escapeHtml(c.brandName || c.channel)}</div>
-    <div class="channel">channel: ${escapeHtml(c.channel)}</div>
+  <div class="${cardClasses}" data-channel="${escapeHtml(c.channel)}">
+    <div class="cc-header">
+      <div class="cc-title-block">
+        <div class="cc-name" title="${escapeHtml(c.brandName || c.channel)}">${escapeHtml(c.brandName || c.channel)}</div>
+        <div class="cc-channel-pill" title="${escapeHtml(c.channel)}">${escapeHtml(c.channel)}</div>
+      </div>
+      <div class="${toggleClass}" data-action="toggle-updates" role="switch" aria-checked="${updatesEnabled}" tabindex="0" title="${escapeHtml(toggleTitle)}">
+        <span class="cc-toggle-label">${toggleLabel}</span>
+        <span class="cc-switch" aria-hidden="true"></span>
+      </div>
+    </div>
     <div class="live-slot" data-live-slot="${escapeHtml(c.channel)}">${renderOnlinePill(c.channel)}</div>
     ${warnBlock}
-    <div class="meta">
-      <div><strong>Subtitle:</strong> ${escapeHtml(c.subtitle || '—')}</div>
-      <div><strong>Server:</strong> ${escapeHtml(c.updateServer || '—')}</div>
-      <div><strong>Logo:</strong> ${escapeHtml(c.logo || '<em>(none)</em>')}</div>
-      <div><strong>Launcher current:</strong> ${launcherV}</div>
-      <div><strong>Server current:</strong> ${serverV}</div>
-      <div><strong>Last release:</strong> ${escapeHtml(released)}</div>
+    <div class="cc-versions">
+      <div class="cc-vbox cc-vbox-launcher">
+        <div class="cc-vbox-label">Launcher</div>
+        <div class="cc-vbox-version">${launcherInner}</div>
+      </div>
+      <div class="cc-vbox cc-vbox-server">
+        <div class="cc-vbox-label">Server</div>
+        <div class="cc-vbox-version">${serverInner}</div>
+      </div>
     </div>
-    <div class="actions">
+    <div class="cc-meta">
+      <div class="cc-meta-line" title="${escapeHtml(c.subtitle || '')}"><strong>Subtitle</strong>${escapeHtml(c.subtitle || '—')}</div>
+      <div class="cc-meta-line" title="${escapeHtml(c.updateServer || '')}"><strong>Server</strong>${escapeHtml(c.updateServer || '—')}</div>
+      <div class="cc-meta-line" title="${escapeHtml(c.logo || '')}"><strong>Logo</strong>${c.logo ? escapeHtml(c.logo) : '<em>(none)</em>'}</div>
+      <div class="cc-meta-line"><strong>Last release</strong>${escapeHtml(released)}</div>
+    </div>
+    <div class="cc-action-bar">
       <button class="btn-secondary small" data-action="edit">Edit</button>
       <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship BOTH launcher and server for this customer using the master source on disk.">Build</button>
       <button class="btn-secondary small" data-action="build-launcher" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the launcher (skips the server electron-builder substep).">Launcher</button>
@@ -618,13 +714,26 @@ function renderCustomer(c) {
 function bindCustomerActions() {
   $$('#customer-list .customer-card').forEach(card => {
     const channel = card.dataset.channel
+    // Buttons: standard click handlers.
     card.querySelectorAll('button[data-action]').forEach(btn => {
       btn.onclick = () => handleCustomerAction(channel, btn.dataset.action)
     })
+    // Receive-updates toggle is a <div role="switch">, bind both click and
+    // keyboard (Space / Enter) for accessibility.
+    const toggle = card.querySelector('.cc-toggle[data-action="toggle-updates"]')
+    if (toggle) {
+      toggle.onclick = () => handleCustomerAction(channel, 'toggle-updates', toggle)
+      toggle.onkeydown = (e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault()
+          handleCustomerAction(channel, 'toggle-updates', toggle)
+        }
+      }
+    }
   })
 }
 
-async function handleCustomerAction(channel, action) {
+async function handleCustomerAction(channel, action, srcEl) {
   if (action === 'edit') {
     openCustomerModal(state.customers.find(c => c.channel === channel))
   } else if (action === 'build') {
@@ -639,6 +748,34 @@ async function handleCustomerAction(channel, action) {
       await api('DELETE', '/api/admin/customers/' + encodeURIComponent(channel))
       await loadCustomers()
     } catch (e) { alert('Delete failed: ' + e.message) }
+  } else if (action === 'toggle-updates') {
+    // Optimistic flip — disable interaction, swap class, then call backend.
+    // On error revert and surface the error; on success update local state
+    // (so filter chips re-evaluate) and re-render the card list.
+    const cust = state.customers.find(c => c.channel === channel)
+    if (!cust) return
+    const wasEnabled = cust.updatesEnabled !== false
+    const target = !wasEnabled
+    if (srcEl) srcEl.classList.add('is-busy')
+    try {
+      const resp = await api('POST', '/api/admin/customers/' + encodeURIComponent(channel) + '/updates-enabled', { enabled: target })
+      // Replace customer record from server response so all derived fields
+      // (e.g. _launcherVersion, _placeholderUrl) survive intact.
+      if (resp && resp.customer) {
+        const idx = state.customers.findIndex(c => c.channel === channel)
+        if (idx !== -1) {
+          // Preserve runtime-only enriched fields the server doesn't return
+          // (live-pill state, derived version flags computed by loadCustomers).
+          state.customers[idx] = Object.assign({}, state.customers[idx], resp.customer)
+        }
+      } else {
+        cust.updatesEnabled = target
+      }
+      renderCustomerList()
+    } catch (e) {
+      if (srcEl) srcEl.classList.remove('is-busy')
+      alert('Could not ' + (target ? 'enable' : 'disable') + ' updates for "' + channel + '": ' + e.message)
+    }
   }
 }
 
@@ -1536,6 +1673,20 @@ $('#add-customer-btn').addEventListener('click', () => openCustomerModal(null))
     state.customerPage++
     renderCustomerList()
   })
+  // Filter chips: each chip carries data-filter (all|with-updates|no-updates|
+  // disabled). Click sets state.customerFilter, resets to page 1, syncs the
+  // active chip class, and re-renders. Default 'all' is set in initial state.
+  document.querySelectorAll('#customer-filters .cf-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const f = chip.dataset.filter || 'all'
+      if (state.customerFilter === f) return
+      state.customerFilter = f
+      state.customerPage = 1
+      _syncFilterChipsUI()
+      renderCustomerList()
+    })
+  })
+  _syncFilterChipsUI()
 }
 
 $('#cm-cancel').addEventListener('click', closeCustomerModal)

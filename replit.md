@@ -121,3 +121,73 @@ Preferred communication style: Simple, everyday language.
   Playwright run confirmed login → search "zzznomatch" → empty state →
   Clear → search "example" → customer card visible. Architect review:
   PASS, no high/severe defects.
+
+### 2026-05-01 (later) — Premium Customers card + per-customer OTA toggle + filter chips
+- **Per-customer "receive OTA updates" toggle:**
+  - `db.js`: new `updates_enabled INTEGER` column added via `ensureColumns`
+    migration (NULL ⇒ enabled, preserves backward compatibility for
+    existing rows). `rowToCustomer` exposes a coerced `updatesEnabled:
+    boolean`. New `setUpdatesEnabled(channel, enabled)` helper writes a
+    single column without touching any other field.
+  - `server.js`:
+    - New gate route `GET /updates/:channelOrServer/latest.json` mounted
+      **before** the static `/updates` mount. It strips an optional
+      `-server` suffix to find the customer; when `updatesEnabled === false`
+      it returns `404 + Cache-Control: no-store`. When the customer is
+      missing or enabled, it falls through to the static handler unchanged
+      (so existing 404s for missing manifests still happen normally).
+    - New endpoint `POST /api/admin/customers/:channel/updates-enabled`
+      (admin auth) accepts `{ enabled: boolean }`, returns `{ ok, customer }`.
+- **Premium card redesign** (`admin.css`, `admin.js`, `index.html`):
+  - Status accent strip across the top of every card (orange = default,
+    green-gradient = has-shipped, amber = has-warning, gray = is-disabled),
+    drawn via `.customer-card::before` so existing layout is unchanged.
+  - New header row `.cc-header` with a brand title + monospaced channel
+    pill on the left and an iOS-style switch on the right (`.cc-toggle`
+    + `.cc-switch`) that shows the receive-updates state at a glance and
+    flips it with one click. Disabled cards dim to 0.72 opacity.
+  - New two-column versions row `.cc-versions` with mini-cards per role
+    (Launcher = orange left border, Server = blue), each showing the
+    current version + download link + rebump pill (when applicable).
+  - Compact `.cc-meta` lines (Subtitle / Server / Logo / Last release)
+    with truncation + hover tooltip for long values.
+  - Cleaner `.cc-action-bar` separator; existing button data-actions
+    (`edit`, `build`, `build-launcher`, `build-server`, `delete`)
+    preserved so all downstream JS keeps working.
+- **Filter chips** (`#customer-filters`): new All · With updates · No
+  updates yet · Updates disabled chip bar between the search toolbar and
+  the grid. `state.customerFilter` (default `'all'`) is combined with the
+  existing search via `_filteredCustomers()`. The empty-state message and
+  Clear button now also reset the active filter.
+- **Frontend toggle handler** (`handleCustomerAction('toggle-updates')`):
+  POSTs the new endpoint, optimistically marks the toggle `.is-busy`,
+  merges the server-returned customer back into local state (preserving
+  derived `_launcherVersion` / `_placeholderUrl` runtime fields), then
+  re-renders the list so the card class + chip filtering re-evaluate.
+- **Verification:**
+  - `node --check` clean on all modified files.
+  - Curl: `latest.json` is `200` while enabled, then `404 Cache-Control:
+    no-store` on **both** `/updates/<ch>/latest.json` and
+    `/updates/<ch>-server/latest.json` after toggling off, then `200`
+    again after toggling on.
+  - `npm test` still 10/10 green.
+  - e2e Playwright run: login → verified `.cc-header` / `.cc-toggle` /
+    `.cc-versions` / `.cc-action-bar` structure → exercised all 4 filter
+    chips (including the `.customer-empty` state when "With updates" hides
+    the only card) → toggled the card off (gained `.is-disabled`) →
+    confirmed it shows under "Updates disabled" → toggled back on →
+    reloaded page → state persisted. PASS, no verification gaps.
+- **Post-review security fixes** (architect flagged HIGH; both fixed):
+  - Gate route was naively stripping `-server` before DB lookup, which
+    let a customer whose channel itself ends in `-server` (e.g.
+    `old-server`) bypass its own kill-switch. Now does an EXACT lookup
+    first and only falls back to the suffix-stripped lookup when the
+    literal channel doesn't exist. Verified end-to-end with a synthetic
+    customer named `old-server`: 200 enabled → 404 disabled.
+  - Gate route used to fall through to `next()` on any DB read error,
+    fail-OPENing the kill-switch. Now logs and returns
+    `503 Cache-Control: no-store` so the launcher (which treats !=200 as
+    "no update") safely stalls rather than leaking a manifest to a
+    disabled customer.
+  - Added `:focus-visible` outline on `.cc-toggle` (uses --accent-ring,
+    matching the form-field focus style) for keyboard-only users.
