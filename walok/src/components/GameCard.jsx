@@ -2,6 +2,7 @@ import React, { useState, memo, useRef, useEffect } from 'react'
 import { Play, Zap, Gamepad2, ChevronRight, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
+import { getDefaultAccent } from '../lib/accent'
 
 const categoryConfig = {
   online: { accent: '#10b981', text: 'ONLINE', bg: 'from-emerald-500/20 to-emerald-900/40' },
@@ -20,7 +21,7 @@ const GameCard = memo(function GameCard({ game }) {
   const [isPressed, setIsPressed] = useState(false)
   const [showVariations, setShowVariations] = useState(false)
   const popupRef = useRef(null)
-  const defaultAccent = accentColor || '#ff6a00'
+  const defaultAccent = accentColor || getDefaultAccent()
 
   const validVariations = (game.variations || []).filter(v => v.name && v.exePath)
 

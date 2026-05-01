@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
+import { getDefaultAccent } from '../lib/accent'
 
 export default function Sidebar() {
   const { settings, games, localIPs } = useStore()
@@ -144,7 +145,7 @@ function TopPicks({ featuredGames }) {
 
       <div className="space-y-1.5">
         {featuredGames.slice(0, 3).map((game, i) => {
-          const defaultAccent = settings.accentColor || '#ff6a00'
+          const defaultAccent = settings.accentColor || getDefaultAccent()
           const accent = categoryAccents[game.category] || defaultAccent
           const rankColors = [defaultAccent, '#94a3b8', '#b45309']
           const rankLabels = ['1ST', '2ND', '3RD']

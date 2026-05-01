@@ -138,7 +138,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 30,
+      version: 31,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -175,6 +175,9 @@ const useStore = create(
             igdbClientId: persistedState.settings?.igdbClientId || '10v1tjvitc8rlqrzwlprsjgk1ukogy',
             igdbClientSecret: persistedState.settings?.igdbClientSecret || 'eulj0ebeyc9uh6gtatamg63l6gdknj',
             saveLoadServerUrl: persistedState.settings?.saveLoadServerUrl || '',
+            accentColor: (persistedState.settings?.accentColor === '#ff6a00' || !persistedState.settings?.accentColor)
+              ? null
+              : persistedState.settings.accentColor,
           },
         }
       },

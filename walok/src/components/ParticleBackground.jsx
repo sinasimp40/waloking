@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react'
 import useStore from '../store/useStore'
+import { getDefaultAccent } from '../lib/accent'
 
 export default function ParticleBackground() {
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
 
   const dots = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => ({

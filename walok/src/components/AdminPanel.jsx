@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
+import { getDefaultAccent } from '../lib/accent'
 
 const CATEGORIES = [
   { id: 'online', label: 'Online' },
@@ -16,7 +17,7 @@ const CATEGORIES = [
 
 export default function AdminPanel() {
   const { closeAdmin, adminSection, setAdminSection } = useStore()
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
 
   const sections = [
     { id: 'games', label: 'Games', icon: Gamepad2 },
@@ -109,7 +110,7 @@ function SectionWrapper({ children }) {
 }
 
 function SectionTitle({ icon: Icon, title, count }) {
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   return (
     <div className="flex items-center gap-2">
       {Icon && <Icon size={14} style={{ color: accentColor }} />}
@@ -122,7 +123,7 @@ function SectionTitle({ icon: Icon, title, count }) {
 }
 
 function AccentButton({ children, onClick, type, disabled, className = '' }) {
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   return (
     <button
       type={type}
@@ -141,7 +142,7 @@ function AccentButton({ children, onClick, type, disabled, className = '' }) {
 }
 
 function CardBox({ children, className = '', highlight }) {
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   return (
     <div
       className={`rounded-xl p-5 space-y-3 ${className}`}
@@ -172,7 +173,7 @@ const InputField = React.forwardRef(({ value, onChange, placeholder, className =
 })
 
 function ToggleSwitch({ checked, onChange }) {
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   return (
     <button
       onClick={onChange}
@@ -206,7 +207,7 @@ function GamesSection() {
   const [igdbLoading, setIgdbLoading] = useState(false)
   const [igdbImporting, setIgdbImporting] = useState(null)
   const settings = useStore(s => s.settings)
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
 
   const resetForm = () => {
     setForm({ name: '', category: 'online', icon: '', exePath: '', savePath: '', description: '', tags: '', pcGroups: [], variations: [] })
@@ -551,7 +552,7 @@ function GamesSection() {
 
 function FeaturedSection() {
   const { games, setTopPick } = useStore()
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   const rankLabels = ['1ST', '2ND', '3RD']
   const topPicks = [1, 2, 3].map(rank => games.find(g => g.topPickRank === rank) || null)
   const availableGames = games.filter(g => !g.topPickRank)
@@ -615,7 +616,7 @@ function FeaturedSection() {
 
 function PCGroupsSection() {
   const { settings, updateSettings, games, updateGame, localIPs, localHostname } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const pcGroups = settings.pcGroups || []
   const [showForm, setShowForm] = useState(false)
   const [editGroup, setEditGroup] = useState(null)
@@ -744,7 +745,7 @@ function PCGroupsSection() {
 function InlinePrompt({ label, placeholder, onSubmit, onCancel }) {
   const [val, setVal] = useState('')
   const inputRef = React.useRef(null)
-  const accentColor = useStore(s => s.settings.accentColor) || '#ff6a00'
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   React.useEffect(() => { inputRef.current?.focus() }, [])
   const handleSubmit = () => { if (val.trim()) onSubmit(val.trim()) }
   return (
@@ -761,7 +762,7 @@ function InlinePrompt({ label, placeholder, onSubmit, onCancel }) {
 
 function AnnouncementSection() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const [text, setText] = useState(settings.announcement || '')
   const textRef = React.useRef(null)
   const [inlinePrompt, setInlinePrompt] = useState(null)
@@ -854,7 +855,7 @@ function AnnouncementSection() {
 
 function AnnouncementImagesManager() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const images = settings.announcementImages || []
   const [interval, setInterval_] = useState(settings.announcementSlideInterval || 5)
   const [newUrl, setNewUrl] = useState('')
@@ -920,7 +921,7 @@ function BBCodeRenderer({ text }) { if (!text) return null; return <div dangerou
 
 function AppearanceSection() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const [hexDraft, setHexDraft] = React.useState('')
   const [hexFocused, setHexFocused] = React.useState(false)
 
@@ -933,6 +934,7 @@ function AppearanceSection() {
     { name: 'Pink', hex: '#ec4899' }, { name: 'Blue', hex: '#3b82f6' }, { name: 'Yellow', hex: '#eab308' }, { name: 'Teal', hex: '#14b8a6' }, { name: 'Rose', hex: '#f43f5e' },
   ]
   const handleAccentChange = (hex) => { if (/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(hex)) updateSettings({ accentColor: hex }) }
+  const handleResetAccent = () => { updateSettings({ accentColor: null }) }
 
   return (
     <SectionWrapper>
@@ -955,7 +957,7 @@ function AppearanceSection() {
                 style={{ background: c.hex, borderColor: accentColor === c.hex ? '#fff' : 'rgba(255,255,255,0.1)', boxShadow: accentColor === c.hex ? `0 0 10px ${c.hex}60` : 'none' }} />
             ))}
           </div>
-          {accentColor !== '#ff6a00' && <button onClick={() => handleAccentChange('#ff6a00')} className="px-3 py-2 border border-white/[0.06] rounded-lg text-white/40 text-[11px] font-rajdhani hover:text-white/60 transition-all uppercase tracking-wider flex-shrink-0">Reset</button>}
+          {settings.accentColor != null && <button onClick={handleResetAccent} className="px-3 py-2 border border-white/[0.06] rounded-lg text-white/40 text-[11px] font-rajdhani hover:text-white/60 transition-all uppercase tracking-wider flex-shrink-0" title="Use the launcher's default accent (defined in index.css)">Reset to default</button>}
         </div>
       </CardBox>
 
@@ -1038,7 +1040,7 @@ function AppearanceSection() {
 
 function RatesSection() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const [rates, setRates] = useState(settings.computerRates || [])
   const [newRate, setNewRate] = useState({ name: '', price: '', unit: '/hr' })
 
@@ -1084,7 +1086,7 @@ const GRADIENT_COLORS = [
 
 function SocialSection() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const [links, setLinks] = useState(settings.socialLinks || [])
   const [newItem, setNewItem] = useState({ name: '', icon: '', url: '', image: '', color: 'from-blue-500 to-blue-600' })
 
@@ -1145,7 +1147,7 @@ function SocialSection() {
 
 function OfficeSection() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const [apps, setApps] = useState(settings.officeApps || [])
   const [newItem, setNewItem] = useState({ name: '', icon: '', exePath: '', image: '', color: 'from-blue-500 to-blue-600' })
 
@@ -1210,7 +1212,7 @@ function OfficeSection() {
 
 function SettingsSection() {
   const { settings, updateSettings } = useStore()
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const [newKey, setNewKey] = useState('')
   const [confirmKey, setConfirmKey] = useState('')
 

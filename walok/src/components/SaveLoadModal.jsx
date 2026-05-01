@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { X, LogIn, UserPlus, Download, Upload, Trash2, HardDrive, Clock, FileArchive, User, Lock, Server, RefreshCw, LogOut, Search, Shield, Wifi, WifiOff, ChevronRight, Database, CloudUpload, CloudDownload, AlertTriangle, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
+import { getDefaultAccent } from '../lib/accent'
 
 export default function SaveLoadModal({ onClose }) {
   const settings = useStore(s => s.settings)
   const games = useStore(s => s.games)
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor || getDefaultAccent()
   const serverUrl = settings.saveLoadServerUrl || ''
 
   const [authToken, setAuthToken] = useState(() => sessionStorage.getItem('example-cafe-sl-token') || '')

@@ -212,10 +212,12 @@ export default function UpdateModal() {
   // Premium dark palette — same tokens as the admin panel:
   //   bg          #0a0a0b   panel       #131316
   //   border      rgba(255,255,255,0.08)
-  //   accent      #ff6a00 (orange — used sparingly, only on the action button
-  //               and the brand dot; the rest of the chrome is neutral)
+  //   accent      reads --accent CSS variable (set by index.css and overridable
+  //               via Settings.accentColor); used sparingly on action button
+  //               and brand dot; rest of chrome is neutral
   //   text/sub/faint  #f5f5f6 / #a1a1aa / #6b6b73
-  const ACCENT = isError ? '#ef4444' : '#ff6a00'
+  const ACCENT = isError ? '#ef4444' : 'var(--accent)'
+  const ACCENT_HOVER = isError ? '#ef4444' : 'rgb(var(--accent-light-rgb))'
   const TEXT_FAINT = '#6b6b73'
   const TEXT_SUB = '#a1a1aa'
   const BORDER = 'rgba(255,255,255,0.08)'
@@ -307,7 +309,7 @@ export default function UpdateModal() {
               style={{
                 width: `${percent}%`,
                 height: '100%',
-                background: isError ? '#ef4444' : '#ff6a00',
+                background: ACCENT,
                 transition: 'width 0.3s ease-out',
                 borderRadius: 999,
               }}
@@ -353,7 +355,7 @@ export default function UpdateModal() {
             <button
               onClick={() => { try { window.electronAPI?.ota?.restart() } catch (e) {} }}
               style={{
-                background: '#ff6a00',
+                background: ACCENT,
                 color: '#fff',
                 border: 'none',
                 padding: '9px 18px',
@@ -366,8 +368,8 @@ export default function UpdateModal() {
                 boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset',
                 transition: 'background 0.15s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#ff7a1a' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#ff6a00' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = ACCENT_HOVER }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = ACCENT }}
             >
               Restart now{countdown != null && countdown > 0 ? ` (${countdown})` : ''}
             </button>

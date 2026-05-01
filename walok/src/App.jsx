@@ -68,13 +68,20 @@ export default function App() {
   const [showSaveLoad, setShowSaveLoad] = React.useState(false)
 
   const setLocalIP = useStore(s => s.setLocalIP)
-  const accentColor = settings.accentColor || '#ff6a00'
+  const accentColor = settings.accentColor
 
   useIdleDetection(10000)
 
   useEffect(() => {
-    const { r, g, b } = hexToRgb(accentColor)
     const root = document.documentElement
+    if (!accentColor) {
+      root.style.removeProperty('--accent')
+      root.style.removeProperty('--accent-rgb')
+      root.style.removeProperty('--accent-dark-rgb')
+      root.style.removeProperty('--accent-light-rgb')
+      return
+    }
+    const { r, g, b } = hexToRgb(accentColor)
     root.style.setProperty('--accent', accentColor)
     root.style.setProperty('--accent-rgb', `${r} ${g} ${b}`)
     root.style.setProperty('--accent-dark-rgb', darkenHex(accentColor, 0.2))
