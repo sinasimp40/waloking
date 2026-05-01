@@ -1886,6 +1886,83 @@ app.post('/api/admin/update-source-project',
   }
 )
 
+// ============ INSTALL DEPS ON DEMAND ============
+//
+// PROBLEM: the deps banner ("Project dependencies are not installed — first
+// build may take 1–3 minutes") tells the operator the truth, but the only
+// way to clear it is to start a build and wait. That's annoying when the
+// operator just wants to pre-install so the FIRST customer build feels fast.
+//
+// SOLUTION: this endpoint runs `npm install` in walok/ (and walok/server/
+// if it exists) on demand, with the same guards as the build endpoint:
+//   * Refuses if a build is already running (npm install + build can't share node_modules).
+//   * Refuses if a source upload is in flight (the source could change mid-install).
+//   * Pauses job-runner dispatch so a queued build can't autonomously start mid-install.
+//   * Mutex `_installDepsInFlight` prevents double-clicks.
+//
+// Returns synchronously after both installs complete — the admin UI shows a
+// spinner the whole time. Total wall time is ~1-3 min on first install,
+// ~10s on a re-run (npm sees node_modules already present and short-circuits).
+let _installDepsInFlight = false
+app.post('/api/admin/install-deps', requireAdmin, async (req, res) => {
+  if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found' })
+  if (_installDepsInFlight) {
+    return res.status(409).json({ error: 'an install is already in progress — wait for it to finish' })
+  }
+  if (_sourceUpdateInFlight) {
+    return res.status(409).json({ error: 'a source replacement is in progress — wait for it to finish, then try again' })
+  }
+  if (_hasActiveBuildJob()) {
+    return res.status(409).json({ error: 'a build is currently running — wait for it to finish, then try again' })
+  }
+  _installDepsInFlight = true
+  jobRunner.pauseDispatch()
+  const startedAt = Date.now()
+  const result = { root: null, server: null }
+  try {
+    // Root install — always.
+    const rootStart = Date.now()
+    try {
+      await runNpmInstallAsync(PROJECT_ROOT, 'root')
+      result.root = { ok: true, ms: Date.now() - rootStart, alreadyInstalled: rootDepsInstalled() }
+    } catch (e) {
+      result.root = { ok: false, ms: Date.now() - rootStart, error: e.message }
+      return res.status(500).json({
+        ok: false,
+        elapsedMs: Date.now() - startedAt,
+        ...result,
+      })
+    }
+    // Server install — only if walok/server/ exists.
+    const serverDir = path.join(PROJECT_ROOT, 'server')
+    if (fs.existsSync(serverDir)) {
+      const sStart = Date.now()
+      try {
+        await runNpmInstallAsync(serverDir, 'server')
+        result.server = { ok: true, ms: Date.now() - sStart, alreadyInstalled: serverDepsInstalled() }
+      } catch (e) {
+        result.server = { ok: false, ms: Date.now() - sStart, error: e.message }
+        return res.status(500).json({
+          ok: false,
+          elapsedMs: Date.now() - startedAt,
+          ...result,
+        })
+      }
+    } else {
+      result.server = { skipped: true, reason: 'walok/server/ does not exist' }
+    }
+    res.json({
+      ok: true,
+      elapsedMs: Date.now() - startedAt,
+      ...result,
+      depsAfter: depsStatus(),
+    })
+  } finally {
+    _installDepsInFlight = false
+    try { jobRunner.resumeDispatch() } catch (_) {}
+  }
+})
+
 // Lightweight status endpoint the admin panel calls on load + after every
 // successful upload to refresh the "Last updated" indicators on each card.
 app.get('/api/admin/source-status', requireAdmin, (req, res) => {

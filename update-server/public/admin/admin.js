@@ -82,6 +82,7 @@ function renderBuildStamp(stamp) {
 function renderDepsStatus(deps) {
   const pill = $('#deps-status')
   const banner = $('#deps-banner')
+  const msgEl = $('#deps-banner-msg')
   if (!pill || !banner) return
   if (!deps) {
     pill.textContent = '?'
@@ -96,15 +97,16 @@ function renderDepsStatus(deps) {
     label = 'OK'; cls = 'ok'
   } else if (!root && !server) {
     label = 'Missing'; cls = 'missing'
-    msg = 'Project dependencies are not installed (root + server). The next BUILD will run "npm install" automatically before building — first build may take 1–3 minutes.'
+    msg = 'Project dependencies are not installed (root + server). The next BUILD will run "npm install" automatically before building — first build may take 1–3 minutes. Or click "Install Now" to pre-install so the first build is fast.'
   } else {
     label = 'Partial'; cls = 'partial'
-    msg = 'Some dependencies are missing (' + (!root ? 'root ' : '') + (!server && deps.serverDirExists ? 'server ' : '') + 'node_modules). The next BUILD will install them automatically.'
+    msg = 'Some dependencies are missing (' + (!root ? 'root ' : '') + (!server && deps.serverDirExists ? 'server ' : '') + 'node_modules). The next BUILD will install them automatically. Or click "Install Now" to pre-install.'
   }
   pill.textContent = label
   pill.className = 'deps-pill ' + cls
   if (msg) {
-    banner.textContent = '⚠ ' + msg
+    if (msgEl) msgEl.textContent = '⚠ ' + msg
+    else banner.textContent = '⚠ ' + msg
     banner.classList.remove('hidden')
   } else {
     banner.classList.add('hidden')
@@ -1356,6 +1358,63 @@ if (_projectForm) {
     } finally {
       if (busyEl) { busyEl.classList.add('hidden'); busyEl.textContent = 'Extracting…' }
       if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
+    }
+  })
+}
+
+// "Install Now" button inside the deps banner. Triggers a synchronous
+// npm install in walok/ + walok/server/ via /api/admin/install-deps,
+// shows a spinner the whole time (1-3 min on first install, ~10s on
+// re-runs), and re-fetches deps status on completion so the banner
+// auto-clears when both kinds are OK.
+const _installBtn = $('#install-deps-btn')
+if (_installBtn) {
+  _installBtn.addEventListener('click', async () => {
+    const statusEl = $('#install-deps-status')
+    const startedAt = Date.now()
+    let tickHandle = null
+    _installBtn.disabled = true
+    const origLabel = _installBtn.textContent
+    _installBtn.textContent = 'Installing…'
+    if (statusEl) {
+      const tick = () => {
+        const s = Math.floor((Date.now() - startedAt) / 1000)
+        statusEl.textContent = ' running npm install (' + s + 's elapsed, can take 1-3 min on first run)…'
+      }
+      tick()
+      tickHandle = setInterval(tick, 1000)
+    }
+    try {
+      const res = await fetch('/api/admin/install-deps', { method: 'POST', credentials: 'same-origin' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || (data.root && !data.root.ok && ('root: ' + data.root.error)) || (data.server && !data.server.ok && ('server: ' + data.server.error)) || ('http ' + res.status))
+      }
+      const elapsed = (data.elapsedMs / 1000).toFixed(1)
+      if (statusEl) {
+        statusEl.textContent = ' ✓ done in ' + elapsed + 's'
+        statusEl.style.color = '#1a7f37'
+      }
+      if (data.depsAfter) {
+        state.deps = data.depsAfter
+        renderDepsStatus(state.deps)
+      } else {
+        // Fallback: re-fetch /api/admin/status to refresh deps banner.
+        try {
+          const r2 = await fetch('/api/admin/status', { credentials: 'same-origin' })
+          const d2 = await r2.json()
+          if (d2 && d2.deps) { state.deps = d2.deps; renderDepsStatus(state.deps) }
+        } catch (_) {}
+      }
+    } catch (e) {
+      if (statusEl) {
+        statusEl.textContent = ' ✗ ' + e.message
+        statusEl.style.color = '#c62828'
+      }
+    } finally {
+      if (tickHandle) clearInterval(tickHandle)
+      _installBtn.disabled = false
+      _installBtn.textContent = origLabel || 'Install Now'
     }
   })
 }
