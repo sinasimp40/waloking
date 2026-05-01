@@ -439,6 +439,13 @@ button:disabled {
 }
 .dock-panel .panel-body {
   overflow-y: auto;
+  /* Belt-and-suspenders: the dock is only 420px wide on desktop, narrower
+     than some of our internal grids historically wanted. Without this,
+     wide content (cancel buttons, long job IDs) silently clips at the
+     right edge instead of wrapping or scrolling. We prefer wrap (handled
+     by the inner layouts) and use hidden here purely to catch regressions. */
+  overflow-x: hidden;
+  min-width: 0;
   /* The console-card list inside #consoles-area can grow tall. Letting
      just the body scroll keeps the panel-head sticky-visible. */
   max-height: 100%;
@@ -1133,18 +1140,35 @@ button:disabled {
 .live-instance { color: var(--text-faint); font-style: italic; }
 
 /* ============ BUILD QUEUE ============ */
-.queue-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.queue-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; min-width: 0; }
+/* Two-row card layout — works at every container width we ever render in.
+ *   Row 1: STATUS pill | label (truncates) | Cancel (auto)
+ *   Row 2: step note spans the full row
+ * The previous 4-column desktop variant needed ~400 px of inner width which
+ * the 420 px-wide right-side dock can't actually provide once you subtract
+ * panel padding, so the Cancel button used to clip on the right when a build
+ * was running. The 2-row layout is also what we already use on phones, so
+ * keeping a single layout removes a whole class of breakpoint bugs. */
 .queue-row {
   display: grid;
-  grid-template-columns: 110px minmax(180px, 2fr) minmax(0, 3fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "status label  cancel"
+    "step   step   step";
   align-items: center;
-  gap: 12px;
+  row-gap: 6px;
+  column-gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--bg-elev-2);
   transition: border-color .15s;
+  min-width: 0;
 }
+.queue-row .queue-row-status { grid-area: status; }
+.queue-row .queue-row-label  { grid-area: label; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row .queue-row-cancel { grid-area: cancel; flex-shrink: 0; }
+.queue-row .queue-row-step   { grid-area: step; white-space: normal; }
 .queue-row-active   { border-color: rgba(52,211,153,0.25); background: var(--success-soft); }
 .queue-row-queued   { border-color: rgba(251,191,36,0.25); background: var(--warning-soft); }
 .queue-row-cancelling { opacity: .5; filter: grayscale(.6); transition: opacity .15s, filter .15s; }
