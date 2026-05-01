@@ -1,9 +1,0 @@
-Serving HTTP on 0.0.0.0 port 5000 (http://0.0.0.0:5000/) ...
-127.0.0.1 - - [01/May/2026 04:04:21] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [01/May/2026 04:04:26] code 404, message File not found
-127.0.0.1 - - [01/May/2026 04:04:26] "GET /favicon.ico HTTP/1.1" 404 -
-127.0.0.1 - - [01/May/2026 04:04:33] "GET /admin/ HTTP/1.1" 200 -
-127.0.0.1 - - [01/May/2026 04:04:33] "GET /admin/admin.css HTTP/1.1" 200 -
-127.0.0.1 - - [01/May/2026 04:04:33] "GET /admin/admin.js HTTP/1.1" 200 -
-127.0.0.1 - - [01/May/2026 04:04:33] code 404, message File not found
-127.0.0.1 - - [01/May/2026 04:04:33] "GET /api/admin/status HTTP/1.1" 404 -
