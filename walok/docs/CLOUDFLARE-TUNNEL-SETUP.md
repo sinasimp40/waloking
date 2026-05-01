@@ -4,8 +4,8 @@ This guide walks you through hosting the WALOK OTA Update Server on your home
 Windows PC instead of an RDP server, using **Cloudflare Tunnel**.
 
 **Why Cloudflare Tunnel?**
-- Works behind PLDT's CGNAT (no public IP needed)
-- No port forwarding on PLDT modem or Mikrotik
+- Works behind CGNAT (no public IP needed)
+- No port forwarding on your modem or Mikrotik
 - Free HTTPS — no certificate setup
 - Stable URL that never changes — your installed launchers keep working forever
 - Free forever, no bandwidth or connection limits
@@ -238,7 +238,7 @@ These are nice-to-haves, not required:
          │
          ▼
 ┌──────────────────┐
-│  PLDT modem      │  ← no port forward needed; CGNAT is fine
+│  ISP modem       │  ← no port forward needed; CGNAT is fine
 └──────────────────┘
 ```
 
