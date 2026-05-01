@@ -2,6 +2,21 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } = require
 const path = require('path')
 const fs = require('fs')
 
+let mainWindow = null
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  return
+}
+
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
+    mainWindow.focus()
+  }
+})
+
 const { verifyIntegrity } = require('./integrity-check')
 verifyIntegrity({ app, dialog })
 
@@ -78,7 +93,6 @@ function saveConfig(config) {
 
 let serverInstance = null
 let dbInitialized = false
-let mainWindow = null
 let tray = null
 
 async function startServer() {

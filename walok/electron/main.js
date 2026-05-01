@@ -4,6 +4,21 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 
+let mainWindow = null
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  return
+}
+
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
+    mainWindow.focus()
+  }
+})
+
 const { verifyIntegrity } = require('./integrity-check')
 verifyIntegrity({ app, dialog })
 
@@ -159,6 +174,9 @@ function createWindow(splash) {
     icon: path.join(__dirname, '../public/icon.ico'),
     show: false,
   })
+
+  mainWindow = win
+  win.on('closed', () => { if (mainWindow === win) mainWindow = null })
 
   win.once('ready-to-show', () => {
     win.maximize()

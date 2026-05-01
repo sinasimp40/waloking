@@ -48,11 +48,37 @@ async function boot() {
     } catch (e) {}
   }
 
+  try {
+    if (document.fonts && typeof document.fonts.load === 'function') {
+      const loads = [
+        document.fonts.load('300 1em "Rajdhani"'),
+        document.fonts.load('400 1em "Rajdhani"'),
+        document.fonts.load('500 1em "Rajdhani"'),
+        document.fonts.load('600 1em "Rajdhani"'),
+        document.fonts.load('700 1em "Rajdhani"'),
+        document.fonts.load('400 1em "Orbitron"'),
+        document.fonts.load('500 1em "Orbitron"'),
+        document.fonts.load('600 1em "Orbitron"'),
+        document.fonts.load('700 1em "Orbitron"'),
+        document.fonts.load('800 1em "Orbitron"'),
+        document.fonts.load('900 1em "Orbitron"'),
+      ]
+      await Promise.race([
+        Promise.allSettled(loads),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ])
+    }
+  } catch (e) {}
+
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>,
   )
+
+  requestAnimationFrame(() => {
+    document.body.classList.add('app-ready')
+  })
 }
 
 boot()
