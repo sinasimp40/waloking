@@ -43,7 +43,7 @@ Preferred communication style: Simple, everyday language.
 ### OTA Update Server
 - **Backend:** Express 4 with `better-sqlite3` for database management, storing customer and metadata.
 - **Authentication:** Cookie-based session authentication with bcrypt-hashed passwords.
-- **Admin Panel:** A static HTML interface for managing customers and builds.
+- **Admin Panel:** A static HTML interface (`update-server/public/admin/`) for managing customers and builds. Redesigned May 2026 to a "premium dark" aesthetic inspired by Linear / Vercel / Stripe Dashboard — cool near-black surface (`#0a0a0b`), 1px hairline borders (`rgba(255,255,255,0.06)`), generous whitespace, system Inter/SF Pro font stack, soft elevation instead of neon glow, and accent orange (`#ff6a00`) used SPARINGLY for primary CTAs and key status only. Replaced the previous heavy orange-everywhere "neon arcade" look (2px orange borders, scanline animations, shouty all-caps headings). All class names and IDs are unchanged so `admin.js` still works untouched; only `admin.css` was rewritten and `index.html` had its decorative `.scanline` divs removed plus headings/buttons softened from ALL-CAPS to Title Case. Status pills (`RUNNING`, `QUEUED`, `SUCCESS` etc.) and small form labels keep `text-transform: uppercase` in CSS as the premium-look "small caps" pattern.
 - **Build Job System:**
     - Supports concurrent builds with isolation, running in dedicated workspaces.
     - Child processes are launched at below-normal OS priority to maintain server responsiveness.

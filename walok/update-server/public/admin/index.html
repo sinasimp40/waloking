@@ -9,33 +9,32 @@
 <body>
 <div id="login-screen" class="screen">
   <div class="login-card">
-    <div class="scanline"></div>
-    <div class="kicker">// OTA SYSTEM //</div>
-    <h1>ADMIN ACCESS</h1>
-    <div class="sub">Authorization required</div>
+    <div class="kicker">OTA System</div>
+    <h1>Admin Access</h1>
+    <div class="sub">Authorization required to continue</div>
     <form id="login-form">
       <input type="password" id="login-password" placeholder="Enter admin password" autocomplete="current-password" required />
-      <button type="submit" class="btn-primary">UNLOCK</button>
+      <button type="submit" class="btn-primary">Unlock</button>
     </form>
     <div id="login-error" class="error"></div>
-    <div class="footer-note">Set via <code>OTA_ADMIN_PASSWORD</code> env var, or read auto-generated password from <code>update-server/.admin-password</code></div>
+    <div class="footer-note">Set via <code>OTA_ADMIN_PASSWORD</code> env var, or read the auto-generated password from <code>update-server/.admin-password</code></div>
   </div>
 </div>
 
 <div id="app-screen" class="screen hidden">
   <header class="topbar">
     <div class="brand">
-      <span class="brand-tag">// OTA</span>
-      <span class="brand-name">ADMIN</span>
+      <span class="brand-tag">OTA</span>
+      <span class="brand-name">Admin</span>
     </div>
     <div class="topbar-info">
-      <div><span class="lbl">PROJECT VER</span> <strong id="current-version">?</strong></div>
-      <div><span class="lbl">SERVER VER</span> <strong id="server-version">?</strong></div>
-      <div><span class="lbl">PROJECT</span> <span id="project-root" class="path">?</span></div>
-      <div><span class="lbl">DEPS</span> <span id="deps-status" class="deps-pill">?</span></div>
-      <div title="Identifies which copy of update-server/ is running. Compare against the source folder on disk to confirm fixes are actually deployed."><span class="lbl">BUILD</span> <span id="build-stamp" class="build-stamp" tabindex="0">?</span></div>
+      <div><span class="lbl">Project</span> <strong id="current-version">?</strong></div>
+      <div><span class="lbl">Server</span> <strong id="server-version">?</strong></div>
+      <div><span class="lbl">Path</span> <span id="project-root" class="path">?</span></div>
+      <div><span class="lbl">Deps</span> <span id="deps-status" class="deps-pill">?</span></div>
+      <div title="Identifies which copy of update-server/ is running. Compare against the source folder on disk to confirm fixes are actually deployed."><span class="lbl">Build</span> <span id="build-stamp" class="build-stamp" tabindex="0">?</span></div>
     </div>
-    <button id="logout-btn" class="btn-ghost">LOGOUT</button>
+    <button id="logout-btn" class="btn-ghost">Logout</button>
   </header>
 
   <div id="warning-banner" class="banner hidden"></div>
@@ -44,53 +43,53 @@
   <main class="main-grid">
     <section class="panel">
       <div class="panel-head">
-        <h2>VERSION CONTROL</h2>
+        <h2>Version Control</h2>
       </div>
       <div class="panel-body">
-        <p class="muted">Set the next version number. The BUILD action below will rebuild and ship the update live to all online customers in one step.</p>
+        <p class="muted">Set the next version number. The build action below will rebuild and ship the update live to all online customers in one step.</p>
         <div class="version-row">
           <input type="text" id="version-input" placeholder="1.0.1" />
-          <button id="bump-version-btn" class="btn-primary">SET VERSION</button>
+          <button id="bump-version-btn" class="btn-primary">Set Version</button>
         </div>
       </div>
     </section>
 
     <section class="panel">
       <div class="panel-head">
-        <h2>GLOBAL ACTION</h2>
+        <h2>Global Action</h2>
       </div>
       <div class="panel-body action-row">
-        <button id="build-all-btn" class="btn-primary glow">BUILD ALL CUSTOMERS</button>
-        <p class="muted small">Builds every customer, ships the updates to the update server, cleans up old build folders (keeps newest only), and instantly notifies any launcher / server.exe that is currently online.</p>
+        <button id="build-all-btn" class="btn-primary glow">Build All Customers</button>
+        <p class="muted small">Builds every customer, ships the updates, cleans up old build folders (keeps newest only), and instantly notifies any launcher or server that is currently online.</p>
       </div>
     </section>
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>UPLOAD PRE-BUILT UPDATE</h2>
+        <h2>Upload Pre-Built Update</h2>
       </div>
       <div class="panel-body">
-        <p class="muted small">Push a launcher and/or server payload that you built outside of this admin (e.g. on a stronger workstation). Choose a single customer or ALL CUSTOMERS — the file is staged, made the new <code>latest.json</code> for the chosen channel(s), and any online installs are notified instantly. Progress streams to the BUILD CONSOLE below.</p>
+        <p class="muted small">Push a launcher and/or server payload built outside this admin (e.g. on a stronger workstation). Choose a single customer or all customers — the file is staged, becomes the new <code>latest.json</code> for the chosen channel(s), and any online installs are notified instantly. Progress streams to the build console below.</p>
         <form id="bulk-upload-form" class="bulk-upload-row">
-          <label>TARGET
+          <label>Target
             <select id="bup-target" required>
-              <option value="__all__">ALL CUSTOMERS</option>
+              <option value="__all__">All Customers</option>
             </select>
           </label>
-          <label>VERSION <span class="hint">x.y.z</span>
+          <label>Version <span class="hint">x.y.z</span>
             <input type="text" id="bup-version" pattern="\d+\.\d+\.\d+" placeholder="1.2.3" required />
           </label>
-          <label>LAUNCHER ZIP
+          <label>Launcher Zip
             <input type="file" id="bup-launcher" accept=".zip,application/zip" />
           </label>
-          <label>SERVER ZIP
+          <label>Server Zip
             <input type="file" id="bup-server" accept=".zip,application/zip" />
           </label>
-          <label>NOTES <span class="hint">optional</span>
+          <label>Notes <span class="hint">optional</span>
             <input type="text" id="bup-notes" />
           </label>
           <p class="hint">Version must be strictly newer than what is currently shipped to the chosen target(s). To re-issue a payload, bump the version first.</p>
-          <button type="submit" class="btn-primary">UPLOAD UPDATE</button>
+          <button type="submit" class="btn-primary">Upload Update</button>
         </form>
         <div id="bup-busy" class="muted hidden">Uploading… please wait.</div>
         <div id="bup-error" class="error"></div>
@@ -99,20 +98,20 @@
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>CUSTOMERS</h2>
-        <button id="add-customer-btn" class="btn-secondary small">+ ADD CUSTOMER</button>
+        <h2>Customers</h2>
+        <button id="add-customer-btn" class="btn-secondary small">+ Add Customer</button>
       </div>
       <div class="panel-body">
         <div id="customer-list" class="customer-grid">
-          <div class="muted">Loading customers...</div>
+          <div class="muted">Loading customers…</div>
         </div>
       </div>
     </section>
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>BUILD QUEUE</h2>
-        <span id="queue-slots" class="status-pill">SLOTS 0/2</span>
+        <h2>Build Queue</h2>
+        <span id="queue-slots" class="status-pill">Slots 0/2</span>
       </div>
       <div class="panel-body">
         <p class="muted small">The OTA server runs up to 2 builds in parallel; additional builds wait here until a slot opens. Cancelling kills the running step within seconds and frees its slot.</p>
@@ -124,9 +123,9 @@
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>BUILD CONSOLES</h2>
+        <h2>Build Consoles</h2>
         <div class="build-console-controls">
-          <button id="clear-finished-consoles-btn" class="btn-secondary small hidden" type="button">CLEAR FINISHED</button>
+          <button id="clear-finished-consoles-btn" class="btn-secondary small hidden" type="button">Clear Finished</button>
         </div>
       </div>
       <div class="panel-body">
@@ -140,32 +139,31 @@
 
 <div id="customer-modal" class="modal hidden">
   <div class="modal-card">
-    <div class="scanline"></div>
-    <h3 id="customer-modal-title">CUSTOMER</h3>
+    <h3 id="customer-modal-title">Customer</h3>
+    <p class="muted small">Configure brand, subtitle, update server URL, and logo for this customer.</p>
     <form id="customer-form">
-      <label id="cm-channel-label">CHANNEL ID <span class="hint">lowercase letters, numbers, dashes only &mdash; cannot be changed later</span>
+      <label id="cm-channel-label">Channel ID <span class="hint">lowercase letters, numbers, dashes only &mdash; cannot be changed later</span>
         <input type="text" id="cm-channel" pattern="[a-z0-9][a-z0-9-]*" required />
       </label>
-      <div id="cm-channel-readonly" class="channel-badge hidden">CHANNEL: <span id="cm-channel-readonly-value"></span></div>
-      <label>BRAND NAME
+      <div id="cm-channel-readonly" class="channel-badge hidden">Channel: <span id="cm-channel-readonly-value"></span></div>
+      <label>Brand Name
         <input type="text" id="cm-brand" required />
       </label>
-      <label>SUBTITLE
+      <label>Subtitle
         <input type="text" id="cm-subtitle" required />
       </label>
-      <label>UPDATE SERVER URL <span class="hint">e.g. http://203.0.113.45:4231</span>
+      <label>Update Server URL <span class="hint">e.g. http://203.0.113.45:4231</span>
         <input type="url" id="cm-server" required />
       </label>
-      <label class="logo-upload-label">UPLOAD LOGO (PNG / JPG / WEBP / BMP)
-        <span class="hint">File saved as <code>branding/&lt;channel&gt;-logo.&lt;ext&gt;</code> on save</span>
+      <label class="logo-upload-label">Upload Logo <span class="hint">PNG / JPG / WEBP / BMP — saved as <code>branding/&lt;channel&gt;-logo.&lt;ext&gt;</code></span>
         <input type="file" id="cm-logo-upload" accept="image/png,image/jpeg,image/webp,image/bmp" />
       </label>
-      <label>LOGO PATH <span class="hint">auto-set from upload above &mdash; only edit if your logo is already on disk under a different path</span>
+      <label>Logo Path <span class="hint">auto-set from upload above &mdash; only edit if your logo is already on disk under a different path</span>
         <input type="text" id="cm-logo" placeholder="branding/cafe-a-logo.png" />
       </label>
       <div class="modal-actions">
-        <button type="button" id="cm-cancel" class="btn-ghost">CANCEL</button>
-        <button type="submit" class="btn-primary">SAVE</button>
+        <button type="button" id="cm-cancel" class="btn-ghost">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
       </div>
     </form>
     <div id="cm-error" class="error"></div>
@@ -174,26 +172,25 @@
 
 <div id="upload-modal" class="modal hidden">
   <div class="modal-card">
-    <div class="scanline"></div>
-    <h3>UPLOAD PRE-BUILT UPDATE</h3>
-    <p class="muted">Push a launcher and/or server payload that you built outside of this admin (e.g. on a stronger machine). The files become the new <code>latest.json</code> for the channel and any online installs are notified instantly.</p>
+    <h3>Upload Pre-Built Update</h3>
+    <p class="muted small">Push a launcher and/or server payload built outside this admin (e.g. on a stronger machine). The files become the new <code>latest.json</code> for the channel and any online installs are notified instantly.</p>
     <form id="upload-form">
-      <div class="channel-badge">CHANNEL: <span id="up-channel">—</span></div>
-      <label>VERSION <span class="hint">x.y.z — must match what was packaged in the zip</span>
+      <div class="channel-badge">Channel: <span id="up-channel">—</span></div>
+      <label>Version <span class="hint">x.y.z — must match what was packaged in the zip</span>
         <input type="text" id="up-version" pattern="\d+\.\d+\.\d+" placeholder="1.2.3" required />
       </label>
-      <label>LAUNCHER PAYLOAD ZIP <span class="hint">the launcher's <code>resources/app.asar</code> packaged as a .zip — optional if uploading server only</span>
+      <label>Launcher Payload Zip <span class="hint">the launcher's <code>resources/app.asar</code> packaged as .zip — optional if uploading server only</span>
         <input type="file" id="up-launcher" accept=".zip,application/zip" />
       </label>
-      <label>SERVER PAYLOAD ZIP <span class="hint">the server.exe's <code>resources/app.asar</code> packaged as a .zip — optional if uploading launcher only</span>
+      <label>Server Payload Zip <span class="hint">the server.exe's <code>resources/app.asar</code> packaged as .zip — optional if uploading launcher only</span>
         <input type="file" id="up-server" accept=".zip,application/zip" />
       </label>
-      <label>NOTES <span class="hint">optional — written to <code>latest.json</code></span>
+      <label>Notes <span class="hint">optional — written to <code>latest.json</code></span>
         <input type="text" id="up-notes" />
       </label>
       <div class="modal-actions">
-        <button type="button" id="up-cancel" class="btn-ghost">CANCEL</button>
-        <button type="submit" class="btn-primary">UPLOAD UPDATE</button>
+        <button type="button" id="up-cancel" class="btn-ghost">Cancel</button>
+        <button type="submit" class="btn-primary">Upload Update</button>
       </div>
     </form>
     <div id="up-error" class="error"></div>

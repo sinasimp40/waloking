@@ -95,10 +95,10 @@ function renderDepsStatus(deps) {
   if (root && server) {
     label = 'OK'; cls = 'ok'
   } else if (!root && !server) {
-    label = 'MISSING'; cls = 'missing'
+    label = 'Missing'; cls = 'missing'
     msg = 'Project dependencies are not installed (root + server). The next BUILD will run "npm install" automatically before building — first build may take 1–3 minutes.'
   } else {
-    label = 'PARTIAL'; cls = 'partial'
+    label = 'Partial'; cls = 'partial'
     msg = 'Some dependencies are missing (' + (!root ? 'root ' : '') + (!server && deps.serverDirExists ? 'server ' : '') + 'node_modules). The next BUILD will install them automatically.'
   }
   pill.textContent = label
@@ -163,7 +163,7 @@ async function loadCustomers() {
     $('#version-input').placeholder = state.version ? bumpPatch(state.version) : '1.0.1'
     populateBulkUploadTargets()
     if (state.customers.length === 0) {
-      list.innerHTML = '<div class="muted">No customers yet. Click "+ ADD CUSTOMER" to create the first one.</div>'
+      list.innerHTML = '<div class="muted">No customers yet. Click "+ Add Customer" to create the first one.</div>'
       return
     }
     renderCustomerList()
@@ -176,7 +176,7 @@ function populateBulkUploadTargets() {
   const sel = $('#bup-target')
   if (!sel) return
   const prev = sel.value
-  sel.innerHTML = '<option value="__all__">ALL CUSTOMERS</option>' +
+  sel.innerHTML = '<option value="__all__">All Customers</option>' +
     state.customers.map(c => `<option value="${escapeHtml(c.channel)}">${escapeHtml(c.channel)} — ${escapeHtml(c.brandName || '')}</option>`).join('')
   if (prev) sel.value = prev
 }
@@ -270,9 +270,9 @@ function renderCustomer(c) {
   const placeholder = c._placeholderUrl
   let warnBlock = ''
   if (c._urlIssue === 'loopback-when-remote') {
-    warnBlock = `<div class="placeholder-warn"><strong>⚠ Loopback (localhost) URL but admin is being accessed remotely.</strong> Installed launchers on customer machines will dial <em>their own</em> loopback — not this server — and never receive OTA updates. Click EDIT and set <code>UPDATE SERVER URL</code> to this RDP host's reachable LAN/public IP (e.g. <code>http://203.0.113.45:4231</code>).</div>`
+    warnBlock = `<div class="placeholder-warn"><strong>⚠ Loopback (localhost) URL but admin is being accessed remotely.</strong> Installed launchers on customer machines will dial <em>their own</em> loopback — not this server — and never receive OTA updates. Click <strong>Edit</strong> and set <code>Update Server URL</code> to this RDP host's reachable LAN/public IP (e.g. <code>http://203.0.113.45:4231</code>).</div>`
   } else if (placeholder) {
-    warnBlock = `<div class="placeholder-warn"><strong>⚠ Placeholder update server URL.</strong> Click EDIT and set <code>UPDATE SERVER URL</code> to your real RDP/server IP (e.g. <code>http://203.0.113.45:4231</code>) before building, otherwise installed launchers will never receive OTA updates.</div>`
+    warnBlock = `<div class="placeholder-warn"><strong>⚠ Placeholder update server URL.</strong> Click <strong>Edit</strong> and set <code>Update Server URL</code> to your real RDP/server IP (e.g. <code>http://203.0.113.45:4231</code>) before building, otherwise installed launchers will never receive OTA updates.</div>`
   }
   return `
   <div class="customer-card${placeholder ? ' has-warning' : ''}" data-channel="${escapeHtml(c.channel)}">
@@ -289,10 +289,10 @@ function renderCustomer(c) {
       <div><strong>Last release:</strong> ${escapeHtml(released)}</div>
     </div>
     <div class="actions">
-      <button class="btn-secondary small" data-action="edit">EDIT</button>
-      <button class="btn-primary glow" data-action="build" ${state.buildsAvailable ? '' : 'disabled'}>BUILD</button>
-      <button class="btn-secondary small" data-action="upload">UPLOAD UPDATE</button>
-      <button class="btn-danger" data-action="delete">DELETE</button>
+      <button class="btn-secondary small" data-action="edit">Edit</button>
+      <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'}>Build</button>
+      <button class="btn-secondary small" data-action="upload">Upload Update</button>
+      <button class="btn-danger" data-action="delete">Delete</button>
     </div>
   </div>`
 }
@@ -366,7 +366,7 @@ async function triggerBuild(opts) {
     }] : [])
     if (jobs.length === 0) throw new Error('server returned no job ids')
     for (const j of jobs) {
-      streamJob(j.jobId, 'BUILD ' + (j.channel || opts.channel || 'all'))
+      streamJob(j.jobId, 'Build ' + (j.channel || opts.channel || 'all'))
     }
     if (version) {
       state.version = version
@@ -407,7 +407,7 @@ function ensureConsoleCard(jobId, label) {
       '<span class="console-card-title"></span>' +
       '<span class="status-pill running">RUNNING</span>' +
       '<span class="console-card-elapsed" title="Elapsed wall-clock since the job started">00:00</span>' +
-      '<button type="button" class="btn-secondary small console-card-cancel">CANCEL</button>' +
+      '<button type="button" class="btn-secondary small console-card-cancel">Cancel</button>' +
     '</div>' +
     '<div class="progress-block">' +
       '<div class="progress-row">' +
@@ -419,7 +419,7 @@ function ensureConsoleCard(jobId, label) {
       '</div>' +
     '</div>' +
     '<div class="job-error-banner hidden">' +
-      '<div class="job-error-banner-title">!! BUILD FAILED</div>' +
+      '<div class="job-error-banner-title">Build Failed</div>' +
       '<div class="job-error-banner-body">' +
         '<span class="job-error-label">Failing step:</span> ' +
         '<span class="job-error-step-text">—</span> ' +
@@ -429,7 +429,7 @@ function ensureConsoleCard(jobId, label) {
       '</div>' +
     '</div>' +
     '<div class="log-toggle-row">' +
-      '<button type="button" class="btn-ghost small log-toggle">SHOW LOG</button>' +
+      '<button type="button" class="btn-ghost small log-toggle">Show Log</button>' +
     '</div>' +
     '<pre class="console hidden"></pre>'
   card.querySelector('.console-card-title').textContent = label + ' (job ' + jobId + ')'
@@ -439,7 +439,7 @@ function ensureConsoleCard(jobId, label) {
   const consoleEl = card.querySelector('.console')
   logToggle.addEventListener('click', () => {
     const hidden = consoleEl.classList.toggle('hidden')
-    logToggle.textContent = hidden ? 'SHOW LOG' : 'HIDE LOG'
+    logToggle.textContent = hidden ? 'Show Log' : 'Hide Log'
     if (!hidden) consoleEl.scrollTop = consoleEl.scrollHeight
   })
   area.appendChild(card)
@@ -687,7 +687,7 @@ function streamJob(jobId, label) {
           // the tail without an extra click.
           if (rec.output.classList.contains('hidden')) {
             rec.output.classList.remove('hidden')
-            rec.logToggle.textContent = 'HIDE LOG'
+            rec.logToggle.textContent = 'Hide Log'
           }
         }
         // Force a synchronous flush so the user sees every queued line
@@ -722,7 +722,7 @@ function streamJob(jobId, label) {
   }
   evt.onerror = () => {
     if (rec.finished) return
-    setCardStatus(rec, 'STREAM ERROR', 'failed')
+    setCardStatus(rec, 'Stream Error', 'failed')
     try { evt.close() } catch (_) {}
     rec.evt = null
   }
@@ -813,7 +813,7 @@ function renderQueue(snap) {
       '<span class="queue-row-status">' + status + '</span>' +
       '<span class="queue-row-label">' + escapeHtml(j.label) + chans + '</span>' +
       '<span class="queue-row-step muted small">' + escapeHtml(stepNote) + '</span>' +
-      '<button class="btn-secondary small queue-row-cancel" data-job="' + j.id + '">CANCEL</button>'
+      '<button class="btn-secondary small queue-row-cancel" data-job="' + j.id + '">Cancel</button>'
     list.appendChild(row)
   }
   list.querySelectorAll('.queue-row-cancel').forEach(btn => {
@@ -829,7 +829,7 @@ function renderQueue(snap) {
       const j = byId.get(id)
       if (j) {
         const chTag = (j.channels && j.channels.length === 1) ? j.channels[0] : 'all'
-        streamJob(id, 'BUILD ' + chTag.toUpperCase())
+        streamJob(id, 'Build ' + chTag)
       }
     }
   }
@@ -905,7 +905,7 @@ async function cancelJob(jobId) {
   const rowBtns = Array.from(document.querySelectorAll('.queue-row-cancel[data-job="' + jobId + '"]'))
   for (const btn of rowBtns) {
     btn.disabled = true
-    btn.textContent = 'CANCELLING…'
+    btn.textContent = 'Cancelling…'
     const row = btn.closest('.queue-row')
     if (row) row.classList.add('queue-row-cancelling')
   }
@@ -920,7 +920,7 @@ async function cancelJob(jobId) {
     // Revert the optimistic grey-out so the operator can retry.
     for (const btn of rowBtns) {
       btn.disabled = false
-      btn.textContent = 'CANCEL'
+      btn.textContent = 'Cancel'
       const row = btn.closest('.queue-row')
       if (row) row.classList.remove('queue-row-cancelling')
     }
@@ -986,7 +986,7 @@ function updateAllLiveSlots() {
 // ---- Customer modal ----
 function openCustomerModal(c) {
   const isNew = !c
-  $('#customer-modal-title').textContent = isNew ? 'NEW CUSTOMER' : 'EDIT: ' + (c.brandName || c.channel)
+  $('#customer-modal-title').textContent = isNew ? 'New Customer' : 'Edit: ' + (c.brandName || c.channel)
   $('#cm-channel').value = c?.channel || ''
   $('#cm-channel').readOnly = !isNew
   if (isNew) {
@@ -1169,7 +1169,7 @@ async function submitBulkUpload(e) {
     const res = await fetch('/api/admin/upload-update', { method: 'POST', body: fd, credentials: 'same-origin' })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || ('http ' + res.status))
-    streamJob(data.jobId, target === '__all__' ? 'UPLOAD UPDATE -> ALL' : 'UPLOAD UPDATE -> ' + target)
+    streamJob(data.jobId, target === '__all__' ? 'Upload Update → All' : 'Upload Update → ' + target)
     $('#bulk-upload-form').reset()
     populateBulkUploadTargets()
   } catch (err) {
