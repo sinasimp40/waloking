@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "MwFafqxEWbP_MxIkwXXeG"
+uri = "file://walok/docs/CLOUDFLARE-TUNNEL-SETUP.md"
+type = "text"
+title = "Cloudflare Tunnel Setup Guide"
