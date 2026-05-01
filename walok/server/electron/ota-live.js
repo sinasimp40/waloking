@@ -12,6 +12,10 @@ const path = require('path')
 const http = require('http')
 const https = require('https')
 const crypto = require('crypto')
+const { BRAND_SLUG } = require('./brand')
+
+const HEARTBEAT_USER_AGENT = BRAND_SLUG + '-OTA-Heartbeat/1.0'
+const SSE_USER_AGENT = BRAND_SLUG + '-OTA-Live/1.0'
 
 function log(prefix, msg) { console.log('[OTA-Live ' + prefix + '] ' + msg) }
 
@@ -42,7 +46,7 @@ function postJson(rawUrl, body) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': data.length,
-        'User-Agent': 'example-cafe-OTA-Heartbeat/1.0',
+        'User-Agent': HEARTBEAT_USER_AGENT,
       },
     }, (res) => {
       const chunks = []
@@ -77,7 +81,7 @@ function openSseStream(rawUrl, { onOpen, onMessage, onError }) {
       path: parsed.pathname + parsed.search,
       headers: {
         'Accept': 'text/event-stream',
-        'User-Agent': 'example-cafe-OTA-Live/1.0',
+        'User-Agent': SSE_USER_AGENT,
         'Cache-Control': 'no-cache',
       },
       timeout: 0,

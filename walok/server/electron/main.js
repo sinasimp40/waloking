@@ -24,13 +24,24 @@ const otaUpdater = require('./updater')
 
 const { initDatabase } = require('./db')
 const { createApi } = require('./api')
+const {
+  BRAND_SLUG,
+  LEGACY_BRAND_SLUGS,
+  BRAND_SUFFIXES,
+  SERVER_CONFIG_FILE,
+  SERVER_DISPLAY_NAME,
+} = require('./brand')
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
-app.name = 'EXAMPLE CAFE Server'
+app.name = SERVER_DISPLAY_NAME
+// NOTE: BRAND_SLUG / LEGACY_BRAND_SLUGS / BRAND_SUFFIXES /
+// SERVER_CONFIG_FILE come from ./brand.js (single source of truth,
+// also imported by ./db.js so the data dir + db filename can never
+// drift from the config filename).
 
 function getAppRoot() {
   if (isDev) return path.join(__dirname, '..')
@@ -40,29 +51,21 @@ function getAppRoot() {
 
 const appRoot = getAppRoot()
 
+// Rename leftover server folders/files from any previous brand to the
+// current BRAND_SLUG. Skips current-slug self-rename and won't clobber
+// an existing target — safe on every startup.
 function migrateLegacyPaths() {
-  const renames = [
-    ['xyberzone-server-config.json', 'example-cafe-server-config.json'],
-    ['xyberzone-server-data', 'example-cafe-server-data'],
-    ['denfi-server-config.json', 'example-cafe-server-config.json'],
-    ['denfi-server-data', 'example-cafe-server-data'],
-    ['pikakz-server-config.json', 'example-cafe-server-config.json'],
-    ['pikakz-server-data', 'example-cafe-server-data'],
-    ['gamerzspot-server-config.json', 'example-cafe-server-config.json'],
-    ['gamerzspot-server-data', 'example-cafe-server-data'],
-    ['jahel-gamers-server-config.json', 'example-cafe-server-config.json'],
-    ['jahel-gamers-server-data', 'example-cafe-server-data'],
-    ['nextreme-gaming-hub-server-config.json', 'example-cafe-server-config.json'],
-    ['nextreme-gaming-hub-server-data', 'example-cafe-server-data']
-  ]
-  for (const [oldName, newName] of renames) {
-    const oldPath = path.join(appRoot, oldName)
-    const newPath = path.join(appRoot, newName)
-    try {
-      if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
-        fs.renameSync(oldPath, newPath)
-      }
-    } catch (e) {}
+  for (const oldSlug of LEGACY_BRAND_SLUGS) {
+    if (oldSlug === BRAND_SLUG) continue
+    for (const sfx of BRAND_SUFFIXES) {
+      const oldPath = path.join(appRoot, oldSlug + sfx)
+      const newPath = path.join(appRoot, BRAND_SLUG + sfx)
+      try {
+        if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+          fs.renameSync(oldPath, newPath)
+        }
+      } catch (e) {}
+    }
   }
 }
 
@@ -75,7 +78,7 @@ try {
 }
 
 function getConfig() {
-  const configPath = path.join(appRoot, 'example-cafe-server-config.json')
+  const configPath = path.join(appRoot, SERVER_CONFIG_FILE)
   const defaults = { host: '0.0.0.0', port: 3456 }
   try {
     if (fs.existsSync(configPath)) {
@@ -87,7 +90,7 @@ function getConfig() {
 }
 
 function saveConfig(config) {
-  const configPath = path.join(appRoot, 'example-cafe-server-config.json')
+  const configPath = path.join(appRoot, SERVER_CONFIG_FILE)
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
 }
 
@@ -105,7 +108,7 @@ async function startServer() {
     }
     const apiApp = createApi(appRoot)
     serverInstance = apiApp.listen(config.port, config.host, () => {
-      console.log(`EXAMPLE CAFE Server running on ${config.host}:${config.port}`)
+      console.log(`${SERVER_DISPLAY_NAME} running on ${config.host}:${config.port}`)
     })
     return { success: true, message: `Server started on ${config.host}:${config.port}` }
   } catch (err) {
@@ -126,7 +129,7 @@ function createTray() {
   }
 
   tray = new Tray(trayIcon)
-  tray.setToolTip('EXAMPLE CAFE Server')
+  tray.setToolTip(SERVER_DISPLAY_NAME)
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -177,7 +180,7 @@ function createWindow() {
     },
     icon: path.join(__dirname, '../src/icon.ico'),
     autoHideMenuBar: true,
-    title: 'EXAMPLE CAFE Server'
+    title: SERVER_DISPLAY_NAME
   })
 
   mainWindow.loadFile(path.join(__dirname, '../src/dashboard.html'))
@@ -316,7 +319,7 @@ app.whenReady().then(async () => {
 
   try {
     await startServer()
-    console.log('EXAMPLE CAFE Server auto-started')
+    console.log(`${SERVER_DISPLAY_NAME} auto-started`)
   } catch (err) {
     console.error('Auto-start failed:', err.message)
   }

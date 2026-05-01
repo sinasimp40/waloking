@@ -12,6 +12,7 @@ const { spawn } = require('child_process')
 // invoke `app.relaunch()` etc.
 const { app, BrowserWindow } = require('electron')
 const otaLive = require('./ota-live')
+const { OTA_USER_AGENT } = require('./brand')
 
 // Marker file written by the OLD server.exe before exit, sweeped by the NEW
 // server.exe on its first launch. Same name as the launcher's marker so the
@@ -117,7 +118,7 @@ function fetchUrl(rawUrl, onProgress) {
       port: parsed.port,
       path: parsed.pathname + parsed.search,
       timeout: 30000,
-      headers: { 'User-Agent': 'example-cafe-OTA-Server-Client/1.0' },
+      headers: { 'User-Agent': OTA_USER_AGENT },
     }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode)) {
         return fetchUrl(res.headers.location, onProgress).then(resolve, reject)
@@ -994,6 +995,15 @@ function buildPhase2ApplierBat() {
     'timeout /t 4 /nobreak >NUL 2>&1',
     'echo [%date% %time%] post-wait, beginning wipe >> "%APPLY_LOG%"',
     '',
+    'rem -- Wipe every file at the install-dir root EXCEPT user-specific',
+    'rem -- state. KEEP these files:',
+    'rem --   * .ota-instance-id (per-install identity, never lose)',
+    'rem --   * *-settings.json  (e.g. denfi-settings.json — server prefs if any)',
+    'rem --   * *-config.json    (e.g. denfi-server-config.json — port/host)',
+    'rem -- KEEP these folders:',
+    'rem --   * .ota-pending     (we are running from inside it)',
+    'rem --   * *-data           (e.g. denfi-server-data — DB + customer data)',
+    'rem --   * *-assets         (e.g. denfi-server-assets — uploaded media)',
     'pushd "%INSTALL_DIR%" >NUL 2>&1',
     'if errorlevel 1 (',
     '  echo [%date% %time%] FAIL pushd "%INSTALL_DIR%" >> "%APPLY_LOG%"',
@@ -1005,6 +1015,7 @@ function buildPhase2ApplierBat() {
     '  set "_FKEEP="',
     '  if /I "!_FN!"==".ota-instance-id" set "_FKEEP=1"',
     '  if /I "!_FN:~-14!"=="-settings.json" set "_FKEEP=1"',
+    '  if /I "!_FN:~-12!"=="-config.json" set "_FKEEP=1"',
     '  if defined _FKEEP (',
     '    echo [keep file] %%F >> "%APPLY_LOG%"',
     '  ) else (',
@@ -1017,6 +1028,7 @@ function buildPhase2ApplierBat() {
     '  set "_DKEEP="',
     '  if /I "!_DN!"==".ota-pending" set "_DKEEP=1"',
     '  if /I "!_DN:~-5!"=="-data" set "_DKEEP=1"',
+    '  if /I "!_DN:~-7!"=="-assets" set "_DKEEP=1"',
     '  if defined _DKEEP (',
     '    echo [keep dir] %%D >> "%APPLY_LOG%"',
     '  ) else (',

@@ -1,11 +1,12 @@
 const path = require('path')
 const fs = require('fs')
+const { SERVER_DATA_DIR, SERVER_DB_FILE, LEGACY_DB_FILES } = require('./brand')
 
 let db = null
 let dbPath = ''
 
 function getDataDir(appRoot) {
-  const dataDir = path.join(appRoot, 'example-cafe-server-data')
+  const dataDir = path.join(appRoot, SERVER_DATA_DIR)
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true })
   }
@@ -24,10 +25,13 @@ async function initDatabase(appRoot) {
   const initSqlJs = require('sql.js')
   const SQL = await initSqlJs()
 
-  dbPath = path.join(getDataDir(appRoot), 'example-cafe-server.db')
+  dbPath = path.join(getDataDir(appRoot), SERVER_DB_FILE)
 
-  const legacyDbNames = ['xyberzone-server.db', 'denfi-server.db', 'pikakz-server.db', 'gamerzspot-server.db', 'jahel-gamers-server.db', 'nextreme-gaming-hub-server.db']
-  for (const oldName of legacyDbNames) {
+  // Migrate any older brand's .db to the current SERVER_DB_FILE name —
+  // first match wins. LEGACY_DB_FILES is generated from
+  // LEGACY_BRAND_SLUGS in brand.js, so adding a past brand there
+  // automatically extends this migration.
+  for (const oldName of LEGACY_DB_FILES) {
     const oldDbPath = path.join(getDataDir(appRoot), oldName)
     if (!fs.existsSync(dbPath) && fs.existsSync(oldDbPath)) {
       try { fs.renameSync(oldDbPath, dbPath) } catch (e) {}

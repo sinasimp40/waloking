@@ -29,8 +29,20 @@ app.commandLine.appendSwitch('enable-zero-copy')
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
-app.name = 'EXAMPLE CAFE'
+// All brand-derived constants (display name, slug, folder/file names,
+// legacy slugs, OTA user-agent) live in ./brand.js — single source of
+// truth, also imported by ./updater.js so nothing drifts.
+const {
+  BRAND_SLUG,
+  DISPLAY_NAME,
+  LEGACY_BRAND_SLUGS,
+  BRAND_SUFFIXES,
+  SETTINGS_FILE,
+  USER_DATA_DIR,
+  ASSETS_DIR,
+} = require('./brand')
 
+app.name = DISPLAY_NAME
 
 function getAppRoot() {
   if (isDev) {
@@ -44,35 +56,22 @@ function getAppRoot() {
 
 const appRoot = getAppRoot()
 
+// Rename leftover folders/files from any previous brand (or default
+// example-cafe) to the current BRAND_SLUG. Only renames when the old
+// path exists AND the new path does not — so it's safe to run on every
+// startup and won't clobber an existing current-brand folder.
 function migrateLegacyPaths() {
-  const renames = [
-    ['xyberzone-settings.json', 'example-cafe-settings.json'],
-    ['xyberzone-data', 'example-cafe-data'],
-    ['xyberzone-assets', 'example-cafe-assets'],
-    ['denfi-settings.json', 'example-cafe-settings.json'],
-    ['denfi-data', 'example-cafe-data'],
-    ['denfi-assets', 'example-cafe-assets'],
-    ['pikakz-settings.json', 'example-cafe-settings.json'],
-    ['pikakz-data', 'example-cafe-data'],
-    ['pikakz-assets', 'example-cafe-assets'],
-    ['gamerzspot-settings.json', 'example-cafe-settings.json'],
-    ['gamerzspot-data', 'example-cafe-data'],
-    ['gamerzspot-assets', 'example-cafe-assets'],
-    ['jahel-gamers-settings.json', 'example-cafe-settings.json'],
-    ['jahel-gamers-data', 'example-cafe-data'],
-    ['jahel-gamers-assets', 'example-cafe-assets'],
-    ['nextreme-gaming-hub-settings.json', 'example-cafe-settings.json'],
-    ['nextreme-gaming-hub-data', 'example-cafe-data'],
-    ['nextreme-gaming-hub-assets', 'example-cafe-assets']
-  ]
-  for (const [oldName, newName] of renames) {
-    const oldPath = path.join(appRoot, oldName)
-    const newPath = path.join(appRoot, newName)
-    try {
-      if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
-        fs.renameSync(oldPath, newPath)
-      }
-    } catch (e) {}
+  for (const oldSlug of LEGACY_BRAND_SLUGS) {
+    if (oldSlug === BRAND_SLUG) continue
+    for (const sfx of BRAND_SUFFIXES) {
+      const oldPath = path.join(appRoot, oldSlug + sfx)
+      const newPath = path.join(appRoot, BRAND_SLUG + sfx)
+      try {
+        if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+          fs.renameSync(oldPath, newPath)
+        }
+      } catch (e) {}
+    }
   }
 }
 
@@ -85,11 +84,11 @@ try {
 }
 
 function getSettingsPath() {
-  return path.join(appRoot, 'example-cafe-settings.json')
+  return path.join(appRoot, SETTINGS_FILE)
 }
 
 if (!isDev) {
-  const userDataPath = path.join(appRoot, 'example-cafe-data')
+  const userDataPath = path.join(appRoot, USER_DATA_DIR)
   try {
     if (!fs.existsSync(userDataPath)) {
       fs.mkdirSync(userDataPath, { recursive: true })
@@ -261,7 +260,7 @@ function createWindow(splash) {
     if (result.canceled) return null
     const srcPath = result.filePaths[0]
     try {
-      const assetsDir = path.join(appRoot, 'example-cafe-assets')
+      const assetsDir = path.join(appRoot, ASSETS_DIR)
       if (!fs.existsSync(assetsDir)) {
         fs.mkdirSync(assetsDir, { recursive: true })
       }
@@ -394,7 +393,7 @@ function createWindow(splash) {
     try {
       const https = require('https')
       const http = require('http')
-      const assetsDir = path.join(appRoot, 'example-cafe-assets')
+      const assetsDir = path.join(appRoot, ASSETS_DIR)
       if (!fs.existsSync(assetsDir)) {
         fs.mkdirSync(assetsDir, { recursive: true })
       }
@@ -442,10 +441,10 @@ function createWindow(splash) {
 
   ipcMain.handle('delete-asset', async (event, filePath) => {
     try {
-      const assetsDir = path.resolve(path.join(appRoot, 'example-cafe-assets'))
+      const assetsDir = path.resolve(path.join(appRoot, ASSETS_DIR))
       const resolved = path.resolve(filePath.replace(/\\/g, '/'))
       if (!resolved.startsWith(assetsDir)) {
-        return { success: false, error: 'Only files in example-cafe-assets can be deleted' }
+        return { success: false, error: 'Only files in ' + ASSETS_DIR + ' can be deleted' }
       }
       if (fs.existsSync(resolved)) {
         fs.unlinkSync(resolved)

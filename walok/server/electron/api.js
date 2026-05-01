@@ -5,6 +5,7 @@ const path = require('path')
 const fs = require('fs')
 const { getSavesDir, runQuery, getOne, getAll } = require('./db')
 const { hashPassword, verifyPassword, generateToken, authMiddleware } = require('./auth')
+const { SERVER_DISPLAY_NAME } = require('./brand')
 
 function sanitizeName(name) {
   return (name || '').replace(/[^a-zA-Z0-9_\-. ]/g, '').trim().slice(0, 100)
@@ -88,7 +89,7 @@ function createApi(appRoot) {
   migrateUserFolders(appRoot)
 
   app.get('/api/status', (req, res) => {
-    res.json({ status: 'ok', server: 'EXAMPLE CAFE Server' })
+    res.json({ status: 'ok', server: SERVER_DISPLAY_NAME })
   })
 
   // Graceful shutdown endpoint used by the launcher (or any local automation)
