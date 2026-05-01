@@ -122,7 +122,11 @@ async function showApp() {
   $('#app-screen').classList.remove('hidden')
   $('#current-version').textContent = state.version || '?'
   $('#server-version').textContent = state.serverVersion ? ('v' + state.serverVersion) : '?'
-  $('#project-root').textContent = state.projectRoot || '(not detected)'
+  const pathEl = $('#project-root')
+  pathEl.textContent = state.projectRoot || '(not detected)'
+  // Full path shown as a tooltip for cases where the topbar narrows and
+  // the visible text gets ellipsis-truncated.
+  pathEl.title = state.projectRoot || ''
   $('#version-input').value = ''
   $('#version-input').placeholder = state.version ? bumpPatch(state.version) : '1.0.1'
   renderDepsStatus(state.deps)

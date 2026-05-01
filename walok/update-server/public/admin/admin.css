@@ -82,7 +82,15 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-secondary);
-  word-break: break-all;
+  /* On narrow screens this lives inside a flex item that can shrink to 0,
+     so ellipsis takes over instead of forcing the topbar to grow. The full
+     value is preserved in the DOM for copy/paste and hover-title. */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .lbl {
   font-size: 10px;
@@ -336,10 +344,22 @@ button:disabled {
   align-items: center;
   font-size: 13px;
   color: var(--text-secondary);
+  /* Lets each .topbar-info > div shrink past its content width so the
+     long Windows path gets ellipsis instead of pushing the topbar wider
+     than the viewport. */
+  min-width: 0;
 }
 .topbar-info > div {
   display: flex;
   align-items: center;
+  /* Each chip can shrink, but the version/build/deps chips have a sensible
+     minimum so their numeric values stay readable. The path chip is the
+     greedy one and absorbs any remaining width. */
+  min-width: 0;
+}
+.topbar-info > .topbar-path {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 .topbar-info strong {
   color: var(--text);
@@ -935,10 +955,178 @@ button:disabled {
 
 .build-console-controls { display: flex; align-items: center; gap: 10px; }
 
-/* ============ RESPONSIVE ============ */
-@media (max-width: 900px) {
-  .main-grid { grid-template-columns: 1fr; padding: 16px; gap: 14px; }
-  .topbar { flex-wrap: wrap; gap: 12px; padding: 12px 16px; }
-  .topbar-info { gap: 14px; font-size: 12px; }
-  .modal-card { padding: 22px 22px; }
+/* ============ RESPONSIVE ============
+   Three breakpoints, in order of progressive collapse:
+
+   ≤ 1024px  — tablet / small laptop. Two-column main grid still works,
+               topbar just tightens its padding/gaps.
+   ≤ 760px   — large phone landscape / small tablet portrait. Main grid
+               collapses to one column, topbar wraps to two rows
+               (brand+logout, then info chips), bulk-upload + customer
+               action rows stack, modal padding tightens.
+   ≤ 480px   — phone portrait. Topbar info becomes a vertical stack,
+               panel padding shrinks, queue rows collapse to a card-like
+               two-row layout, console card head wraps cleanly. */
+
+@media (max-width: 1024px) {
+  .topbar { padding: 12px 20px; gap: 18px; }
+  .topbar-info { gap: 16px; font-size: 12px; }
+  .main-grid { padding: 20px 20px 36px; gap: 16px; }
+  .panel-body { padding: 18px; }
+  .banner { margin: 14px 20px 0; }
+}
+
+@media (max-width: 760px) {
+  /* Topbar reflows: brand + logout on row 1, info chips wrap onto row 2. */
+  .topbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  /* Reflow: brand (left) + logout button (right) on row 1, info chips
+     wrap onto row 2. The :last-child selector keeps this resilient even
+     if the logout-btn id is ever renamed. */
+  .brand { order: 1; }
+  .topbar > button:last-child,
+  #logout-btn { order: 2; margin-left: auto; }
+  .topbar-info {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    font-size: 12px;
+  }
+
+  /* Main grid: single column. */
+  .main-grid {
+    grid-template-columns: 1fr;
+    padding: 16px;
+    gap: 14px;
+    max-width: 100%;
+  }
+  .panel-body { padding: 16px; }
+  .banner { margin: 12px 16px 0; padding: 11px 14px; font-size: 12.5px; }
+
+  /* Forms with side-by-side fields stack vertically. */
+  .bulk-upload-row {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .bulk-upload-row button { width: 100%; }
+
+  /* Version Control: input + button row stays horizontal but the button
+     gets a sensible min width so it doesn't hug the input. */
+  .version-row { gap: 8px; }
+  .version-row .btn-primary { white-space: nowrap; }
+
+  /* Customer cards: full width. */
+  .customer-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .customer-card .actions { gap: 8px; }
+  .customer-card .actions .btn-secondary,
+  .customer-card .actions .btn-danger { flex: 1 1 auto; }
+
+  /* Build queue: stack into a two-row mini card (status+label on top,
+     step + cancel on bottom). The grid columns at desktop don't make
+     sense at this width. */
+  .queue-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "status label  cancel"
+      "step   step   step";
+    row-gap: 6px;
+    column-gap: 10px;
+    padding: 10px 12px;
+  }
+  .queue-row-status { grid-area: status; }
+  .queue-row-label  { grid-area: label; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-row-cancel { grid-area: cancel; }
+  .queue-row-step   { grid-area: step; white-space: normal; }
+
+  /* Console card head: title may be long; let it take a full row and
+     keep the controls in a tidy second row. */
+  .console-card .console-card-head { padding: 10px 12px; gap: 8px; }
+  .console-card .console-card-title { flex-basis: 100%; }
+  .console-card .console-card-cancel { margin-left: auto; }
+
+  /* Multi-console area: one console at a time. */
+  .consoles-area { grid-template-columns: 1fr; }
+
+  /* Panel head: title + small button on the right may collide. */
+  .panel-head { gap: 8px; flex-wrap: wrap; }
+
+  /* Modals: tighter padding so they fit comfortably on narrow viewports. */
+  .modal { padding: 12px; }
+  .modal-card { padding: 22px 20px; max-height: calc(100vh - 24px); }
+
+  /* Action row (Build All Customers + paragraph) stacks. */
+  .action-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .action-row .btn-primary { width: 100%; }
+  .action-row .small { min-width: 0; }
+}
+
+@media (max-width: 480px) {
+  /* Phone portrait — squeeze further. */
+  .topbar { padding: 10px 14px; gap: 10px; }
+  .brand-name { font-size: 15px; }
+
+  /* Each topbar info chip becomes its own row so labels and values stay
+     legible. The path chip still ellipsises; the others naturally fit. */
+  .topbar-info {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .topbar-info > div {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .topbar-info > .topbar-path {
+    flex: 0 0 auto;
+  }
+  .topbar-info .lbl { margin-right: 10px; flex-shrink: 0; }
+  .topbar-info strong { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Main grid + panels — minimal padding on phones. */
+  .main-grid { padding: 12px; gap: 12px; }
+  .panel-head { padding: 14px 16px; }
+  .panel-body { padding: 14px 16px; }
+  .panel-head h2 { font-size: 14px; }
+  .banner { margin: 10px 12px 0; padding: 10px 12px; font-size: 12px; }
+
+  /* Modals: edge-to-edge on phones. */
+  .modal { padding: 0; align-items: flex-end; }
+  .modal-card {
+    border-radius: var(--r-md) var(--r-md) 0 0;
+    max-height: 92vh;
+    padding: 22px 18px;
+    border-bottom: none;
+  }
+  .modal-actions { flex-direction: column-reverse; gap: 8px; }
+  .modal-actions .btn-primary,
+  .modal-actions .btn-ghost { width: 100%; }
+
+  /* Customer card actions: stack into a single column for thumb-friendly
+     tap targets. */
+  .customer-card { padding: 16px; }
+  .customer-card .actions { flex-direction: column; align-items: stretch; }
+  .customer-card .actions .btn-secondary,
+  .customer-card .actions .btn-danger { width: 100%; }
+
+  /* Login card: shrink horizontal padding so it doesn't bleed off-screen. */
+  .login-card { padding: 28px 22px; }
+  .login-card h1 { font-size: 22px; }
+
+  /* Console card heading: let title wrap fully. */
+  .console-card .console-card-head { padding: 10px 12px; }
+  .console-card .console-card-title { white-space: normal; flex-basis: 100%; }
+  .console-card .console-card-elapsed { font-size: 10px; }
+  .console-card .console { padding: 12px 14px; font-size: 11.5px; }
+
+  /* Build console controls (Clear Finished button) full width. */
+  .build-console-controls { width: 100%; justify-content: flex-end; }
 }
