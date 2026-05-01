@@ -1,0 +1,19 @@
+[server] PROJECT_ROOT=/home/runner/workspace/walok
+[server] SERVER_VERSION=v1.0.0
+[db] customers already migrated; 1 in DB
+
+============================================
+  OTA UPDATE SERVER  v1.0.0
+============================================
+  Listening on:    http://0.0.0.0:5000
+  Updates served:  /home/runner/workspace/walok/update-server/public/updates
+  Health check:    http://localhost:5000/health
+  Web dashboard:   http://localhost:5000/
+  Admin panel:     http://localhost:5000/admin/
+  Admin password:  (loaded from update-server/.admin-password)
+  Project root:    /home/runner/workspace/walok
+  Customers in DB: 1
+============================================
+
+IMPORTANT: Make sure port 5000 is open in your Windows Firewall.
+Run start.bat which adds the firewall rule automatically.

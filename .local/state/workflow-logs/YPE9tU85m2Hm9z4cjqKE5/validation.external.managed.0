@@ -1,0 +1,31 @@
+VERDICT: REJECTED
+The specific "[file missing — rebuild] after successful build" defect appears functionally fixed, but the submitted diff should not be approved in its current form due to scope/signal violations and noncompliance with task deliverabVERDICT: REJECTED
+le expectations.
+
+Critical findings / analysis:
+- The root-cause fix itself is correct: `scripts/pThe specific "[file missing — rebuild] after successful build" defect appears functionally fixed, but the submitted diff should not be approved in its current form due to scope/signal violations and noncompliance with task deliverable expectations.
+ublish-update.js` now honors `OTA_UPDATES_DIR`, and `/api
+/admin/build` passes `OTA_UPDATES_DIR: UPCritical findings / analysis:
+DATES_DIR` when invoking publish. This directly addresses workspace-vs-real-path drift that caused artifacts to be deleted with `.build-jobs` cleanup.
+- Regression coverage for the target bug is strong: `update-server/test-publish-paths.js` validates env-path behavior, and `update-server/test-build-e2e.js` validates full `/api/admin/build -> publish -> DB -> /api/admin/customers` outcomes (`_launcherFileExists`, `_serverFileExists`, publish timestamps). `npm --prefix walok/update-server test` passes.
+- However, the diff includes very large unrelated changes (Task #17/#18 UI/progress and updater overhaul across launcher/server) that materially exceed the requested fix scope. This is high-risk bundling and makes focused approval inappropriate for this task.
+- AI-slop concern (blocking per review policy): `replit.md` was broadly rewritten into generic, marketing-style/generated prose instead of a targeted one-line root-cause/fix note requested by the task. This is inconsistent with the requested deliverable and introduces noisy, low-signal churn.
+
+Security:
+- No serious security violation observed in the build-path fix itself.
+
+Next actions:
+1) Split and resubmit a minimal patch containing only the bug fix + required tests (primarily `scripts/publish-update.js`, `update-server/server.js` publish env wiring, `test-publish-paths.js`, `test-build-e2e.js`, test script wiring).
+2) Revert unrelated Task #17/#18 and other nonessential file churn from this task PR.
+3) Update `replit.md` with the requested concise one-line root-cause/fix note (instead of broad generated rewrite).- The root-cause fix itself is correct: `scripts/publish-update.js` now honors `OTA_UPDATES_DIR`, and `/api/admin/build` passes `OTA_UPDATES_DIR: UPDATES_DIR` when invoking publish. This directly addresses workspace-vs-real-path drift that caused artifacts to be deleted with `.build-jobs` cleanup.
+- Regression coverage for the target bug is strong: `update-server/test-publish-paths.js` validates env-path behavior, and `update-server/test-build-e2e.js` validates full `/api/admin/build -> publish -> DB -> /api/admin/customers` outcomes (`_launcherFileExists`, `_serverFileExists`, publish timestamps). `npm --prefix walok/update-server test` passes.
+- However, the diff includes very large unrelated changes (Task #17/#18 UI/progress and updater overhaul across launcher/server) that materially exceed the requested fix scope. This is high-risk bundling and makes focused approval inappropriate for this task.
+- AI-slop concern (blocking per review policy): `replit.md` was broadly rewritten into generic, marketing-style/generated prose instead of a targeted one-line root-cause/fix note requested by the task. This is inconsistent with the requested deliverable and introduces noisy, low-signal churn.
+
+Security:
+- No serious security violation observed in the build-path fix itself.
+
+Next actions:
+1) Split and resubmit a minimal patch containing only the bug fix + required tests (primarily `scripts/publish-update.js`, `update-server/server.js` publish env wiring, `test-publish-paths.js`, `test-build-e2e.js`, test script wiring).
+2) Revert unrelated Task #17/#18 and other nonessential file churn from this task PR.
+3) Update `replit.md` with the requested concise one-line root-cause/fix note (instead of broad generated rewrite).

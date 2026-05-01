@@ -209,6 +209,13 @@ async function refreshSourceStatus() {
       el.innerHTML = '<span class="src-pill missing">not present on disk</span>'
       return
     }
+    // Partial-state warning takes priority — a previous overlay-fallback
+    // upload died midway and the live tree is in a mixed state. Builds
+    // are blocked server-side until a successful re-upload clears this.
+    if (st.partial) {
+      el.innerHTML = '<span class="src-pill partial" title="A previous upload to this source failed midway. The live tree may be a mix of old and new files. Builds are refused until you successfully re-upload this source.">⚠ PARTIAL — re-upload required (builds blocked)</span>'
+      return
+    }
     const age = st.updatedAt ? fmtAge(st.updatedAt) : 'unknown'
     const when = st.updatedAt ? new Date(st.updatedAt).toLocaleString() : '—'
     el.innerHTML = `<span class="src-pill ok" title="${escapeHtml(when)}">on disk · last replaced ${escapeHtml(age)}</span>`

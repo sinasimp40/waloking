@@ -327,6 +327,23 @@ function setSourceUpdatedAt(kind, ts) {
   setMeta('source_' + kind + '_updated_at', String(ts || Date.now()))
 }
 
+// "Partial" flag — set when the overlay-fallback swap died midway and
+// the live src/ or server/ tree on disk is in a mixed state (some new
+// files, some old). The build endpoint refuses with 409 while either
+// flag is set, so the operator must successfully re-upload that role's
+// source (which clears the flag) before any further build can ship a
+// half-applied tree to customers. Stored as a meta string (truthy =
+// partial); cleared by writing empty string.
+function getSourcePartial(kind) {
+  if (kind !== 'launcher' && kind !== 'server') return false
+  const v = getMeta('source_' + kind + '_partial')
+  return !!(v && v !== '')
+}
+function setSourcePartial(kind, isPartial) {
+  if (kind !== 'launcher' && kind !== 'server') return
+  setMeta('source_' + kind + '_partial', isPartial ? String(Date.now()) : '')
+}
+
 // One-time migration: pull every customers/*.json into the DB if the DB has no
 // rows yet. Idempotent — re-running after the migration is a no-op.
 //
@@ -466,4 +483,6 @@ module.exports = {
   setBaselineRefreshedAt,
   getSourceUpdatedAt,
   setSourceUpdatedAt,
+  getSourcePartial,
+  setSourcePartial,
 }

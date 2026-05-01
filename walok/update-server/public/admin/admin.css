@@ -557,6 +557,13 @@ button:disabled {
   border-color: rgba(245, 158, 11, 0.35);
   color: #f5b35d;
 }
+.src-pill.partial {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #ff7878;
+  font-weight: 600;
+  cursor: help;
+}
 .src-warn { color: #ef9a9a; font-size: 12px; }
 .source-card-form {
   display: flex;

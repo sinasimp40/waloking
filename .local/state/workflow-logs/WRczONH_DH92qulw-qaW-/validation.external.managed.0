@@ -1,0 +1,27 @@
+VERDICT: REJECTED
+The core “[file missing — rebuild] after successful build” bug appears to be correctly fixed in `update-server` (notably `OTA_UPDATES_DIR` is now passed from `/api/admin/build` and honored by `scripts/publish-update.js`), and thVERDICT: REJECTED
+e new regression coverage (`test-publish-paths.js`, `test-build-e2e.js`) is strong. I also verified `npm --prefix walok/update-server test` passes end-to-end.
+
+Critical findings:
+1) **Task objective implementation is functionally correct in `update-server`**: builds now publish to the real updates dir, customers endpoint reflects `_launcherFileExists/_serverFileExists=true`, and DB publish timestamps are asserted by tests.
+2) **However, the submitted diff includes large, unrelated production changes outside the task scope** (`walok/electron/updater.js`, `walok/server/electron/updater.js`, plus very large test expansions). These are not required to fix the build/publish-path bug and materially increase risk surface for this task review.
+3) **AI-slop signal is present and blocking per review policy**: multiple files contain unusually long, narrative-style comments and defensive scaffolding inconsistent with surrounding code conventions (e.g., extensive essay-like inline rationale and architect-note prose in production modules). Under the stated policy (“MUST reject if AI-generated slop is found”), this is a hard fail despite the target bug fix itself being correct.
+
+Security: none observed that are serious and directly relevant to this task’s objective.
+
+Next actions:
+1) **Split and resubmit** only the Task #15-relevant changes: `scripts/publish-update.js`, `update-server/server.js` (publish env wiring), `update-server` regression tests, `package.json` test wiring, and concise `replit.md` note.
+2) Remove unrelated updater/runtime changes from this task PR (or move to separate task-specific PR with its own review scope).
+3) Keep comments concise and aligned with local file style to satisfy the anti-slop gate.The core “[file missing — rebuild] after successful build” bug appears to be correctly fixed in `update-server` (notably `OTA_UPDATES_DIR` is now passed from `/api/admin/build` and honored by `scripts/publish-update.js`), and the new regression coverage (`test-publish-paths.js`, `test-build-e2e.js`) is strong. I also verified `npm --prefix walok/update-server test` passes end-to-end.
+
+Critical findings:
+1) **Task objective implementation is functionally correct in `update-server`**: builds now publish to the real updates dir, customers endpoint reflects `_launcherFileExists/_serverFileExists=true`, and DB publish timestamps are asserted by tests.
+2) **However, the submitted diff includes large, unrelated production changes outside the task scope** (`walok/electron/updater.js`, `walok/server/electron/updater.js`, plus very large test expansions). These are not required to fix the build/publish-path bug and materially increase risk surface for this task review.
+3) **AI-slop signal is present and blocking per review policy**: multiple files contain unusually long, narrative-style comments and defensive scaffolding inconsistent with surrounding code conventions (e.g., extensive essay-like inline rationale and architect-note prose in production modules). Under the stated policy (“MUST reject if AI-generated slop is found”), this is a hard fail despite the target bug fix itself being correct.
+
+Security: none observed that are serious and directly relevant to this task’s objective.
+
+Next actions:
+1) **Split and resubmit** only the Task #15-relevant changes: `scripts/publish-update.js`, `update-server/server.js` (publish env wiring), `update-server` regression tests, `package.json` test wiring, and concise `replit.md` note.
+2) Remove unrelated updater/runtime changes from this task PR (or move to separate task-specific PR with its own review scope).
+3) Keep comments concise and aligned with local file style to satisfy the anti-slop gate.

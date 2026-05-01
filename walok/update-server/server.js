@@ -838,6 +838,21 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
       error: 'master source is being replaced right now — wait for the upload to finish, then try again',
     })
   }
+  // Refuse if the live source on disk is in a partial / mixed state from a
+  // prior overlay-fallback that died midway. The operator MUST successfully
+  // re-upload that role's source before any further build, otherwise we'd
+  // ship a half-applied tree to customers.
+  const partialKinds = []
+  try {
+    if (dbApi.getSourcePartial('launcher')) partialKinds.push('launcher')
+    if (dbApi.getSourcePartial('server')) partialKinds.push('server')
+  } catch (_) {}
+  if (partialKinds.length > 0) {
+    return res.status(409).json({
+      error: 'source tree is in a partial / mixed state from a previous failed upload (' + partialKinds.join(', ') + ') — re-upload that source via the Update Source Files panel before building',
+      partialKinds,
+    })
+  }
   const { channel, all, version, dryRun, roles } = req.body || {}
   if (!all && !isValidChannel(channel)) return res.status(400).json({ error: 'channel required (or pass all:true)' })
   if (version && !isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
@@ -1236,13 +1251,151 @@ async function _renameWithRetry(src, dst, label) {
       await new Promise(r => setTimeout(r, delays[i]))
     }
   }
-  // Decorate the error with Windows-specific guidance so the operator knows
-  // what to actually fix instead of staring at a cryptic EPERM.
-  if (lastErr && codes.has(lastErr.code) && process.platform === 'win32') {
-    const hint = ' — on Windows this usually means something has a handle open inside that folder. Common causes: (1) a Windows Explorer window viewing walok\\src or walok\\server, (2) an open editor (VSCode, Notepad++) with a file in there, (3) Windows Defender / antivirus scanning the folder right now, (4) a running launcher / vite dev process. Close those and try again.'
-    lastErr.message = lastErr.message + hint
+  throw lastErr
+}
+
+// Per-file copy with retry (Windows files inside a locked-but-not-itself-
+// locked dir can still EBUSY transiently — e.g. Defender mid-scan).
+async function _copyFileWithRetry(src, dst) {
+  const codes = new Set(['EPERM', 'EBUSY', 'EACCES'])
+  const delays = [50, 150, 400, 1000]
+  let lastErr = null
+  for (let i = 0; i <= delays.length; i++) {
+    try {
+      await fs.promises.copyFile(src, dst)
+      return
+    } catch (e) {
+      lastErr = e
+      if (!codes.has(e.code) || i === delays.length) break
+      await new Promise(r => setTimeout(r, delays[i]))
+    }
   }
   throw lastErr
+}
+
+// FALLBACK strategy when atomic rename can't get the parent dir lock
+// (persistent OneDrive sync handle, Defender always-on scan on Desktop,
+// etc.). Walks the new-source tree and overlays it onto the live tree
+// FILE-BY-FILE — never renames or removes the live directory itself, so
+// it works even when the live dir is held by an external process. After
+// the overlay, walks the live tree and deletes any file that wasn't in
+// the new source (so deletions in the new tree propagate). Less atomic
+// than rename — there's a brief window where the live tree is a mix of
+// old and new files — but the build endpoint's `_sourceUpdateInFlight`
+// mutex prevents a build from reading during this window, so the loss
+// of atomicity doesn't matter in practice.
+async function _overlayDirFallback(srcDir, destDir) {
+  // Phase 1: collect every file path in srcDir (relative to srcDir).
+  const srcFiles = new Set()
+  async function walk(dir, rel) {
+    const ents = await fs.promises.readdir(dir, { withFileTypes: true })
+    for (const ent of ents) {
+      const r = rel ? rel + path.sep + ent.name : ent.name
+      const abs = path.join(dir, ent.name)
+      if (ent.isDirectory()) {
+        await walk(abs, r)
+      } else if (ent.isFile()) {
+        srcFiles.add(r)
+      }
+    }
+  }
+  await walk(srcDir, '')
+  // Phase 2: copy every srcDir file to destDir, mkdir-p as needed.
+  for (const rel of srcFiles) {
+    const from = path.join(srcDir, rel)
+    const to = path.join(destDir, rel)
+    await fs.promises.mkdir(path.dirname(to), { recursive: true })
+    await _copyFileWithRetry(from, to)
+  }
+  // Phase 3: walk destDir, remove anything not in srcFiles.
+  async function prune(dir, rel) {
+    const ents = await fs.promises.readdir(dir, { withFileTypes: true })
+    for (const ent of ents) {
+      const r = rel ? rel + path.sep + ent.name : ent.name
+      const abs = path.join(dir, ent.name)
+      if (ent.isDirectory()) {
+        await prune(abs, r)
+        // Remove the dir itself if it ended up empty (fully deleted in new tree).
+        try {
+          const remain = await fs.promises.readdir(abs)
+          if (remain.length === 0) await fs.promises.rmdir(abs)
+        } catch (_) {}
+      } else if (ent.isFile() && !srcFiles.has(r)) {
+        try { await fs.promises.unlink(abs) } catch (_) {}
+      }
+    }
+  }
+  await prune(destDir, '')
+}
+
+// Try the atomic rename swap first. If it fails because the live dir
+// itself is locked (EPERM/EBUSY), fall back to file-by-file overlay so
+// the operator isn't stuck. Returns { strategy: 'rename'|'overlay',
+// partial: boolean }. `partial` is set when the overlay died midway
+// and the live tree is in a mixed state — the caller MUST persist
+// that flag so future builds refuse until the operator re-uploads.
+// `markPartialFn` is an optional callback (kind → void) invoked the
+// moment we know we're past the point of no return on the overlay
+// path (i.e. at least one new file has been copied into the live
+// tree). It MUST be synchronous + best-effort — we don't await it
+// because we want the partial marker on disk before any further
+// failure point.
+async function _swapDirSafely(tmpDir, targetDir, trashDir, markPartialFn) {
+  const liveExists = fs.existsSync(targetDir)
+  if (!liveExists) {
+    await _renameWithRetry(tmpDir, targetDir, 'tmp→live (fresh)')
+    return { strategy: 'rename', partial: false }
+  }
+  // Try the clean atomic path first.
+  let liveMovedToTrash = false
+  try {
+    await _renameWithRetry(targetDir, trashDir, 'live→trash')
+    liveMovedToTrash = true
+  } catch (e) {
+    if (e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES' || e.code === 'ENOTEMPTY') {
+      console.log('[update-source] atomic rename blocked (' + e.code + '), falling back to file-by-file overlay')
+      // Mark partial BEFORE the first copy lands. If the overlay later
+      // succeeds we'll clear the marker; if it crashes between here and
+      // the success line, the marker stays set so builds refuse.
+      try { if (markPartialFn) markPartialFn() } catch (_) {}
+      try {
+        await _overlayDirFallback(tmpDir, targetDir)
+        // Best-effort cleanup of tmp; the overlay copied everything we needed.
+        try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
+        return { strategy: 'overlay', partial: false }
+      } catch (overlayErr) {
+        const hint = ' — atomic rename was blocked AND the file-by-file fallback also failed PARTWAY through, so the live source tree is now in a MIXED state (some new files, some old). Builds will be refused until you re-upload successfully. On Windows the likely culprits are: (1) the project is on Desktop / OneDrive — move it to e.g. C:\\walok\\ to escape persistent sync handles, (2) a code editor (VSCode/Notepad++) has files in walok\\src open — close it, (3) Windows Defender real-time scan is holding a handle — add the project folder to Defender exclusions, (4) a launcher .exe or vite dev process is running against this source — stop it.'
+        const err = new Error('overlay fallback failed (' + overlayErr.code + '): ' + overlayErr.message + hint)
+        err.code = overlayErr.code
+        err._partial = true
+        throw err
+      }
+    }
+    // Other error codes (e.g. ENOENT, ENOSPC) → bubble unchanged. Live
+    // dir was never moved, so no rollback needed.
+    throw e
+  }
+  // live→trash succeeded; now move tmp→live. If THIS step fails the live
+  // dir is currently nowhere — we MUST roll back trash→live or the OTA
+  // server is left with no source on disk and nothing to build from.
+  try {
+    await _renameWithRetry(tmpDir, targetDir, 'tmp→live')
+  } catch (renameErr) {
+    // Rollback. Use plain renameSync (no retry loop) so a rollback
+    // failure surfaces fast — there's nothing better we can do.
+    try {
+      fs.renameSync(trashDir, targetDir)
+      console.log('[update-source] tmp→live failed, rolled back trash→live successfully')
+    } catch (rollbackErr) {
+      console.error('[update-source] CRITICAL: tmp→live failed AND trash→live rollback failed. Live source dir: ' + targetDir + ' / trash: ' + trashDir + ' / rollbackErr: ' + rollbackErr.message)
+      const e = new Error('atomic swap failed AND rollback failed — live source dir is now empty: ' + renameErr.message + ' / rollback: ' + rollbackErr.message)
+      e.code = renameErr.code
+      throw e
+    }
+    throw new Error('atomic swap failed (rolled back to old source): ' + renameErr.message)
+  }
+  _scheduleTrashRemoval(trashDir)
+  return { strategy: 'rename', partial: false }
 }
 
 // rmrf the trash dir without blocking the response. We don't care if it
@@ -1337,32 +1490,33 @@ app.post('/api/admin/update-source',
       // live, schedule trash for async rmrf. If the second rename fails (e.g.
       // because Windows still has a file handle on the trash), roll back by
       // renaming trash back to live and bubble the error.
+      let swapStrategy = null
       try {
-        const liveExists = fs.existsSync(targetDir)
-        if (liveExists) {
-          await _renameWithRetry(targetDir, trashDir, 'live→trash')
-          try {
-            await _renameWithRetry(tmpDir, targetDir, 'tmp→live')
-          } catch (renameErr) {
-            // Roll back: move trash back to live so the system stays usable.
-            // Use plain renameSync here — we don't want to retry-loop the
-            // rollback (that path needs to fail loud and fast so the
-            // CRITICAL log fires).
-            try { fs.renameSync(trashDir, targetDir) } catch (rollbackErr) {
-              console.error('[update-source] CRITICAL: rename failed AND rollback failed. Live source dir: ' + targetDir + ' / trash: ' + trashDir)
-              return res.status(500).json({ error: 'atomic swap failed AND rollback failed: ' + renameErr.message + ' / rollback: ' + rollbackErr.message })
-            }
-            try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
-            return res.status(500).json({ error: 'atomic swap failed (rolled back to old source): ' + renameErr.message })
-          }
-          _scheduleTrashRemoval(trashDir)
-        } else {
-          await _renameWithRetry(tmpDir, targetDir, 'tmp→live (fresh)')
-        }
+        // _swapDirSafely tries atomic rename first, then falls back to a
+        // file-by-file overlay if the live directory itself is locked.
+        // Either way, the live tree ends up containing exactly the new
+        // source after this returns. The markPartialFn callback is fired
+        // BEFORE the first overlay copy lands, so if the overlay crashes
+        // midway the partial flag is already persisted and future builds
+        // will refuse with 409 until the operator successfully re-uploads.
+        const swapResult = await _swapDirSafely(tmpDir, targetDir, trashDir, () => {
+          try { dbApi.setSourcePartial(kind, true) } catch (_) {}
+        })
+        swapStrategy = swapResult.strategy
       } catch (e) {
         try { await fs.promises.rm(tmpDir, { recursive: true, force: true }) } catch (_) {}
-        return res.status(500).json({ error: 'failed to install new source: ' + e.message })
+        // If the error is a partial-state failure the partial flag is
+        // already set inside _swapDirSafely's overlay branch — surface it
+        // to the operator so the UI can show a clear "this role is locked
+        // until re-upload" warning.
+        const partial = !!e._partial
+        return res.status(500).json({
+          error: 'failed to install new source: ' + e.message,
+          partial,
+        })
       }
+      // Successful swap clears any prior partial flag for this kind.
+      try { dbApi.setSourcePartial(kind, false) } catch (_) {}
 
       // Step 4: record the swap timestamp so the admin UI can show
       // "Last updated: 2 minutes ago" on the panel.
@@ -1378,6 +1532,11 @@ app.post('/api/admin/update-source',
         entryCount: extractStats.entryCount,
         totalUncompressed: extractStats.totalUncompressed,
         uploadBytes: file.buffer.length,
+        // 'rename' = clean atomic swap; 'overlay' = file-by-file fallback
+        // (typically because the live dir is held by OneDrive / Defender
+        // on Windows). Surfaced so the operator knows whether to consider
+        // moving the project off Desktop.
+        swapStrategy,
       })
     } finally {
       _sourceUpdateInFlight = false
@@ -1394,7 +1553,9 @@ app.get('/api/admin/source-status', requireAdmin, (req, res) => {
     const present = fs.existsSync(dir) && fs.statSync(dir).isDirectory()
     let updatedAt = null
     try { updatedAt = dbApi.getSourceUpdatedAt(kind) } catch (_) {}
-    return { present, updatedAt, path: dir }
+    let partial = false
+    try { partial = dbApi.getSourcePartial(kind) } catch (_) {}
+    return { present, updatedAt, path: dir, partial }
   }
   res.json({
     launcher: describe('launcher'),

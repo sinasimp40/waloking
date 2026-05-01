@@ -329,15 +329,201 @@ async function main() {
     }
   })
 
+  // -- 6b. Windows-lock fallback. Simulate the persistent EBUSY that
+  //     OneDrive / Defender produce on Desktop by monkey-patching
+  //     fs.renameSync to throw EBUSY whenever the destination ends in
+  //     ".trash-*" (i.e. only the live→trash rename). The endpoint must
+  //     fall back to the file-by-file overlay and still leave the live
+  //     src/ matching the new tree.
+  await check('overlay fallback when live→trash rename is blocked', async () => {
+    const realRenameSync = fs.renameSync
+    fs.renameSync = function patchedRename(src, dst) {
+      if (typeof dst === 'string' && /\.trash-/.test(dst)) {
+        const err = new Error('EBUSY: simulated lock for test')
+        err.code = 'EBUSY'
+        throw err
+      }
+      return realRenameSync(src, dst)
+    }
+    try {
+      // Pre-condition: drop a stale file into live src/ that the new tree
+      // does NOT contain — overlay must delete it.
+      fs.writeFileSync(path.join(SANDBOX, 'src', 'STALE-TO-REMOVE'), 'old garbage')
+      const buf = await buildZip({
+        'main.jsx': '// overlay',
+        'App.jsx': '// overlay',
+        'index.css': '/* overlay */',
+        'OVERLAY-MARKER': 'after overlay',
+      })
+      const mp = buildMultipart({ kind: 'launcher', fileBuffer: buf })
+      const r = await req({
+        method: 'POST', path: '/api/admin/update-source',
+        headers: { 'content-type': mp.contentType }, body: mp.body,
+      })
+      if (r.status !== 200) throw new Error('expected 200, got ' + r.status + ' :: ' + (r.json && r.json.error))
+      if (r.json.swapStrategy !== 'overlay') {
+        throw new Error('expected swapStrategy=overlay, got ' + r.json.swapStrategy)
+      }
+      if (!fs.existsSync(path.join(SANDBOX, 'src', 'OVERLAY-MARKER'))) throw new Error('OVERLAY-MARKER not present after overlay')
+      if (!fs.existsSync(path.join(SANDBOX, 'src', 'main.jsx'))) throw new Error('main.jsx not present after overlay')
+      if (fs.existsSync(path.join(SANDBOX, 'src', 'STALE-TO-REMOVE'))) throw new Error('STALE-TO-REMOVE was not pruned by overlay')
+    } finally {
+      fs.renameSync = realRenameSync
+    }
+  })
+
+  // -- 6c. tmp→live failure with successful trash→live ROLLBACK. We let
+  //     the live→trash rename succeed normally, then make tmp→live throw
+  //     EBUSY for all retries, and confirm: (1) endpoint returns 500 with
+  //     a "rolled back" message, (2) the live src/ tree is intact (NOT
+  //     gone — rollback worked), (3) the partial flag is NOT set (this
+  //     is the rename path, not overlay).
+  await check('rollback when tmp→live rename fails after live→trash succeeds', async () => {
+    // Read pre-state so we can verify rollback restored exactly this tree.
+    const pre = fs.readdirSync(path.join(SANDBOX, 'src')).sort().join(',')
+    const realRenameSync = fs.renameSync
+    let liveTrashSeen = false
+    fs.renameSync = function patchedRename(src, dst) {
+      // Let live→trash through (so we hit the rollback path).
+      if (typeof dst === 'string' && /\.trash-/.test(dst)) {
+        liveTrashSeen = true
+        return realRenameSync(src, dst)
+      }
+      // Fail tmp→live: source path contains ".tmp-" AND target is live src/.
+      // (The rollback rename has src containing ".trash-" so it falls through
+      // and succeeds — exactly what we want to verify.)
+      if (liveTrashSeen
+          && typeof src === 'string' && /\.tmp-/.test(src)
+          && dst === path.join(SANDBOX, 'src')) {
+        const err = new Error('EBUSY: simulated tmp→live failure for test')
+        err.code = 'EBUSY'
+        throw err
+      }
+      return realRenameSync(src, dst)
+    }
+    try {
+      const buf = await buildZip({
+        'main.jsx': '// rollback test',
+        'App.jsx': '// rollback test',
+        'ROLLBACK-MARKER': 'should NOT land',
+      })
+      const mp = buildMultipart({ kind: 'launcher', fileBuffer: buf })
+      const r = await req({
+        method: 'POST', path: '/api/admin/update-source',
+        headers: { 'content-type': mp.contentType }, body: mp.body,
+      })
+      if (r.status !== 500) throw new Error('expected 500, got ' + r.status + ' :: ' + JSON.stringify(r.json))
+      if (!/rolled back/i.test(r.json.error || '')) {
+        throw new Error('expected error to mention rollback, got: ' + r.json.error)
+      }
+      if (r.json.partial) throw new Error('rename-path failure should NOT set partial flag, got partial=true')
+      // Live src/ should be RESTORED — same contents as before.
+      if (!fs.existsSync(path.join(SANDBOX, 'src'))) {
+        throw new Error('CRITICAL: live src/ disappeared — rollback failed')
+      }
+      const post = fs.readdirSync(path.join(SANDBOX, 'src')).sort().join(',')
+      if (post !== pre) throw new Error('post-rollback src/ contents differ from pre. pre=[' + pre + '] post=[' + post + ']')
+      if (fs.existsSync(path.join(SANDBOX, 'src', 'ROLLBACK-MARKER'))) {
+        throw new Error('ROLLBACK-MARKER landed — rollback did not undo the swap')
+      }
+    } finally {
+      fs.renameSync = realRenameSync
+    }
+  })
+
+  // -- 6d. Overlay PARTIAL FAILURE → partial flag set + build refusal.
+  //     Force live→trash rename to fail (drives overlay path) AND make
+  //     copyFile fail on a specific file midway, so the overlay copies
+  //     SOME files then crashes. Confirm: (1) endpoint returns 500 with
+  //     partial:true, (2) /api/admin/source-status reports launcher.partial
+  //     === true, (3) /api/admin/build refuses 409 while the flag is set,
+  //     (4) a successful re-upload clears the flag.
+  await check('overlay mid-failure sets partial flag + blocks builds + clears on re-upload', async () => {
+    const realRenameSync = fs.renameSync
+    const realCopyFile = fs.promises.copyFile
+    fs.renameSync = function patchedRename(src, dst) {
+      if (typeof dst === 'string' && /\.trash-/.test(dst)) {
+        const err = new Error('EBUSY: forced overlay path')
+        err.code = 'EBUSY'
+        throw err
+      }
+      return realRenameSync(src, dst)
+    }
+    fs.promises.copyFile = async function patchedCopyFile(src, dst) {
+      if (typeof dst === 'string' && /PARTIAL-FAIL-FILE/.test(dst)) {
+        const err = new Error('EACCES: simulated mid-overlay copy failure')
+        err.code = 'EACCES'
+        throw err
+      }
+      return realCopyFile(src, dst)
+    }
+    try {
+      // Drive the partial failure.
+      const buf = await buildZip({
+        'main.jsx': '// partial',
+        'App.jsx': '// partial',
+        'PARTIAL-FAIL-FILE': 'this copy will throw',
+        'AFTER-FAIL-FILE': 'never reached',
+      })
+      const mp = buildMultipart({ kind: 'launcher', fileBuffer: buf })
+      const r = await req({
+        method: 'POST', path: '/api/admin/update-source',
+        headers: { 'content-type': mp.contentType }, body: mp.body,
+      })
+      if (r.status !== 500) throw new Error('expected 500, got ' + r.status + ' :: ' + JSON.stringify(r.json))
+      if (r.json.partial !== true) throw new Error('expected partial=true on response, got ' + r.json.partial)
+      // source-status should report launcher.partial = true.
+      const ss = await req({ method: 'GET', path: '/api/admin/source-status' })
+      if (!ss.json.launcher || ss.json.launcher.partial !== true) {
+        throw new Error('source-status should show launcher.partial=true, got ' + JSON.stringify(ss.json.launcher))
+      }
+      // /api/admin/build should refuse 409 while flag is set.
+      const buildResp = await req({
+        method: 'POST', path: '/api/admin/build',
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from(JSON.stringify({ all: true })),
+      })
+      if (buildResp.status !== 409) {
+        throw new Error('build should be refused with 409, got ' + buildResp.status + ' :: ' + JSON.stringify(buildResp.json))
+      }
+      if (!Array.isArray(buildResp.json.partialKinds) || !buildResp.json.partialKinds.includes('launcher')) {
+        throw new Error('build refusal should list launcher in partialKinds, got ' + JSON.stringify(buildResp.json))
+      }
+      // Now restore copyFile + renameSync and re-upload successfully — this
+      // should clear the partial flag.
+      fs.promises.copyFile = realCopyFile
+      fs.renameSync = realRenameSync
+      const buf2 = await buildZip({
+        'main.jsx': '// recovered',
+        'App.jsx': '// recovered',
+        'RECOVERED-MARKER': 'cleanup',
+      })
+      const mp2 = buildMultipart({ kind: 'launcher', fileBuffer: buf2 })
+      const r2 = await req({
+        method: 'POST', path: '/api/admin/update-source',
+        headers: { 'content-type': mp2.contentType }, body: mp2.body,
+      })
+      if (r2.status !== 200) throw new Error('re-upload should succeed, got ' + r2.status + ' :: ' + (r2.json && r2.json.error))
+      const ss2 = await req({ method: 'GET', path: '/api/admin/source-status' })
+      if (ss2.json.launcher.partial !== false) {
+        throw new Error('partial flag should be cleared after successful re-upload, got ' + ss2.json.launcher.partial)
+      }
+    } finally {
+      fs.renameSync = realRenameSync
+      fs.promises.copyFile = realCopyFile
+    }
+  })
+
   // -- 6. 409 refusal while a build job is RUNNING. The endpoint asks
   //    job-runner.listJobs() and checks for any 'running' or 'cancelling'
   //    job. We monkey-patch listJobs on the exported jobRunner to simulate
   //    that state, then confirm the next upload is rejected with 409 +
   //    the live source on disk is not disturbed.
   await check('409 refusal while a build is running', async () => {
-    // Pre-condition: confirm src/ is currently the post-happy-path tree.
-    if (!fs.existsSync(path.join(SANDBOX, 'src', 'NEW-MARKER'))) {
-      throw new Error('precondition: NEW-MARKER missing — earlier test failed')
+    // Pre-condition: confirm src/ is currently the post-recovery tree
+    // (test 6d ended with a successful re-upload that left RECOVERED-MARKER).
+    if (!fs.existsSync(path.join(SANDBOX, 'src', 'RECOVERED-MARKER'))) {
+      throw new Error('precondition: RECOVERED-MARKER missing — earlier test failed')
     }
     const orig = srv.jobRunner.listJobs.bind(srv.jobRunner)
     srv.jobRunner.listJobs = () => [{ id: 'fake-running', status: 'running' }]
@@ -356,8 +542,8 @@ async function main() {
       if (fs.existsSync(path.join(SANDBOX, 'src', 'V2-MARKER'))) {
         throw new Error('live src/ was disturbed by a refused upload (V2-MARKER landed)')
       }
-      if (!fs.existsSync(path.join(SANDBOX, 'src', 'NEW-MARKER'))) {
-        throw new Error('live src/ NEW-MARKER vanished during refused upload')
+      if (!fs.existsSync(path.join(SANDBOX, 'src', 'RECOVERED-MARKER'))) {
+        throw new Error('live src/ RECOVERED-MARKER vanished during refused upload')
       }
     } finally {
       srv.jobRunner.listJobs = orig

@@ -1,0 +1,41 @@
+VERDICT: APPROVED_WITH_COMMENTS
+The diff correctly fixes the root cause of the post-build false "[file missing — rebuild]" state and adds meaningful VERDICT: APPROVED_WITH_COMMENTS
+regression coverage; I see no blocking functional defects.
+
+Critical findings / analysis:
+- Root-cause fix is correct: `walok/scripts/publish-update.js` now honors `OTA_UPDATES_DIR` and falls back to the legacy `ROOT/update-server/public/updates` only when unset. This directly addresses the workspace-clone path drift that caused artifacts to be published into ephemeral `.build-jobs/<id>` directories and then deleted.
+- Integration wiring is present: `server.js` build jobs already pass `env: { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR }`, so the script change is actually exercised in `/api/admin/build` flows.
+- Regression coverage is strong:
+  - `test-publish-paths.js` validates env-driven publish destination + fallback behavior.
+  - `test-build-e2e.js` drives real `/api/admin/build` single + `all:true`, waits for job success, then asserts `/api/admin/customers` shows `_launcherFileExists=true`, `_serverFileExists=true`, and non-null release metadata behavior used by the UI.
+- Test chain updated in `update-server/package.json`, and full suite passes (`npm --prefix walok/update-server test`), including new tests.
+
+Comments (non-blocking):
+- The e2e test validates UI contract fields (`_launcherReleased`) rather than explicit DB timestamp columns (`launcherPublishedAt`/`serverPublishedAt`) called out in the task text. Given current endpoint shape, this is still effective for user-visible regression prevention, but it does not directly assert DB timestamp persistence semantics.
+
+Security:
+- None observed of serious relevance. No new dangerous sinks or authz regressions introduced.
+
+Next actions:
+1) Optional hardening: add one assertion in `test-build-e2e.js` for DB-backed publish timestamp fields if/when those are exposed in `/api/admin/customers`.
+2) Keep `OTA_UPDATES_DIR` contract documented (already in `replit.md`) and avoid future refactors that re-derive publish paths from script-local `__dirname` in job workspaces.
+3) Merge as-is; functional fix and regression protection are sufficient.The diff correctly fixes the root cause of the post-build false "[file missing — rebuild]" state and adds meaningful regression coverage; I see no blocking functional defects.
+
+Critical findings / analysis:
+- Root-cause fix is correct: `walok/scripts/publish-update.js` now honors `OTA_UPDATES_DIR` and falls back to the legacy `ROOT/update-server/public/updates` only when unset. This directly addresses the workspace-clone path drift that caused artifacts to be published into ephemeral `.build-jobs/<id>` directories and then deleted.
+- Integration wiring is present: `server.js` build jobs already pass `env: { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR }`, so the script change is actually exercised in `/api/admin/build` flows.
+- Regression coverage is strong:
+  - `test-publish-paths.js` validates env-driven publish destination + fallback behavior.
+  - `test-build-e2e.js` drives real `/api/admin/build` single + `all:true`, waits for job success, then asserts `/api/admin/customers` shows `_launcherFileExists=true`, `_serverFileExists=true`, and non-null release metadata behavior used by the UI.
+- Test chain updated in `update-server/package.json`, and full suite passes (`npm --prefix walok/update-server test`), including new tests.
+
+Comments (non-blocking):
+- The e2e test validates UI contract fields (`_launcherReleased`) rather than explicit DB timestamp columns (`launcherPublishedAt`/`serverPublishedAt`) called out in the task text. Given current endpoint shape, this is still effective for user-visible regression prevention, but it does not directly assert DB timestamp persistence semantics.
+
+Security:
+- None observed of serious relevance. No new dangerous sinks or authz regressions introduced.
+
+Next actions:
+1) Optional hardening: add one assertion in `test-build-e2e.js` for DB-backed publish timestamp fields if/when those are exposed in `/api/admin/customers`.
+2) Keep `OTA_UPDATES_DIR` contract documented (already in `replit.md`) and avoid future refactors that re-derive publish paths from script-local `__dirname` in job workspaces.
+3) Merge as-is; functional fix and regression protection are sufficient.

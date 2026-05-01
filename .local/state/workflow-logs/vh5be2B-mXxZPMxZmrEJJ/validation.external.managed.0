@@ -1,0 +1,43 @@
+VERDICT: APPROVED_WITH_COMMENTS
+The core task is correctly implemented: the build/publish path now writes to the real OTA updates directory and the end-to-end regression coverage proves the original "[file missing — rebuild]"/"Last release: ---" bug VERDICT: APPROVED_WITH_COMMENTS
+is resolved.
+
+Critical findings / analysis:
+- **Root-cause fix is in pThe core task is correctly implemented: the build/publish path now writes to the real OTA updates directory and the end-to-end regression coverage proves the original "[file missing — rebuild]"/"Last release: ---" bug is resolved.
+lace**: `walok/scripts/publish-update.js` now hono
+rs `OTA_UPDATES_DIR` (with fallback to prior Critical findings / analysis:
+workspace-relative behavior when unset). This directly addresses the ephemeral workspace deletion issue after job completion.
+- **Server-side contract already aligned**: `/api/admin/build` in `walok/update-server/server.js` passes `OTA_UPDATES_DIR: UPDATES_DIR` to publish steps, so the new script behavior is actually exercised in production flow.
+- **Regression testing is strong and on-target**:
+  - Added `walok/update-server/test-publish-paths.js` to validate env-var path routing and fallback behavior.
+  - Added `walok/update-server/test-build-e2e.js` to drive real `/api/admin/build` (single + `all:true`) and assert `_launcherFileExists`, `_serverFileExists`, `_launcherReleased`, plus DB timestamps (`launcherPublishedAt`/`serverPublishedAt`).
+  - `walok/update-server/package.json` test chain updated to include both new tests.
+- **Validation run**: `npm --prefix walok/update-server test` passes end-to-end, including new tests.
+
+Comments (non-blocking):
+- The commit includes substantial unrelated updater/rebrand hardening changes (`walok/electron/updater.js`, `walok/server/electron/updater.js`, and corresponding tests). These passed their own tests, but they are outside this task’s scope and increase review surface/risk for a focused bugfix PR.
+
+Security:
+- None observed that are serious/relevant to this task. No new authz, secret handling, or dangerous sink regressions in the update-server fix path.
+
+Next actions:
+1. If process allows, consider splitting unrelated updater/rebrand changes into a separate PR for cleaner traceability.
+2. Merge this fix path as-is for Task #15 resolution (it is functionally correct and regression-tested).
+3. Keep the new e2e test in CI as a guardrail for future build/publish pipeline refactors.- **Root-cause fix is in place**: `walok/scripts/publish-update.js` now honors `OTA_UPDATES_DIR` (with fallback to prior workspace-relative behavior when unset). This directly addresses the ephemeral workspace deletion issue after job completion.
+- **Server-side contract already aligned**: `/api/admin/build` in `walok/update-server/server.js` passes `OTA_UPDATES_DIR: UPDATES_DIR` to publish steps, so the new script behavior is actually exercised in production flow.
+- **Regression testing is strong and on-target**:
+  - Added `walok/update-server/test-publish-paths.js` to validate env-var path routing and fallback behavior.
+  - Added `walok/update-server/test-build-e2e.js` to drive real `/api/admin/build` (single + `all:true`) and assert `_launcherFileExists`, `_serverFileExists`, `_launcherReleased`, plus DB timestamps (`launcherPublishedAt`/`serverPublishedAt`).
+  - `walok/update-server/package.json` test chain updated to include both new tests.
+- **Validation run**: `npm --prefix walok/update-server test` passes end-to-end, including new tests.
+
+Comments (non-blocking):
+- The commit includes substantial unrelated updater/rebrand hardening changes (`walok/electron/updater.js`, `walok/server/electron/updater.js`, and corresponding tests). These passed their own tests, but they are outside this task’s scope and increase review surface/risk for a focused bugfix PR.
+
+Security:
+- None observed that are serious/relevant to this task. No new authz, secret handling, or dangerous sink regressions in the update-server fix path.
+
+Next actions:
+1. If process allows, consider splitting unrelated updater/rebrand changes into a separate PR for cleaner traceability.
+2. Merge this fix path as-is for Task #15 resolution (it is functionally correct and regression-tested).
+3. Keep the new e2e test in CI as a guardrail for future build/publish pipeline refactors.

@@ -1,0 +1,45 @@
+VERDICT: APPROVED_WITH_COMMENTS
+The diff correctly fixes the reported “[file missing — rebuild]” correctness bug for successful builds by addressing publish-path drift from job workspaces to the real updates directory, and adds solid regression cVERDICT: APPROVED_WITH_COMMENTS
+overage that proves the end-to-end contract.
+
+Critical findings / analysis:
+- Root-cause fix is correctly implemented:
+  - `walok/scripts/publish-update.js` now honors `OTA_UPDATES_DIR` (fallback preserved for direct CLI usage).
+  - `/api/admin/build` now passes `OTA_UPDATES_DIR: UPDATES_DIR` to the publish step (`server.js`), ensuring artifacts land in persistent `update-server/public/updates/...` instead of ephemeral `.build-jobs/<id>/...`.
+- The required regression protection is present and high quality:
+  - `update-server/test-publish-paths.js` validates env-contract behavior (real dir when set, legacy fallback when unset).
+  - `update-server/test-build-e2e.js` drives POST `/api/admin/build` (single + all) and validates `/api/admin/customers` returns `_launcherFileExists: true`, `_serverFileExists: true`, non-null release metadata, and DB publish timestamps.
+  - `update-server/package.json` wires both tests into `npm test`.
+- I verified execution: `npm --prefix walok/update-server test` passes fully, including the new tests; updated rebrand updater tests also pass.
+
+Comments (non-blocking):
+- The commit includes substantial unrelated Task #16/#17 changes (SSE coalescing, async install lock, updater transactional rollback, etc.). They appear to pass tests, but this scope expansion increases review surface and regression risk for a task that was narrowly about publish-path correctness.
+
+Security:
+- None observed (no new authz bypass, injection sink, secret exposure, or SSRF surfaced by these changes).
+
+Next actions:
+1. If possible, split unrelated Task #16/#17 changes into separate PRs/commits to preserve traceability and reduce rollback blast radius.
+2. Keep `test-build-e2e.js` in CI as mandatory gating for `/api/admin/build` regressions (it directly guards this class of bug).
+3. Optionally add a small focused smoke test for `/api/admin/upload-update` customer JSON state parity, since task text called out both build and upload paths.The diff correctly fixes the reported “[file missing — rebuild]” correctness bug for successful builds by addressing publish-path drift from job workspaces to the real updates directory, and adds solid regression coverage that proves the end-to-end contract.
+
+Critical findings / analysis:
+- Root-cause fix is correctly implemented:
+  - `walok/scripts/publish-update.js` now honors `OTA_UPDATES_DIR` (fallback preserved for direct CLI usage).
+  - `/api/admin/build` now passes `OTA_UPDATES_DIR: UPDATES_DIR` to the publish step (`server.js`), ensuring artifacts land in persistent `update-server/public/updates/...` instead of ephemeral `.build-jobs/<id>/...`.
+- The required regression protection is present and high quality:
+  - `update-server/test-publish-paths.js` validates env-contract behavior (real dir when set, legacy fallback when unset).
+  - `update-server/test-build-e2e.js` drives POST `/api/admin/build` (single + all) and validates `/api/admin/customers` returns `_launcherFileExists: true`, `_serverFileExists: true`, non-null release metadata, and DB publish timestamps.
+  - `update-server/package.json` wires both tests into `npm test`.
+- I verified execution: `npm --prefix walok/update-server test` passes fully, including the new tests; updated rebrand updater tests also pass.
+
+Comments (non-blocking):
+- The commit includes substantial unrelated Task #16/#17 changes (SSE coalescing, async install lock, updater transactional rollback, etc.). They appear to pass tests, but this scope expansion increases review surface and regression risk for a task that was narrowly about publish-path correctness.
+
+Security:
+- None observed (no new authz bypass, injection sink, secret exposure, or SSRF surfaced by these changes).
+
+Next actions:
+1. If possible, split unrelated Task #16/#17 changes into separate PRs/commits to preserve traceability and reduce rollback blast radius.
+2. Keep `test-build-e2e.js` in CI as mandatory gating for `/api/admin/build` regressions (it directly guards this class of bug).
+3. Optionally add a small focused smoke test for `/api/admin/upload-update` customer JSON state parity, since task text called out both build and upload paths.
