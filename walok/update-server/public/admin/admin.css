@@ -478,10 +478,23 @@ button:disabled {
 .version-row { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
 .version-row input { flex: 1; }
 
+/* Build From Uploaded Source form.
+ *
+ * Grid is 12-column. Field labels claim spans (4 / 6 / 12) so they line up
+ * predictably across breakpoints instead of getting jammed into the
+ * auto-fit cells with the help paragraph + submit button (which used to
+ * squeeze the long version-rules paragraph into a narrow side column).
+ *
+ * Default desktop layout:
+ *   Row 1: Target (4) | Version (4) | Notes (4)
+ *   Row 2: Launcher Source (.zip) (6) | Server Source (.zip) (6)
+ *   Row 3: hint paragraph (12)
+ *   Row 4: Build & Ship button, right-aligned (12)
+ */
 .bulk-upload-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px 16px;
   align-items: end;
   margin-top: 14px;
 }
@@ -494,6 +507,11 @@ button:disabled {
   text-transform: uppercase;
   font-weight: 600;
   gap: 6px;
+  grid-column: span 4;
+  min-width: 0;
+}
+.bulk-upload-row label.file-field {
+  grid-column: span 6;
 }
 .bulk-upload-row label.check {
   flex-direction: row;
@@ -502,12 +520,34 @@ button:disabled {
   text-transform: none;
   font-weight: 400;
 }
-.bulk-upload-row button { align-self: end; height: 38px; }
+.bulk-upload-row > .hint {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.bulk-upload-row > .hint em { color: var(--text); font-style: normal; }
+.bulk-upload-row > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  height: 40px;
+  min-width: 160px;
+}
 
 /* ============ CUSTOMER CARDS ============ */
+/* auto-fill (not auto-fit) leaves empty tracks intact instead of stretching
+ * a single card to fill the whole row — without it, one customer would
+ * render as a 900-px-wide block surrounded by emptiness. The 460-px max
+ * caps an individual card so even a long customer name + meta block stays
+ * readable rather than ballooning. */
 .customer-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 460px));
   gap: 14px;
 }
 .customer-card {
@@ -1112,12 +1152,23 @@ button:disabled {
   .panel-body { padding: 16px; }
   .banner { margin: 12px 16px 0; padding: 11px 14px; font-size: 12.5px; }
 
-  /* Forms with side-by-side fields stack vertically. */
+  /* Forms with side-by-side fields stack vertically. The 12-col template
+     would clamp `grid-column: span N` to span 1 by itself, but switching
+     to `1fr` here makes the intent (one field per row) explicit AND
+     forces the Build & Ship button to full-width via the override below. */
   .bulk-upload-row {
     grid-template-columns: 1fr;
     gap: 14px;
   }
-  .bulk-upload-row button { width: 100%; }
+  .bulk-upload-row label,
+  .bulk-upload-row label.file-field {
+    grid-column: 1 / -1;
+  }
+  .bulk-upload-row > button {
+    width: 100%;
+    justify-self: stretch;
+    min-width: 0;
+  }
 
   /* Version Control: input + button row stays horizontal but the button
      gets a sensible min width so it doesn't hug the input. */
