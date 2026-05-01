@@ -293,6 +293,22 @@ function recordBuild(channel, ts) {
   stmts.setLastBuild.run(ts || Date.now(), channel)
 }
 
+// Baseline refresh tracking — when did the operator last upload a Full Repo
+// zip for this kind. Stored in the meta table so it survives server restarts
+// without needing yet another column on customers (it's not per-customer —
+// the baseline cache is shared across all customers in this OTA install).
+function getBaselineRefreshedAt(kind) {
+  if (kind !== 'launcher' && kind !== 'server') return null
+  const v = getMeta('baseline_' + kind + '_refreshed_at')
+  if (!v) return null
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) ? n : null
+}
+function setBaselineRefreshedAt(kind, ts) {
+  if (kind !== 'launcher' && kind !== 'server') return
+  setMeta('baseline_' + kind + '_refreshed_at', String(ts || Date.now()))
+}
+
 // One-time migration: pull every customers/*.json into the DB if the DB has no
 // rows yet. Idempotent — re-running after the migration is a no-op.
 //
@@ -428,4 +444,6 @@ module.exports = {
   recordLauncherPublished,
   recordServerPublished,
   recordBuild,
+  getBaselineRefreshedAt,
+  setBaselineRefreshedAt,
 }

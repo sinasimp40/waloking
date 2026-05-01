@@ -1348,6 +1348,16 @@ app.post('/api/admin/build-from-source',
     const target = (req.body && req.body.target) || ''
     const version = (req.body && req.body.version) || ''
     const notes = (req.body && req.body.notes) || null
+    // mode: 'full' (default) ships a whole repo zip into each slot AND
+    // refreshes the cached baseline. 'patch' ships only the contents of src/
+    // (launcher slot) or server/ (server slot) and overlays them on the
+    // cached baseline. The two modes are mutually exclusive per request —
+    // mixing them would mean baseline gets refreshed for one half and not
+    // the other, which is a confusing footgun.
+    const mode = ((req.body && req.body.mode) || 'full').toString()
+    if (mode !== 'full' && mode !== 'patch') {
+      return res.status(400).json({ error: 'mode must be "full" or "patch"' })
+    }
     if (!isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
 
     let channels
@@ -1364,6 +1374,21 @@ app.post('/api/admin/build-from-source',
     const serverFile = req.files?.server?.[0]
     if (!launcherFile && !serverFile) {
       return res.status(400).json({ error: 'at least one of launcher / server source zip required' })
+    }
+
+    // Patch mode: refuse early if no baseline has ever been established for
+    // the kind(s) the operator is patching. Without this check the per-
+    // customer jobs would all fan out and then each fail with the same
+    // baseline-missing error — a single up-front 400 is much friendlier.
+    if (mode === 'patch') {
+      const baselineLauncher = path.join(sourceBuild.BASELINE_DIR, 'launcher')
+      const baselineServer = path.join(sourceBuild.BASELINE_DIR, 'server')
+      if (launcherFile && !fs.existsSync(baselineLauncher)) {
+        return res.status(409).json({ error: 'no baseline cached for LAUNCHER — upload a Full Repo zip first to establish a baseline, then patch builds will work.' })
+      }
+      if (serverFile && !fs.existsSync(baselineServer)) {
+        return res.status(409).json({ error: 'no baseline cached for SERVER — upload a Full Repo zip first to establish a baseline, then patch builds will work.' })
+      }
     }
 
     // Hold the buffers in closure scope. multer's memoryStorage gives us
@@ -1404,6 +1429,20 @@ app.post('/api/admin/build-from-source',
       }
     }
 
+    // Per-fan-out closure: only the first per-customer job to actually start
+    // executing should refresh the cached baseline. We can't decide that at
+    // enqueue time because customers run in parallel up to MAX_CONCURRENT
+    // and the order of who-runs-first isn't deterministic. _baselineWriterClaim
+    // is a one-shot — it returns true exactly once across all jobs in this
+    // fan-out, then false forever after. Subsequent jobs see false and pass
+    // setBaselineMeta:null which makes buildOneFromSource skip snapshot.
+    let _baselineClaimed = false
+    function _baselineWriterClaim() {
+      if (_baselineClaimed) return false
+      _baselineClaimed = true
+      return true
+    }
+
     // Per-channel fan-out — one inline job per customer. Each job claims its
     // own channel via channels:[ch] so the existing per-channel mutex
     // serializes any duplicate (channel, version) submissions while
@@ -1432,12 +1471,22 @@ app.post('/api/admin/build-from-source',
           let launcherPayload = null
           let serverPayload = null
           try {
+            // Baseline meta callback — only the FIRST per-customer job in
+            // the fan-out should refresh the cached baseline (subsequent
+            // customers see identical input, so re-snapshotting is wasted
+            // I/O). We gate that here with a closure flag captured from the
+            // request scope; full-mode jobs after the first one pass `null`
+            // for setBaselineMeta which makes buildOneFromSource skip the
+            // snapshot step entirely.
+            const baselineCb = (mode === 'full' && _baselineWriterClaim()) ? dbApi.setBaselineRefreshedAt : null
+
             if (launcherBuf) {
               if (job.cancelRequested) throw new Error('cancelled before launcher build')
               const r = await sourceBuild.buildOneFromSource({
                 job, channel: ch, kind: 'launcher',
                 sourceZipBuffer: launcherBuf, version, customer,
                 customerLogoAbsPath: logoAbsPath, workspaceRoot,
+                mode, setBaselineMeta: baselineCb,
               })
               launcherPayload = r.payloadBuffer
             }
@@ -1447,6 +1496,7 @@ app.post('/api/admin/build-from-source',
                 job, channel: ch, kind: 'server',
                 sourceZipBuffer: serverBuf, version, customer,
                 customerLogoAbsPath: logoAbsPath, workspaceRoot,
+                mode, setBaselineMeta: baselineCb,
               })
               serverPayload = r.payloadBuffer
             }
@@ -1537,6 +1587,19 @@ app.post('/api/admin/build-from-source',
     res.json(body)
   }
 )
+
+// Baseline-status — surfaces whether a cached baseline exists for launcher
+// and/or server, and when it was last refreshed. Drives the "Patch Mode"
+// availability indicator in the admin form.
+app.get('/api/admin/baseline-status', requireAdmin, async (req, res) => {
+  try {
+    const launcher = await sourceBuild.getBaselineStatus('launcher', dbApi.getBaselineRefreshedAt)
+    const server   = await sourceBuild.getBaselineStatus('server',   dbApi.getBaselineRefreshedAt)
+    res.json({ launcher, server })
+  } catch (e) {
+    res.status(500).json({ error: 'baseline-status: ' + e.message })
+  }
+})
 
 // ============ JOBS API (queue + cancel + stream) ============
 // Backed by job-runner.js. Replaces the old in-file JOBS map, the per-channel

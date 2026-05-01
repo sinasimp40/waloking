@@ -17,7 +17,8 @@ try { archiver = require('archiver') } catch (e) {
 }
 
 const sb = require('./source-build')
-const { extractZipBuffer, safeJoinUnderDest, looksLikeZip, maybeStripCommonRoot, validateSourceShape } = sb._internal
+const { extractZipBuffer, safeJoinUnderDest, looksLikeZip, maybeStripCommonRoot, validateSourceShape, copyTreeForBaseline, snapshotBaseline, preparePatchWorkDir } = sb._internal
+const BASELINE_DIR = sb.BASELINE_DIR
 
 let pass = 0, fail = 0
 function ok(msg)   { pass++; console.log('  ok  ' + msg) }
@@ -209,6 +210,151 @@ async function main() {
       })
     } finally {
       fs.rmSync(badDir, { recursive: true, force: true })
+    }
+  }
+
+  // ============ PATCH-MODE TESTS ============
+  // The patch flow is: snapshotBaseline(workDir, kind) → cache established
+  // under BASELINE_DIR/<kind>/. Then preparePatchWorkDir extracts a tiny
+  // patch zip into workDir/{src,server}/ on top of the baseline copy. We
+  // exercise both the failure path (no baseline) and the happy path
+  // (baseline + overlay → workDir contains baseline files PLUS patched
+  // ones, with the overlaid subdir wiped clean of pre-patch contents).
+  if (zipBuf) {
+    // 1) preparePatchWorkDir without baseline → throws clear message.
+    // We have to ensure no baseline exists for the test kind. If a real
+    // baseline already lives at BASELINE_DIR/launcher (dev environment),
+    // skip this assertion rather than wreck their state.
+    const baselineLauncherDir = path.join(BASELINE_DIR, 'launcher')
+    if (!fs.existsSync(baselineLauncherDir)) {
+      const tmpWs = path.join(os.tmpdir(), 'sbpatch-' + crypto.randomBytes(4).toString('hex'))
+      fs.mkdirSync(tmpWs, { recursive: true })
+      try {
+        const patchZip = await buildZipBufferFromTree({ 'App.jsx': 'export default ()=>null' })
+        await check('preparePatchWorkDir: no baseline cached → throws guidance error', async () => {
+          let err
+          try { await preparePatchWorkDir({ workspaceRoot: tmpWs, kind: 'launcher', patchZipBuffer: patchZip, job: { output: [], listeners: [] } }) }
+          catch (e) { err = e }
+          if (!err) throw new Error('expected throw')
+          if (!/no baseline cached/i.test(err.message)) throw new Error('error message should mention "no baseline cached", got: ' + err.message)
+        })
+      } finally {
+        fs.rmSync(tmpWs, { recursive: true, force: true })
+      }
+    } else {
+      console.log('  skip "no baseline cached" test — a real baseline exists at ' + baselineLauncherDir + ' (would be unsafe to remove for the test)')
+    }
+
+    // 2) preparePatchWorkDir happy path — establish a baseline from a fake
+    //    "full repo" tree, then overlay a patch zip and assert workDir
+    //    contains BOTH the baseline-only files (electron/main.js,
+    //    package.json) AND the patched src/ contents, AND that pre-patch
+    //    src/ contents were wiped (so file deletions propagate).
+    //
+    //    We use a temp BASELINE_DIR via reaching into copyTreeForBaseline
+    //    + snapshotBaseline directly. snapshotBaseline writes to
+    //    BASELINE_DIR/<kind>; if a real baseline is already there, back
+    //    it up first so we don't trash dev state.
+    const realBaseline = path.join(BASELINE_DIR, 'launcher')
+    const backup = realBaseline + '.bak-' + crypto.randomBytes(4).toString('hex')
+    let movedBackup = false
+    if (fs.existsSync(realBaseline)) {
+      fs.renameSync(realBaseline, backup)
+      movedBackup = true
+    }
+    const tmpFakeRepo = path.join(os.tmpdir(), 'sbfake-' + crypto.randomBytes(4).toString('hex'))
+    fs.mkdirSync(path.join(tmpFakeRepo, 'electron'), { recursive: true })
+    fs.mkdirSync(path.join(tmpFakeRepo, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(tmpFakeRepo, 'package.json'), '{"name":"fake","version":"1.0.0"}')
+    fs.writeFileSync(path.join(tmpFakeRepo, 'electron', 'main.js'), '// baseline electron main')
+    fs.writeFileSync(path.join(tmpFakeRepo, 'src', 'OLD.jsx'), 'old content')
+    const tmpWs2 = path.join(os.tmpdir(), 'sbpatchws-' + crypto.randomBytes(4).toString('hex'))
+    fs.mkdirSync(tmpWs2, { recursive: true })
+    try {
+      // Snapshot the fake repo as the launcher baseline.
+      let metaCalled = null
+      await snapshotBaseline(tmpFakeRepo, 'launcher', (kind, ts) => { metaCalled = { kind, ts } })
+      await check('snapshotBaseline: writes to BASELINE_DIR/launcher and calls meta cb', async () => {
+        if (!fs.existsSync(realBaseline)) throw new Error('baseline dir missing after snapshot')
+        if (!fs.existsSync(path.join(realBaseline, 'package.json'))) throw new Error('baseline missing package.json')
+        if (!fs.existsSync(path.join(realBaseline, 'electron', 'main.js'))) throw new Error('baseline missing electron/main.js')
+        if (!metaCalled || metaCalled.kind !== 'launcher' || typeof metaCalled.ts !== 'number') throw new Error('setBaselineMeta not called correctly: ' + JSON.stringify(metaCalled))
+      })
+      // Now build a patch zip with NEW.jsx (and explicitly NO OLD.jsx) and
+      // overlay it.
+      const patchZip = await buildZipBufferFromTree({
+        'App.jsx': 'export default ()=>null',
+        'NEW.jsx': 'patched',
+      })
+      const workDir = await preparePatchWorkDir({
+        workspaceRoot: tmpWs2, kind: 'launcher', patchZipBuffer: patchZip, job: { output: [], listeners: [] },
+      })
+      await check('preparePatchWorkDir: workDir has baseline files (electron/main.js, package.json)', async () => {
+        if (!fs.existsSync(path.join(workDir, 'package.json'))) throw new Error('expected baseline package.json in workDir')
+        if (!fs.existsSync(path.join(workDir, 'electron', 'main.js'))) throw new Error('expected baseline electron/main.js in workDir')
+      })
+      await check('preparePatchWorkDir: src/ contains patched files (App.jsx, NEW.jsx)', async () => {
+        if (!fs.existsSync(path.join(workDir, 'src', 'App.jsx'))) throw new Error('expected patched src/App.jsx')
+        if (!fs.existsSync(path.join(workDir, 'src', 'NEW.jsx'))) throw new Error('expected patched src/NEW.jsx')
+      })
+      await check('preparePatchWorkDir: src/ pre-patch files are gone (OLD.jsx wiped — deletions propagate)', async () => {
+        if (fs.existsSync(path.join(workDir, 'src', 'OLD.jsx'))) throw new Error('OLD.jsx should have been wiped before overlay')
+      })
+    } finally {
+      fs.rmSync(tmpFakeRepo, { recursive: true, force: true })
+      fs.rmSync(tmpWs2, { recursive: true, force: true })
+      // Restore baseline state: remove our test baseline, restore backup.
+      fs.rmSync(realBaseline, { recursive: true, force: true })
+      if (movedBackup) fs.renameSync(backup, realBaseline)
+    }
+  }
+
+  // ============ PATCH-MODE TESTS (server kind) ============
+  // Symmetric coverage for the server kind — overlay target is server/ not
+  // src/, and the validator requires server/package.json + server/electron/
+  // main.js to exist after overlay. This catches a regression where someone
+  // hard-codes "src" in preparePatchWorkDir's overlaySubdir choice.
+  if (zipBuf) {
+    const realBaseline = path.join(BASELINE_DIR, 'server')
+    const backup = realBaseline + '.bak-' + crypto.randomBytes(4).toString('hex')
+    let movedBackup = false
+    if (fs.existsSync(realBaseline)) {
+      fs.renameSync(realBaseline, backup)
+      movedBackup = true
+    }
+    const tmpFakeRepo = path.join(os.tmpdir(), 'sbfake-srv-' + crypto.randomBytes(4).toString('hex'))
+    fs.mkdirSync(path.join(tmpFakeRepo, 'server', 'electron'), { recursive: true })
+    fs.writeFileSync(path.join(tmpFakeRepo, 'package.json'), '{"name":"fake","version":"1.0.0"}')
+    fs.writeFileSync(path.join(tmpFakeRepo, 'server', 'package.json'), '{"name":"fake-server"}')
+    fs.writeFileSync(path.join(tmpFakeRepo, 'server', 'electron', 'main.js'), '// baseline server main')
+    fs.writeFileSync(path.join(tmpFakeRepo, 'server', 'OLD_SRV.js'), 'old server file')
+    const tmpWs = path.join(os.tmpdir(), 'sbpatch-srv-' + crypto.randomBytes(4).toString('hex'))
+    fs.mkdirSync(tmpWs, { recursive: true })
+    try {
+      await snapshotBaseline(tmpFakeRepo, 'server', () => {})
+      const patchZip = await buildZipBufferFromTree({
+        'package.json': '{"name":"fake-server","version":"1.0.1"}',
+        'electron/main.js': '// PATCHED server main',
+        'NEW_SRV.js': 'patched',
+      })
+      const workDir = await preparePatchWorkDir({
+        workspaceRoot: tmpWs, kind: 'server', patchZipBuffer: patchZip, job: { output: [], listeners: [] },
+      })
+      await check('preparePatchWorkDir (server kind): overlay lands in server/ not src/', async () => {
+        if (!fs.existsSync(path.join(workDir, 'server', 'NEW_SRV.js'))) throw new Error('expected patched server/NEW_SRV.js')
+        if (!fs.existsSync(path.join(workDir, 'server', 'electron', 'main.js'))) throw new Error('expected patched server/electron/main.js')
+        if (fs.existsSync(path.join(workDir, 'server', 'OLD_SRV.js'))) throw new Error('OLD_SRV.js should have been wiped')
+        // Top-level baseline package.json untouched.
+        if (!fs.existsSync(path.join(workDir, 'package.json'))) throw new Error('expected baseline top-level package.json')
+      })
+      await check('preparePatchWorkDir (server kind): result satisfies server validator shape', async () => {
+        await validateSourceShape(workDir, 'server')
+      })
+    } finally {
+      fs.rmSync(tmpFakeRepo, { recursive: true, force: true })
+      fs.rmSync(tmpWs, { recursive: true, force: true })
+      fs.rmSync(realBaseline, { recursive: true, force: true })
+      if (movedBackup) fs.renameSync(backup, realBaseline)
     }
   }
 

@@ -491,6 +491,96 @@ button:disabled {
  *   Row 3: hint paragraph (12)
  *   Row 4: Build & Ship button, right-aligned (12)
  */
+/* ============ BUILD-MODE TOGGLE (Full Repo vs Patch) ============ */
+/* Two large clickable chips so the choice is unmistakable — operators have
+ * to pick this BEFORE they pick a file, and getting it wrong (uploading a
+ * patch zip into Full mode or vice-versa) wastes time waiting for the
+ * server to fail. The chips occupy the full panel width and use a clear
+ * "selected = orange ring" treatment instead of a tiny radio dot. */
+.mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+  margin-bottom: 4px;
+}
+.mode-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.mode-chip:hover { border-color: var(--border-strong); }
+.mode-chip input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--accent, #ff8a4c);
+  flex-shrink: 0;
+}
+.mode-chip:has(input:checked) {
+  border-color: var(--accent, #ff8a4c);
+  background: rgba(255, 138, 76, 0.08);
+}
+.mode-chip-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mode-chip-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+.mode-chip-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ============ BASELINE STATUS BANNER ============ */
+/* Tells the operator whether a cached baseline exists for launcher and/or
+ * server, so they know if Patch mode will work or if they need a Full Repo
+ * upload first. Updates live after every successful build. */
+.baseline-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 4px 0 8px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 36px;
+}
+.baseline-status:empty { display: none; }
+.baseline-mode { font-weight: 600; color: var(--text); }
+.baseline-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  border: 1px solid var(--border);
+}
+.baseline-pill.ok {
+  background: rgba(34, 197, 94, 0.10);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #5fd388;
+}
+.baseline-pill.missing {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f5b35d;
+}
+.baseline-pill strong { color: inherit; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+.baseline-warn { color: #ef9a9a; }
+
 .bulk-upload-row {
   display: grid;
   grid-template-columns: repeat(12, 1fr);

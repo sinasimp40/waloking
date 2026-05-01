@@ -69,7 +69,27 @@
         <h2>Build From Uploaded Source</h2>
       </div>
       <div class="panel-body">
-        <p class="muted small">Upload the launcher and/or server <strong>source</strong> as a .zip — this server installs dependencies, rebrands per customer (logo + brand name + subtitle), runs electron-builder, packs the resulting payload, and ships it to the chosen channel(s). Any online installs are notified instantly. Leave a slot empty to skip that side: launcher-only, server-only, or both. Progress streams to the build consoles below.</p>
+        <p class="muted small" id="bup-modedesc">Upload the launcher and/or server <strong>source</strong> as a .zip. The OTA server installs dependencies, rebrands per customer (logo + brand name + subtitle), runs electron-builder, packs the payload, and ships it. Use <strong>Patch</strong> mode to upload only the contents of <code>src/</code> (launcher) or <code>server/</code> — the rest of the repo is reused from the cached baseline so uploads stay tiny.</p>
+
+        <div class="mode-row" role="radiogroup" aria-label="Upload mode">
+          <label class="mode-chip">
+            <input type="radio" name="bup-mode" value="full" checked />
+            <span class="mode-chip-body">
+              <span class="mode-chip-title">Full Repo</span>
+              <span class="mode-chip-sub">Whole project zip · refreshes baseline</span>
+            </span>
+          </label>
+          <label class="mode-chip">
+            <input type="radio" name="bup-mode" value="patch" />
+            <span class="mode-chip-body">
+              <span class="mode-chip-title">Patch (src/ or server/ only)</span>
+              <span class="mode-chip-sub">Tiny upload · overlays baseline</span>
+            </span>
+          </label>
+        </div>
+
+        <div id="bup-baseline-status" class="baseline-status" aria-live="polite"></div>
+
         <form id="bulk-upload-form" class="bulk-upload-row">
           <label>Target
             <select id="bup-target" required>
@@ -82,13 +102,17 @@
           <label>Notes <span class="hint">optional</span>
             <input type="text" id="bup-notes" />
           </label>
-          <label class="file-field">Launcher Source (.zip) <span class="hint">optional — repo root with package.json + electron/main.js</span>
+          <label class="file-field" id="bup-launcher-field">
+            <span class="file-field-title" id="bup-launcher-title">Launcher Source (.zip)</span>
+            <span class="hint" id="bup-launcher-hint">optional — full repo zip with package.json + electron/main.js</span>
             <input type="file" id="bup-launcher" accept=".zip,application/zip" />
           </label>
-          <label class="file-field">Server Source (.zip) <span class="hint">optional — repo root with server/package.json</span>
+          <label class="file-field" id="bup-server-field">
+            <span class="file-field-title" id="bup-server-title">Server Source (.zip)</span>
+            <span class="hint" id="bup-server-hint">optional — full repo zip with server/package.json + server/electron/main.js</span>
             <input type="file" id="bup-server" accept=".zip,application/zip" />
           </label>
-          <p class="hint">Version must be the same as, or newer than, the chosen target's currently shipped version <em>for the role being uploaded</em> (launcher-only uploads are not blocked by a newer server version, and vice-versa). Strict downgrades are blocked. Re-shipping the SAME version is allowed and is recorded as a "rebump" on the customer card with a timestamp, so you can confirm the re-upload went out.</p>
+          <p class="hint" id="bup-rules-hint">Version must be the same as, or newer than, the chosen target's currently shipped version <em>for the role being uploaded</em>. Strict downgrades are blocked. Re-shipping the SAME version is allowed and is recorded as a "rebump" on the customer card.</p>
           <button type="submit" class="btn-primary">Build &amp; Ship</button>
         </form>
         <div id="bup-busy" class="muted hidden">Building… please wait. This can take several minutes per customer.</div>

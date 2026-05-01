@@ -185,6 +185,90 @@ function populateBulkUploadTargets() {
   if (prev) sel.value = prev
 }
 
+// ---- Build From Source: mode toggle + baseline status -----------------
+// Re-paints the file-input labels + hint copy + baseline banner whenever
+// the operator picks Full vs Patch. Patch mode is what the operator
+// uses for tiny incremental uploads (just src/ or just server/) so the
+// labels and hints have to make it obvious that the upload should be the
+// CONTENTS of those folders, not the full repo.
+function applyBuildModeUI() {
+  const mode = (document.querySelector('input[name="bup-mode"]:checked') || {}).value || 'full'
+  const isPatch = mode === 'patch'
+  const lTitle = $('#bup-launcher-title'); const lHint = $('#bup-launcher-hint')
+  const sTitle = $('#bup-server-title');   const sHint = $('#bup-server-hint')
+  const rules  = $('#bup-rules-hint')
+  if (isPatch) {
+    if (lTitle) lTitle.textContent = 'Launcher Patch — contents of src/ (.zip)'
+    if (lHint)  lHint.innerHTML = 'optional — zip the <strong>contents</strong> of <code>walok\\src</code> (App.jsx, main.jsx, components/, …). NOT the parent folder.'
+    if (sTitle) sTitle.textContent = 'Server Patch — contents of server/ (.zip)'
+    if (sHint)  sHint.innerHTML = 'optional — zip the <strong>contents</strong> of <code>walok\\server</code> (package.json, electron/, …). NOT the parent folder.'
+    if (rules) rules.innerHTML = 'Patch mode overlays your tiny upload onto the cached baseline. The unchanged parts of the repo (electron/, scripts/, etc.) come from whatever Full Repo upload last refreshed the baseline. Version rules and rebump tracking work the same as Full mode.'
+  } else {
+    if (lTitle) lTitle.textContent = 'Launcher Source (.zip)'
+    if (lHint)  lHint.innerHTML = 'optional — full repo zip with package.json + electron/main.js'
+    if (sTitle) sTitle.textContent = 'Server Source (.zip)'
+    if (sHint)  sHint.innerHTML = 'optional — full repo zip with server/package.json + server/electron/main.js'
+    if (rules) rules.innerHTML = 'Version must be the same as, or newer than, the chosen target\'s currently shipped version <em>for the role being uploaded</em>. Strict downgrades are blocked. Re-shipping the SAME version is allowed and is recorded as a "rebump" on the customer card. <strong>A successful Full Repo upload also refreshes the cached baseline</strong> so subsequent Patch uploads will work.'
+  }
+  refreshBaselineStatus()
+}
+
+function fmtAge(ms) {
+  if (!ms) return ''
+  const s = Math.floor((Date.now() - ms) / 1000)
+  if (s < 60) return s + 's ago'
+  const m = Math.floor(s / 60); if (m < 60) return m + 'm ago'
+  const h = Math.floor(m / 60); if (h < 48) return h + 'h ago'
+  const d = Math.floor(h / 24); return d + 'd ago'
+}
+function fmtBytes(n) {
+  if (!n) return '0 B'
+  if (n < 1024) return n + ' B'
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB'
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB'
+  return (n / 1073741824).toFixed(2) + ' GB'
+}
+
+let _baselineStatusCache = null
+async function refreshBaselineStatus(force) {
+  const banner = $('#bup-baseline-status')
+  if (!banner) return
+  const mode = (document.querySelector('input[name="bup-mode"]:checked') || {}).value || 'full'
+  // Always fetch on first load OR when caller forces (after a build); cache
+  // otherwise to avoid spamming the endpoint every keystroke.
+  if (force || !_baselineStatusCache) {
+    try {
+      _baselineStatusCache = await api('GET', '/api/admin/baseline-status')
+    } catch (e) {
+      _baselineStatusCache = null
+      banner.innerHTML = '<span class="baseline-warn">Could not load baseline status: ' + escapeHtml(e.message) + '</span>'
+      return
+    }
+  }
+  const s = _baselineStatusCache
+  const launcher = s.launcher || {}
+  const server = s.server || {}
+  const part = (kind, st) => {
+    if (!st.exists) {
+      return `<span class="baseline-pill missing"><strong>${kind}</strong> baseline: <em>not established</em> · upload Full Repo first</span>`
+    }
+    const age = st.refreshedAt ? fmtAge(st.refreshedAt) : 'unknown age'
+    return `<span class="baseline-pill ok"><strong>${kind}</strong> baseline: ${escapeHtml(age)} · ${escapeHtml(fmtBytes(st.byteSize))}</span>`
+  }
+  const intro = mode === 'patch'
+    ? '<span class="baseline-mode">Patch mode — uploads will overlay these baselines:</span>'
+    : '<span class="baseline-mode">Full mode — a successful upload will refresh:</span>'
+  banner.innerHTML = intro + ' ' + part('launcher', launcher) + ' ' + part('server', server)
+}
+
+// Wire mode-toggle change → repaint UI. Run once at boot too.
+function wireBuildModeToggle() {
+  document.querySelectorAll('input[name="bup-mode"]').forEach(r => {
+    r.addEventListener('change', applyBuildModeUI)
+  })
+  applyBuildModeUI()
+}
+
 function renderCustomerList() {
   const list = $('#customer-list')
   list.innerHTML = state.customers.map(renderCustomer).join('')
@@ -727,6 +811,16 @@ function streamJob(jobId, label) {
         stopElapsedTicker(rec)
         updateClearFinishedButton()
         loadCustomers()
+        // A successful Full Repo build refreshes the cached baseline on the
+        // server; invalidate the local cache so the next renderer (or a
+        // mode-toggle click) re-fetches fresh "refreshed Ns ago" timestamps.
+        // Cheap to do unconditionally — patch successes won't have changed
+        // the baseline, but the refetch is harmless and keeps the banner
+        // accurate even if a parallel Full upload landed during this build.
+        if (ok) {
+          _baselineStatusCache = null
+          refreshBaselineStatus(true)
+        }
         // T005: Only successful builds auto-clear. Failed/cancelled cards
         // stay so the operator never misses a failure. startAutoClear is a
         // no-op if the card is already marked failed/cancelled, so this is
@@ -1267,6 +1361,7 @@ async function submitBulkUpload(e) {
   const launcher = $('#bup-launcher').files[0] || null
   const server = $('#bup-server').files[0] || null
   const notes = $('#bup-notes').value.trim()
+  const mode = (document.querySelector('input[name="bup-mode"]:checked') || {}).value || 'full'
   const submitBtn = $('#bulk-upload-form').querySelector('button[type="submit"]')
   const submitBtnLabel = submitBtn ? submitBtn.textContent : null
   $('#bup-error').textContent = ''
@@ -1279,6 +1374,7 @@ async function submitBulkUpload(e) {
     const fd = new FormData()
     fd.append('target', target)
     fd.append('version', version)
+    fd.append('mode', mode)
     if (notes) fd.append('notes', notes)
     if (launcher) fd.append('launcher', launcher)
     if (server) fd.append('server', server)
@@ -1302,6 +1398,14 @@ async function submitBulkUpload(e) {
     }
     $('#bulk-upload-form').reset()
     populateBulkUploadTargets()
+    // NOTE: don't refresh baseline-status here — the build hasn't finished
+    // yet, the server will only snapshot the baseline AFTER sb-validate
+    // succeeds in the worker. The actual refresh fires from streamJob's
+    // success branch when the SSE end-of-job event arrives.
+    // The form reset() above clears the radio default — re-tick Full + repaint
+    // so the labels return to their full-mode wording for the next upload.
+    const fullRadio = document.querySelector('input[name="bup-mode"][value="full"]')
+    if (fullRadio) { fullRadio.checked = true; applyBuildModeUI() }
   } catch (err) {
     $('#bup-error').textContent = err.message
   } finally {
@@ -1310,5 +1414,10 @@ async function submitBulkUpload(e) {
   }
 }
 $('#bulk-upload-form').addEventListener('submit', submitBulkUpload)
+
+// Mode toggle + initial baseline-status fetch. Fires once at boot so the
+// banner is populated before the operator picks a file. Subsequent changes
+// (clicking Full ↔ Patch) re-paint the file labels and re-fetch from cache.
+wireBuildModeToggle()
 
 init()
