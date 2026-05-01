@@ -50,13 +50,46 @@ const SUBSTEP_TO_PHASE = {
   'collect artifacts':            'collect',
 }
 
+// Phases for the "Build From Uploaded Source" flow. The operator uploads a
+// launcher-source zip, server-source zip, or both. We emit a separate phase
+// timeline because the steps and weights are different from the workspace-
+// clone build above (we install deps fresh, possibly twice, and skip the
+// workspace clone entirely — the source ZIP IS the workspace).
+//
+// When only one kind is uploaded the unrelated build phases simply never
+// emit; the bar still advances monotonically because each phase's weightSoFar
+// is computed from its own predecessors only (see weightSoFar() below).
+const SOURCE_PHASES = [
+  { id: 'sb-extract',          label: 'Extracting source archive',  weight: 0.04 },
+  { id: 'sb-validate',         label: 'Validating source shape',    weight: 0.01 },
+  { id: 'sb-install-launcher', label: 'Installing launcher deps',   weight: 0.12 },
+  { id: 'sb-rebrand-launcher', label: 'Rebranding launcher',        weight: 0.02 },
+  { id: 'sb-build-launcher',   label: 'Building launcher',          weight: 0.30 },
+  { id: 'sb-pack-launcher',    label: 'Packing launcher payload',   weight: 0.06 },
+  { id: 'sb-install-server',   label: 'Installing server deps',     weight: 0.10 },
+  { id: 'sb-rebrand-server',   label: 'Rebranding server',          weight: 0.02 },
+  { id: 'sb-build-server',     label: 'Building server',            weight: 0.22 },
+  { id: 'sb-pack-server',      label: 'Packing server payload',     weight: 0.06 },
+  { id: 'sb-publish',          label: 'Publishing to update server',weight: 0.05 },
+]
+
+// Combined lookup so phaseById works for both timelines without the caller
+// having to know which one owns the id.
+const ALL_PHASES = PHASES.concat(SOURCE_PHASES)
+
+
 function phaseById(id) {
-  return PHASES.find(p => p.id === id) || null
+  return ALL_PHASES.find(p => p.id === id) || null
 }
 
 function weightSoFar(id) {
+  // Compute weightSoFar within whichever timeline owns this phase id, so the
+  // progress bar is monotonic per-job (a source-build job never sees the
+  // workspace-clone phases and vice versa).
+  const inSource = SOURCE_PHASES.some(p => p.id === id)
+  const list = inSource ? SOURCE_PHASES : PHASES
   let acc = 0
-  for (const p of PHASES) {
+  for (const p of list) {
     if (p.id === id) return acc
     acc += p.weight
   }
@@ -69,6 +102,7 @@ function totalWeight() {
 
 module.exports = {
   PHASES,
+  SOURCE_PHASES,
   SUBSTEP_TO_PHASE,
   phaseById,
   weightSoFar,

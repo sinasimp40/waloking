@@ -611,6 +611,39 @@ button:disabled {
 .console-card.finished { opacity: .85; }
 .console-card .job-error-banner { margin: 10px 14px; }
 
+/* T005: Auto-clear countdown pill — appears in the card head when a SUCCESS
+   card starts its 15s self-destruct timer. Hovering the card or clicking
+   the inline "keep" link cancels the countdown (handled in admin.js). */
+.console-card .auto-clear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid rgba(52,211,153,0.25);
+  user-select: none;
+}
+.console-card .auto-clear-pill .auto-clear-keep {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+.console-card .auto-clear-pill .auto-clear-keep:hover { opacity: .8; }
+.console-card.fading-out {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+
 /* Per-build progress bar — Task #17, refined for premium look */
 .console-card .progress-block {
   padding: 12px 14px 14px;

@@ -137,3 +137,17 @@ Preferred communication style: Simple, everyday language.
 - **Self-hosted Windows RDP machine:** Required to run the OTA update server on port 4231.
 - **Windows Firewall:** Automatically configured by the `start.bat` script (requires one-time admin execution).
 - **No cloud services:** The system is entirely self-contained.
+
+## Recent Changes
+
+### 2026-05-01 — Build From Uploaded Source + admin UX hardening
+- **Replaced "Upload Pre-Built Update" with "Build From Uploaded Source"** in the OTA admin. Operator now uploads a launcher and/or server source `.zip`; the server extracts (with zip-slip refusal + 200 MB per-entry / 800 MB total caps), syncs each customer's logo, runs `scripts/rebrand.js`, runs `npm ci` + electron-builder, packs `win-unpacked/` to a payload zip, and ships it. Single customer or all customers; launcher-only / server-only / both supported.
+  - New module: `walok/update-server/source-build.js` (+ unit tests in `test-source-build.js`, 15/15 passing).
+  - New endpoint: `POST /api/admin/build-from-source` (per-channel inline-job fan-out via existing channel mutex, hard cancel-gate immediately before publish).
+  - Phases: extended `phases.js` with `SOURCE_PHASES` (sb-extract, sb-validate, sb-rebrand, sb-install-deps, sb-build, sb-pack, sb-publish).
+- **Auto-clear successful build cards** in the Build Consoles panel: 15s countdown pill, hover/focus/keep-click cancels, 200ms fade-out. FAILED and CANCELLED cards stay until the operator clicks "Clear Finished".
+- **Pre-existing pipeline fixes:**
+  - `writePayloadAndManifest` now writes `exeName` into the SERVER manifest (matches what `scripts/publish-update.js` expects).
+  - Version-monotonicity is now role-specific in both upload endpoints (launcher-only uploads not blocked by a newer server version, vice-versa).
+  - `job-runner.js` `runStep` gained an opt-in `minimalEnv:true` flag with a PATH/HOME/TEMP/etc. allowlist plus a PASSWORD/SECRET/TOKEN/API_KEY/OTA_ADMIN/REPLIT_DB deny-list. Trusted builds keep full env (preserves `INTEGRITY_BUILD_SECRET`, `CSC_LINK`); uploaded source gets scrubbed env so `OTA_ADMIN_PASSWORD` cannot leak to operator-supplied npm scripts.
+- **Deprecated** `/api/admin/upload-update` and `/api/admin/customers/:channel/upload-update` — kept alive for one release with `[deprecated]` log lines so external callers can migrate.

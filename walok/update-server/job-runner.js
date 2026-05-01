@@ -406,16 +406,60 @@ function finishJob(job, exitCode) {
 // Spawn a step inside the job's workspace. Uses detached:true on POSIX so we
 // can kill the entire process group (process.kill(-pid)). On Windows we use
 // taskkill /T /F /PID instead, which walks the child's tree.
+// Env keys that we never expose to subprocesses with `minimalEnv: true` even
+// if they slipped past the allowlist. These are admin/server secrets that
+// MUST NOT leak into uploaded source's lifecycle scripts (npm install hooks
+// can read process.env). The deny-list catches both our own OTA_ADMIN_*
+// names and well-known third-party patterns.
+const SECRET_ENV_PATTERNS = [/PASSWORD/i, /SECRET/i, /TOKEN/i, /API[_-]?KEY/i, /^OTA_ADMIN/i, /^REPLIT_DB/i]
+
+// Allowlist of env vars that must always be present for npm/electron-builder
+// to function on Windows or POSIX. Adding more here only widens what
+// minimal-env subprocesses see; it never widens what trusted-build commands
+// see (those use the default full-env path below).
+const MINIMAL_ENV_ALLOW = [
+  'PATH', 'Path', 'PATHEXT',
+  'HOME', 'USERPROFILE', 'USER', 'USERNAME', 'LOGNAME',
+  'TEMP', 'TMP', 'TMPDIR',
+  'SystemRoot', 'SystemDrive', 'COMSPEC',
+  'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData',
+  'APPDATA', 'LOCALAPPDATA', 'ALLUSERSPROFILE',
+  'NODE_ENV', 'NODE_PATH', 'npm_config_cache', 'npm_config_prefix',
+  'LANG', 'LC_ALL', 'LC_CTYPE',
+  'SHELL',
+]
+
+function buildMinimalEnv(extra) {
+  const out = {}
+  for (const k of MINIMAL_ENV_ALLOW) {
+    if (process.env[k] != null) out[k] = process.env[k]
+  }
+  // Extra keys from the caller (e.g. BUILD_VERSION) override allowlisted
+  // values — but we still scrub anything in the deny-list as a safety net.
+  for (const [k, v] of Object.entries(extra || {})) {
+    if (SECRET_ENV_PATTERNS.some(rx => rx.test(k))) continue
+    out[k] = v
+  }
+  return out
+}
+
 function runStep(job, cmd, args, opts) {
   const cwd = opts.cwd || job.workspace
   const useShell = opts.shell === true
   jobAppend(job, '$ ' + cmd + ' ' + args.join(' '))
+  // Source-build callers pass `minimalEnv: true` so the uploaded npm scripts
+  // can never read OTA_ADMIN_PASSWORD / DB URLs / API keys via process.env.
+  // Existing trusted build steps (build-customer.js, publish-update.js) keep
+  // the default full-env path so we don't surprise their assumptions.
+  const env = opts.minimalEnv
+    ? { ...buildMinimalEnv(opts.env || {}), FORCE_COLOR: '0' }
+    : { ...process.env, FORCE_COLOR: '0', ...(opts.env || {}) }
   let child
   try {
     child = spawn(cmd, args, {
       cwd,
       shell: useShell,
-      env: { ...process.env, FORCE_COLOR: '0', ...(opts.env || {}) },
+      env,
       // POSIX: new process group so we can kill the whole subtree at once.
       // Windows: detached has no kill-tree benefit; we use taskkill instead.
       detached: !IS_WIN,
@@ -698,6 +742,11 @@ module.exports = {
   setOnSlotChange,
   jobAppend,
   jobEmitPhase,
+  // Exposed so source-build.js can spawn its own steps (npm install, rebrand,
+  // electron-builder against uploaded source) with proper job.activeChild
+  // wiring (cancel kills the tree), live log capture, and minimalEnv:true
+  // (no admin password / API keys leak into uploaded npm scripts).
+  runStep,
   // exported for unit tests + scripts/build-customer.js EPERM fix
   rmrfWithRetry,
   createJobWorkspace,

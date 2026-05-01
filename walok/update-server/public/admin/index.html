@@ -65,10 +65,10 @@
 
     <section class="panel full">
       <div class="panel-head">
-        <h2>Upload Pre-Built Update</h2>
+        <h2>Build From Uploaded Source</h2>
       </div>
       <div class="panel-body">
-        <p class="muted small">Push a launcher and/or server payload built outside this admin (e.g. on a stronger workstation). Choose a single customer or all customers — the file is staged, becomes the new <code>latest.json</code> for the chosen channel(s), and any online installs are notified instantly. Progress streams to the build console below.</p>
+        <p class="muted small">Upload the launcher and/or server <strong>source</strong> as a .zip — this server installs dependencies, rebrands per customer (logo + brand name + subtitle), runs electron-builder, packs the resulting payload, and ships it to the chosen channel(s). Any online installs are notified instantly. Leave a slot empty to skip that side: launcher-only, server-only, or both. Progress streams to the build consoles below.</p>
         <form id="bulk-upload-form" class="bulk-upload-row">
           <label>Target
             <select id="bup-target" required>
@@ -78,19 +78,19 @@
           <label>Version <span class="hint">x.y.z</span>
             <input type="text" id="bup-version" pattern="\d+\.\d+\.\d+" placeholder="1.2.3" required />
           </label>
-          <label>Launcher Zip
+          <label>Launcher Source (.zip) <span class="hint">optional — repo root with package.json + electron/main.js</span>
             <input type="file" id="bup-launcher" accept=".zip,application/zip" />
           </label>
-          <label>Server Zip
+          <label>Server Source (.zip) <span class="hint">optional — repo root with server/package.json</span>
             <input type="file" id="bup-server" accept=".zip,application/zip" />
           </label>
           <label>Notes <span class="hint">optional</span>
             <input type="text" id="bup-notes" />
           </label>
-          <p class="hint">Version must be strictly newer than what is currently shipped to the chosen target(s). To re-issue a payload, bump the version first.</p>
-          <button type="submit" class="btn-primary">Upload Update</button>
+          <p class="hint">Version must be strictly newer than the chosen target's currently shipped version <em>for the role being uploaded</em> (launcher-only uploads are not blocked by a newer server version, and vice-versa). To re-issue, bump the version.</p>
+          <button type="submit" class="btn-primary">Build &amp; Ship</button>
         </form>
-        <div id="bup-busy" class="muted hidden">Uploading… please wait.</div>
+        <div id="bup-busy" class="muted hidden">Building… please wait. This can take several minutes per customer.</div>
         <div id="bup-error" class="error"></div>
       </div>
     </section>

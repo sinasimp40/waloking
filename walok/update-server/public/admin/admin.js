@@ -485,6 +485,7 @@ function ensureConsoleCard(jobId, label) {
     elapsedTimer: null,
     startedAt: null,
   }
+  rec._jobId = jobId
   consoleCards.set(jobId, rec)
   updateClearFinishedButton()
   return rec
@@ -707,6 +708,11 @@ function streamJob(jobId, label) {
         stopElapsedTicker(rec)
         updateClearFinishedButton()
         loadCustomers()
+        // T005: Only successful builds auto-clear. Failed/cancelled cards
+        // stay so the operator never misses a failure. startAutoClear is a
+        // no-op if the card is already marked failed/cancelled, so this is
+        // safe even if the success branch above didn't run.
+        if (ok) startAutoClear(rec)
         return
       }
       // Task #17: structured phase event drives the progress bar.
@@ -743,6 +749,7 @@ function updateClearFinishedButton() {
 function clearFinishedConsoles() {
   for (const [id, rec] of Array.from(consoleCards.entries())) {
     if (rec.finished) {
+      stopAutoClear(rec)
       rec.card.remove()
       consoleCards.delete(id)
     }
@@ -751,6 +758,86 @@ function clearFinishedConsoles() {
   if (consoleCards.size === 0) {
     const empty = document.getElementById('consoles-empty')
     if (empty) empty.classList.remove('hidden')
+  }
+}
+
+// T005: Auto-clear successful build consoles after 15s of no interaction.
+// Failed/cancelled cards are EXEMPT — they stay until the operator clicks
+// "Clear Finished" so failures cannot be missed. Hovering or focusing the
+// card cancels the countdown; clicking the inline "keep" link does the same.
+const AUTO_CLEAR_SECONDS = 15
+const AUTO_CLEAR_FADE_MS = 200
+
+function startAutoClear(rec) {
+  if (!rec || !rec.finished) return
+  if (rec.card.classList.contains('failed') || rec.card.classList.contains('cancelled')) return
+  if (rec.autoClearTimer) return // already running
+
+  const head = rec.card.querySelector('.console-card-head')
+  if (!head) return
+  // Drop any stale pill from a previous start (defensive — shouldn't happen).
+  const old = head.querySelector('.auto-clear-pill')
+  if (old) old.remove()
+
+  let remaining = AUTO_CLEAR_SECONDS
+  const pill = document.createElement('span')
+  pill.className = 'auto-clear-pill'
+  pill.innerHTML = '<span class="auto-clear-text">Auto-clear in ' + remaining + 's</span> · ' +
+                   '<button type="button" class="auto-clear-keep" title="Cancel auto-clear and keep this card">keep</button>'
+  // Insert before the cancel button (which is hidden on finished cards) so
+  // the pill sits next to the status pill.
+  const cancelBtn = head.querySelector('.console-card-cancel')
+  if (cancelBtn) head.insertBefore(pill, cancelBtn); else head.appendChild(pill)
+  rec.autoClearPill = pill
+  const textEl = pill.querySelector('.auto-clear-text')
+
+  // Clicking the inline "keep" link — or hovering / focusing the card —
+  // cancels the countdown. We bind hover/focus on the CARD (not the pill)
+  // so any operator interaction with the card pins it.
+  const cancelHandler = () => stopAutoClear(rec)
+  pill.querySelector('.auto-clear-keep').addEventListener('click', (e) => {
+    e.preventDefault()
+    cancelHandler()
+  })
+  rec.autoClearHoverHandler = cancelHandler
+  rec.card.addEventListener('mouseenter', cancelHandler, { once: true })
+  rec.card.addEventListener('focusin', cancelHandler, { once: true })
+
+  rec.autoClearTimer = setInterval(() => {
+    remaining -= 1
+    if (remaining > 0) {
+      if (textEl) textEl.textContent = 'Auto-clear in ' + remaining + 's'
+      return
+    }
+    // Time's up — fade then remove. Stop the interval first so a slow tab
+    // can't tick again mid-fade.
+    clearInterval(rec.autoClearTimer)
+    rec.autoClearTimer = null
+    rec.card.classList.add('fading-out')
+    setTimeout(() => {
+      // The user may have clicked "Clear Finished" during the 200ms fade,
+      // which already removed the card. Guard against double-remove.
+      if (consoleCards.has(rec._jobId)) {
+        rec.card.remove()
+        consoleCards.delete(rec._jobId)
+      }
+      updateClearFinishedButton()
+      if (consoleCards.size === 0) {
+        const empty = document.getElementById('consoles-empty')
+        if (empty) empty.classList.remove('hidden')
+      }
+    }, AUTO_CLEAR_FADE_MS)
+  }, 1000)
+}
+
+function stopAutoClear(rec) {
+  if (!rec) return
+  if (rec.autoClearTimer) { clearInterval(rec.autoClearTimer); rec.autoClearTimer = null }
+  if (rec.autoClearPill) { rec.autoClearPill.remove(); rec.autoClearPill = null }
+  if (rec.autoClearHoverHandler) {
+    rec.card.removeEventListener('mouseenter', rec.autoClearHoverHandler)
+    rec.card.removeEventListener('focusin', rec.autoClearHoverHandler)
+    rec.autoClearHoverHandler = null
   }
 }
 
@@ -1150,7 +1237,10 @@ $('#upload-modal').addEventListener('click', (e) => {
   if (e.target === $('#upload-modal')) closeUploadModal()
 })
 
-// ---- Top-level bulk UPLOAD UPDATE form ----
+// ---- Top-level BUILD FROM UPLOADED SOURCE form ----
+// Posts to /api/admin/build-from-source which fans out one job per customer
+// when target=__all__. Response shape mirrors /api/admin/build:
+// { jobs: [{jobId, channel, version, status, queuePosition}, ...], jobIds:[...] }
 async function submitBulkUpload(e) {
   e.preventDefault()
   const target = $('#bup-target').value
@@ -1158,11 +1248,14 @@ async function submitBulkUpload(e) {
   const launcher = $('#bup-launcher').files[0] || null
   const server = $('#bup-server').files[0] || null
   const notes = $('#bup-notes').value.trim()
+  const submitBtn = $('#bulk-upload-form').querySelector('button[type="submit"]')
+  const submitBtnLabel = submitBtn ? submitBtn.textContent : null
   $('#bup-error').textContent = ''
   if (!target) { $('#bup-error').textContent = 'choose a target'; return }
   if (!/^\d+\.\d+\.\d+$/.test(version)) { $('#bup-error').textContent = 'version must be x.y.z'; return }
-  if (!launcher && !server) { $('#bup-error').textContent = 'pick at least one zip'; return }
+  if (!launcher && !server) { $('#bup-error').textContent = 'pick at least one source zip'; return }
   $('#bup-busy').classList.remove('hidden')
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Building…' }
   try {
     const fd = new FormData()
     fd.append('target', target)
@@ -1170,16 +1263,31 @@ async function submitBulkUpload(e) {
     if (notes) fd.append('notes', notes)
     if (launcher) fd.append('launcher', launcher)
     if (server) fd.append('server', server)
-    const res = await fetch('/api/admin/upload-update', { method: 'POST', body: fd, credentials: 'same-origin' })
+    const res = await fetch('/api/admin/build-from-source', { method: 'POST', body: fd, credentials: 'same-origin' })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || ('http ' + res.status))
-    streamJob(data.jobId, target === '__all__' ? 'Upload Update → All' : 'Upload Update → ' + target)
+
+    // Match /api/admin/build's fan-out shape: prefer data.jobs[], fall back
+    // to the single-job convenience fields for back-compat with single-target
+    // responses.
+    const jobs = Array.isArray(data.jobs) ? data.jobs : (data.jobId ? [{
+      jobId: data.jobId,
+      channel: target,
+      version,
+      status: data.status,
+    }] : [])
+    if (jobs.length === 0) throw new Error('server returned no job ids')
+    for (const j of jobs) {
+      const ch = j.channel || (target === '__all__' ? 'all' : target)
+      streamJob(j.jobId, 'Build From Source → ' + ch)
+    }
     $('#bulk-upload-form').reset()
     populateBulkUploadTargets()
   } catch (err) {
     $('#bup-error').textContent = err.message
   } finally {
     $('#bup-busy').classList.add('hidden')
+    if (submitBtn) { submitBtn.disabled = false; if (submitBtnLabel) submitBtn.textContent = submitBtnLabel }
   }
 }
 $('#bulk-upload-form').addEventListener('submit', submitBulkUpload)
