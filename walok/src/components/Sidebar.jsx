@@ -444,7 +444,7 @@ function Announcement() {
         <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold">Announcement</span>
       </div>
       {announcement && (
-        <div className="bg-dark-400/50 border border-neon-orange/10 rounded-lg p-2.5 max-h-[140px] overflow-y-auto sidebar-scroll">
+        <div className="bg-dark-400/50 border border-neon-orange/10 rounded-lg p-2.5">
           <div className="text-[11px] font-rajdhani text-white/90 leading-relaxed break-words">
             <SidebarBBCode text={announcement} />
           </div>
