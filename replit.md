@@ -191,3 +191,43 @@ Preferred communication style: Simple, everyday language.
     disabled customer.
   - Added `:focus-visible` outline on `.cc-toggle` (uses --accent-ring,
     matching the form-field focus style) for keyboard-only users.
+
+### 2026-05-01 (polish round) — Card visual richness + balanced action bar
+After live operator feedback ("too dry" + "buttons not balanced — Delete
+drops to its own row" + "looks like an overlay issue on the file-missing
+warning"), the customer card was tightened up:
+- **Brand initial avatar** (`.cc-avatar`): each card now leads with a 38px
+  rounded-square badge showing the first letter of the brand name. The
+  background gradient is picked from an 8-palette set hashed off the
+  channel string (orange / blue / emerald / violet / pink / teal / amber /
+  red), so every customer is instantly visually distinct without the
+  operator having to upload a logo. Stable across reloads (deterministic
+  hash). Header layout is now `[avatar | name + channel pill] —
+  [On/Off switch]` with center alignment.
+- **Version mini-card hierarchy fix:** the `[file missing — rebuild]`
+  warning used to be inlined on the same line as `v1.0.0` with
+  `white-space: nowrap`, which truncated to "[file miss…" and looked
+  like overlay corruption. Each `.cc-vbox` now has three rows:
+  `.cc-vbox-head` (label + status dot), `.cc-vbox-version` (just the
+  version number), and `.cc-vbox-status` (download link / file-missing
+  warning / rebump pill — wraps freely, no overlap).
+- **At-a-glance status dot** (`.cc-vbox-dot`): tiny 7px circle in each
+  mini-card header — green-with-glow when a payload is shipped, amber
+  when version is recorded but the payload zip is missing (publish
+  crashed mid-way), faint gray when nothing is published yet.
+- **Balanced action bar**: replaced the wrap-overflow flex layout (where
+  Delete was orphaned on a second row) with an explicit 3×2 CSS grid:
+  - Row 1: `[ Edit ] [ ⚡ Build (spans 2 cols, primary CTA) ]`
+  - Row 2: `[ Launcher ] [ Server ] [ Delete ]`
+  - All buttons same height, full-cell width, no wrapping. The Build
+    button gets a subtle gradient + soft orange glow shadow so the
+    operator's eye lands on it first.
+- **Visual polish**: subtle top-down inner gradient on `.cc-vbox` so the
+  mini-cards look slightly inset, plus a hover border-color change for
+  micro-feedback on the version cards.
+- **Verification**: e2e Playwright run reverified end-to-end and asserted
+  the new layout via getBoundingClientRect — Build's left edge starts
+  where Edit's right edge ends, Build's right edge aligns with Delete's
+  right edge, Launcher and Server are vertically stacked with Edit and
+  Build, Delete is on row 2 col 3, and no button wraps to a 3rd row.
+  10/10 npm tests still green.

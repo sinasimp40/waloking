@@ -630,15 +630,28 @@ function renderCustomer(c) {
     const tip = `This version was re-shipped ${count} time${count === 1 ? '' : 's'} via Build From Uploaded Source. Most recent: ${when}.`
     return ` <span class="rebump-pill" title="${escapeHtml(tip)}">⟳ rebump ×${count} · ${escapeHtml(when)}</span>`
   }
-  // Build the inner HTML for a single version mini-card. When no version has
-  // been published yet, render a muted placeholder so the box still has the
-  // same height — keeps the two-column versions row tidy.
-  function vboxInner(version, dl, rebump) {
-    if (!version) return '<em>no update yet</em>'
-    return `v${escapeHtml(version)}${dl}${rebump}`
+  // Build a version mini-card. Splits the previous one-line layout into:
+  //   row 1: cc-vbox-head      → uppercase label + status dot
+  //   row 2: cc-vbox-version   → "v1.2.3" or "no update yet" (single line)
+  //   row 3: cc-vbox-status    → [download] / [file missing — rebuild] /
+  //                              rebump pill (wraps freely so long warnings
+  //                              don't truncate or overlap the version)
+  function vboxBody(version, dl, rebump, fileExists) {
+    let dotClass = 'is-empty'
+    if (version) dotClass = fileExists ? 'is-shipped' : 'is-warn'
+    const versionLine = version
+      ? `v${escapeHtml(version)}`
+      : '<em>no update yet</em>'
+    // dl is already a fragment (' <a>…</a>' or ' <span>…</span>'); strip the
+    // leading space so the status block starts cleanly when present.
+    const statusBits = (dl + rebump).trim()
+    const statusLine = statusBits
+      ? `<div class="cc-vbox-status">${statusBits}</div>`
+      : '<div class="cc-vbox-status"></div>'
+    return { versionLine, statusLine, dotClass }
   }
-  const launcherInner = vboxInner(c._launcherVersion, launcherDl, rebumpPill(c._launcherRebumpCount, c._launcherRebumpAt))
-  const serverInner   = vboxInner(c._serverVersion,   serverDl,   rebumpPill(c._serverRebumpCount,   c._serverRebumpAt))
+  const lv = vboxBody(c._launcherVersion, launcherDl, rebumpPill(c._launcherRebumpCount, c._launcherRebumpAt), c._launcherFileExists)
+  const sv = vboxBody(c._serverVersion,   serverDl,   rebumpPill(c._serverRebumpCount,   c._serverRebumpAt),   c._serverFileExists)
 
   // "Last release" reflects the most recent publish event across launcher OR
   // server (rebumps update those timestamps too), so the operator immediately
@@ -671,12 +684,22 @@ function renderCustomer(c) {
     ? 'Updates ENABLED. Click to stop sending OTA updates to this customer.'
     : 'Updates DISABLED. Click to resume sending OTA updates to this customer.'
 
+  // Avatar — first letter of the brand name (fallback to first letter of
+  // channel) with a stable per-channel gradient so each customer card has a
+  // visually distinct identity at a glance.
+  const displayName = c.brandName || c.channel
+  const initial = (displayName || '?').trim().charAt(0).toUpperCase()
+  const grad = _avatarGradient(c.channel)
+
   return `
   <div class="${cardClasses}" data-channel="${escapeHtml(c.channel)}">
     <div class="cc-header">
-      <div class="cc-title-block">
-        <div class="cc-name" title="${escapeHtml(c.brandName || c.channel)}">${escapeHtml(c.brandName || c.channel)}</div>
-        <div class="cc-channel-pill" title="${escapeHtml(c.channel)}">${escapeHtml(c.channel)}</div>
+      <div class="cc-id-block">
+        <div class="cc-avatar" style="--cc-avatar-1:${grad[0]};--cc-avatar-2:${grad[1]};" aria-hidden="true">${escapeHtml(initial)}</div>
+        <div class="cc-title-block">
+          <div class="cc-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</div>
+          <div class="cc-channel-pill" title="${escapeHtml(c.channel)}">${escapeHtml(c.channel)}</div>
+        </div>
       </div>
       <div class="${toggleClass}" data-action="toggle-updates" role="switch" aria-checked="${updatesEnabled}" tabindex="0" title="${escapeHtml(toggleTitle)}">
         <span class="cc-toggle-label">${toggleLabel}</span>
@@ -687,12 +710,20 @@ function renderCustomer(c) {
     ${warnBlock}
     <div class="cc-versions">
       <div class="cc-vbox cc-vbox-launcher">
-        <div class="cc-vbox-label">Launcher</div>
-        <div class="cc-vbox-version">${launcherInner}</div>
+        <div class="cc-vbox-head">
+          <div class="cc-vbox-label">Launcher</div>
+          <span class="cc-vbox-dot ${lv.dotClass}" aria-hidden="true"></span>
+        </div>
+        <div class="cc-vbox-version">${lv.versionLine}</div>
+        ${lv.statusLine}
       </div>
       <div class="cc-vbox cc-vbox-server">
-        <div class="cc-vbox-label">Server</div>
-        <div class="cc-vbox-version">${serverInner}</div>
+        <div class="cc-vbox-head">
+          <div class="cc-vbox-label">Server</div>
+          <span class="cc-vbox-dot ${sv.dotClass}" aria-hidden="true"></span>
+        </div>
+        <div class="cc-vbox-version">${sv.versionLine}</div>
+        ${sv.statusLine}
       </div>
     </div>
     <div class="cc-meta">
@@ -702,13 +733,33 @@ function renderCustomer(c) {
       <div class="cc-meta-line"><strong>Last release</strong>${escapeHtml(released)}</div>
     </div>
     <div class="cc-action-bar">
-      <button class="btn-secondary small" data-action="edit">Edit</button>
-      <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship BOTH launcher and server for this customer using the master source on disk.">Build</button>
+      <button class="btn-secondary small" data-action="edit" title="Edit this customer's brand, subtitle, logo, and update-server URL.">Edit</button>
+      <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship BOTH launcher and server for this customer using the master source on disk.">⚡ Build</button>
       <button class="btn-secondary small" data-action="build-launcher" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the launcher (skips the server electron-builder substep).">Launcher</button>
       <button class="btn-secondary small" data-action="build-server" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the server (skips the vite + launcher electron-builder substep).">Server</button>
-      <button class="btn-danger" data-action="delete">Delete</button>
+      <button class="btn-danger" data-action="delete" title="Permanently remove this customer + all of its published payloads.">Delete</button>
     </div>
   </div>`
+}
+
+// Pick a stable gradient for a customer avatar based on a hash of the
+// channel string. 8 curated dark-friendly palettes — every customer always
+// gets the same colors across reloads, but two adjacent cards rarely clash.
+function _avatarGradient(channel) {
+  const palettes = [
+    ['#ff6b00', '#ff9248'], // orange (brand default)
+    ['#3b82f6', '#60a5fa'], // blue
+    ['#10b981', '#34d399'], // emerald
+    ['#a855f7', '#c084fc'], // violet
+    ['#ec4899', '#f472b6'], // pink
+    ['#14b8a6', '#5eead4'], // teal
+    ['#f59e0b', '#fbbf24'], // amber
+    ['#ef4444', '#f87171'], // red
+  ]
+  let h = 0
+  const s = String(channel || '')
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return palettes[Math.abs(h) % palettes.length]
 }
 
 function bindCustomerActions() {
