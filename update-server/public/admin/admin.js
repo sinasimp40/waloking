@@ -19,7 +19,16 @@ const state = {
   // Last queue snapshot, used by the cancel-button click handler to avoid an
   // extra round-trip when the operator cancels a queued (not-yet-running) job.
   lastQueueSnapshot: { queue: { active: [], queued: [], maxConcurrent: 2 }, jobs: [] },
+  // ---- Customers list filter + pagination state -------------------
+  // Search query is a free-text substring matched (case-insensitively) against
+  // channel, brandName, and subtitle. Page is 1-based; CUSTOMER_PAGE_SIZE
+  // controls how many cards render per page (12 = comfortable 3-4 column
+  // grid that fits on one viewport without scrolling on a 1080p admin
+  // monitor). Both reset to defaults when state.customers is reloaded.
+  customerSearch: '',
+  customerPage: 1,
 }
+const CUSTOMER_PAGE_SIZE = 12
 
 async function api(method, path, body, isForm) {
   const opts = { method, credentials: 'include', headers: {} }
@@ -170,6 +179,16 @@ async function loadCustomers() {
     refreshSourceStatus()
     if (state.customers.length === 0) {
       list.innerHTML = '<div class="muted">No customers yet. Click "+ Add Customer" to create the first one.</div>'
+      // Fully reset toolbar/pagination state so a stale filter from a previous
+      // session never silently hides newly-added customers.
+      state.customerSearch = ''
+      state.customerPage = 1
+      const searchInput = $('#customer-search')
+      if (searchInput) searchInput.value = ''
+      const countEl = $('#customer-count')
+      if (countEl) countEl.textContent = ''
+      const pagEl = $('#customer-pagination')
+      if (pagEl) pagEl.classList.add('hidden')
       return
     }
     renderCustomerList()
@@ -391,10 +410,79 @@ async function submitUpdateSource(form) {
   }
 }
 
+// Filter state.customers by the current search query. Case-insensitive
+// substring match across channel, brandName, and subtitle. Empty query
+// returns all customers unmodified.
+function _filteredCustomers() {
+  const q = (state.customerSearch || '').trim().toLowerCase()
+  if (!q) return state.customers
+  return state.customers.filter(c => {
+    const fields = [c.channel, c.brandName, c.subtitle].map(v => String(v || '').toLowerCase())
+    return fields.some(f => f.includes(q))
+  })
+}
+
+// Render the customer list with search + pagination applied. Three states:
+//   - state.customers empty                 → upstream loadCustomers() owns
+//                                             the empty message (not us).
+//   - filter returns nothing                → "No customers match …" + Clear.
+//   - happy path                            → slice into the current page,
+//                                             render cards, render footer.
 function renderCustomerList() {
   const list = $('#customer-list')
-  list.innerHTML = state.customers.map(renderCustomer).join('')
-  bindCustomerActions()
+  const countEl = $('#customer-count')
+  const pagEl = $('#customer-pagination')
+  const prevBtn = $('#customer-prev')
+  const nextBtn = $('#customer-next')
+  const infoEl = $('#customer-pageinfo')
+
+  const filtered = _filteredCustomers()
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / CUSTOMER_PAGE_SIZE))
+  // Clamp page in case state.customers shrunk (delete) below current page.
+  if (state.customerPage > totalPages) state.customerPage = totalPages
+  if (state.customerPage < 1) state.customerPage = 1
+  const start = (state.customerPage - 1) * CUSTOMER_PAGE_SIZE
+  const slice = filtered.slice(start, start + CUSTOMER_PAGE_SIZE)
+
+  if (total === 0 && (state.customerSearch || '').trim()) {
+    list.innerHTML = `<div class="customer-empty">No customers match "${escapeHtml(state.customerSearch)}". <button type="button" class="btn-secondary small" id="customer-clear-search">Clear search</button></div>`
+    const clearBtn = document.getElementById('customer-clear-search')
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      state.customerSearch = ''
+      const input = $('#customer-search')
+      if (input) input.value = ''
+      state.customerPage = 1
+      renderCustomerList()
+    })
+  } else {
+    list.innerHTML = slice.map(renderCustomer).join('')
+    bindCustomerActions()
+  }
+
+  // Count badge: "12 customers" or "3 of 24 customers" when filtering.
+  if (countEl) {
+    if ((state.customerSearch || '').trim() && total !== state.customers.length) {
+      countEl.textContent = `${total} of ${state.customers.length} customers`
+    } else {
+      countEl.textContent = `${state.customers.length} customer${state.customers.length === 1 ? '' : 's'}`
+    }
+  }
+
+  // Pagination footer: only show when there's more than one page.
+  if (pagEl) {
+    if (totalPages > 1) {
+      pagEl.classList.remove('hidden')
+      if (infoEl) {
+        const last = Math.min(start + CUSTOMER_PAGE_SIZE, total)
+        infoEl.textContent = `Page ${state.customerPage} of ${totalPages} · showing ${start + 1}–${last} of ${total}`
+      }
+      if (prevBtn) prevBtn.disabled = state.customerPage <= 1
+      if (nextBtn) nextBtn.disabled = state.customerPage >= totalPages
+    } else {
+      pagEl.classList.add('hidden')
+    }
+  }
 }
 
 function escapeHtml(s) {
@@ -1406,6 +1494,50 @@ $('#logout-btn').addEventListener('click', async () => {
 $('#bump-version-btn').addEventListener('click', () => bumpVersion(false))
 $('#build-all-btn').addEventListener('click', () => triggerBuild({ all: true }))
 $('#add-customer-btn').addEventListener('click', () => openCustomerModal(null))
+
+// ---- Customers: search (debounced) + pagination wiring -----------
+// Search debounces 150ms so each keystroke does NOT re-render the grid.
+// Hitting Enter forces an immediate render. Any input change resets to
+// page 1 so the operator never lands on an empty page mid-search.
+{
+  const searchInput = $('#customer-search')
+  if (searchInput) {
+    let _searchTimer = null
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(_searchTimer)
+      _searchTimer = setTimeout(() => {
+        state.customerSearch = e.target.value
+        state.customerPage = 1
+        renderCustomerList()
+      }, 150)
+    })
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        clearTimeout(_searchTimer)
+        state.customerSearch = e.target.value
+        state.customerPage = 1
+        renderCustomerList()
+      } else if (e.key === 'Escape' && e.target.value) {
+        e.preventDefault()
+        e.target.value = ''
+        state.customerSearch = ''
+        state.customerPage = 1
+        renderCustomerList()
+      }
+    })
+  }
+  const prevBtn = $('#customer-prev')
+  if (prevBtn) prevBtn.addEventListener('click', () => {
+    if (state.customerPage > 1) { state.customerPage--; renderCustomerList() }
+  })
+  const nextBtn = $('#customer-next')
+  if (nextBtn) nextBtn.addEventListener('click', () => {
+    state.customerPage++
+    renderCustomerList()
+  })
+}
+
 $('#cm-cancel').addEventListener('click', closeCustomerModal)
 $('#customer-form').addEventListener('submit', saveCustomer)
 $('#cm-logo-upload').addEventListener('change', autoFillLogoPathFromUpload)

@@ -149,8 +149,17 @@
         <button id="add-customer-btn" class="btn-secondary small">+ Add Customer</button>
       </div>
       <div class="panel-body">
-        <div id="customer-list" class="customer-grid">
+        <div class="customer-toolbar">
+          <input type="search" id="customer-search" class="customer-search" placeholder="Search by name, channel, or subtitle…" autocomplete="off" />
+          <span class="customer-count muted small" id="customer-count"></span>
+        </div>
+        <div id="customer-list" class="customer-grid customer-list-scroll">
           <div class="muted">Loading customers…</div>
+        </div>
+        <div class="customer-pagination hidden" id="customer-pagination">
+          <button type="button" class="btn-secondary small" id="customer-prev">‹ Prev</button>
+          <span class="customer-pageinfo muted small" id="customer-pageinfo"></span>
+          <button type="button" class="btn-secondary small" id="customer-next">Next ›</button>
         </div>
       </div>
     </section>

@@ -94,3 +94,30 @@ Preferred communication style: Simple, everyday language.
 - **Self-hosted Windows RDP machine:** Required for the OTA update server.
 - **Windows Firewall:** Automatically configured.
 - **No cloud services:** Entirely self-contained.
+
+## Recent Changes
+
+### 2026-05-01 — UX cleanup: hide "OTA" text + compact, searchable Customers panel
+- **Launcher + companion server:** removed the user-facing "OTA" word from the
+  launcher update modal kicker (`walok/src/components/UpdateModal.jsx`) and
+  the in-game companion server's update overlay (`walok/server/src/dashboard.html`).
+  The kicker now shows just the brand name (or "Update" when no brand is set).
+  All remaining "OTA" mentions are in code comments only. The admin panel
+  intentionally still uses "OTA SYSTEM" as it is operator-only.
+- **Admin Customers panel** (`update-server/public/admin/`):
+  - Cards are now more compact: column min/max shrunk from `320px–460px`
+    to `240px–320px`, gap from 14 → 12, card padding from 18 → 14.
+  - List has `max-height:70vh; overflow-y:auto` so even a long list never
+    pushes the rest of the admin UI off-screen.
+  - New toolbar above the grid: search input + result count badge.
+  - New pagination footer below the grid (page size 12; only shown when
+    >1 page of matches).
+  - Search is case-insensitive on `channel`, `brandName`, and `subtitle`,
+    debounced 150 ms; Enter forces immediate render, Escape clears.
+  - Empty-state ("No customers match …") includes a Clear button.
+  - When a delete drops the customer count to 0, the toolbar/search state
+    is fully reset so a stale filter can never hide newly-added customers.
+- **Verification:** `update-server` test suite still 10/10 green; e2e
+  Playwright run confirmed login → search "zzznomatch" → empty state →
+  Clear → search "example" → customer card visible. Architect review:
+  PASS, no high/severe defects.

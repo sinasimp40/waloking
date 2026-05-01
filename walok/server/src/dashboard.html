@@ -585,7 +585,7 @@
   <div class="ota-overlay" id="otaOverlay">
     <div class="ota-card" id="otaCard">
       <div class="ota-card-scan"></div>
-      <div class="ota-kicker" id="otaKicker">OTA</div>
+      <div class="ota-kicker" id="otaKicker">Update</div>
       <h2 class="ota-title" id="otaTitle">Update</h2>
       <div class="ota-subtitle" id="otaSubtitle"></div>
       <div class="ota-progress-wrap">
@@ -866,7 +866,7 @@
           if (s && typeof s.brand === 'string' && s.brand.trim()) {
             otaBrand = s.brand.trim()
             const k = document.getElementById('otaKicker')
-            if (k) k.textContent = otaBrand + ' • OTA'
+            if (k) k.textContent = otaBrand
           }
         })
         .catch(() => {})

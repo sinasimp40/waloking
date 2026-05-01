@@ -690,14 +690,24 @@ button:disabled {
  * readable rather than ballooning. */
 .customer-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 460px));
-  gap: 14px;
+  /* Tighter columns: min 240px, max ~320px so 3-4 cards fit per row at common
+   * widths without forcing each card to balloon when only one or two exist. */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
+  gap: 12px;
+}
+/* Cap the visible list area so even an unfiltered, paginated page never makes
+ * the whole admin UI scroll forever. With pagination active (page size 12),
+ * the list rarely overflows; this is a safety net. */
+.customer-list-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .customer-card {
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  padding: 18px;
+  padding: 14px;
   transition: border-color .15s, transform .15s, box-shadow .15s;
   display: flex;
   flex-direction: column;
@@ -732,10 +742,18 @@ button:disabled {
 }
 .customer-card .placeholder-warn strong { color: var(--warning); }
 .customer-card .meta {
-  margin-top: 12px;
-  font-size: 12.5px;
+  margin-top: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.55;
+}
+.customer-card .meta > div {
+  /* Truncate very long server URLs / logo paths instead of letting them blow
+   * out the now-narrower card width. Hover via title attribute already shows
+   * the full value when needed; renderer adds title on long fields. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .customer-card .meta strong { color: var(--text); font-weight: 600; }
 .customer-card .meta .dl-link {
@@ -774,6 +792,61 @@ button:disabled {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+}
+
+/* ============ CUSTOMER TOOLBAR (search + count) + PAGINATION ============ */
+.customer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.customer-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-elev-1);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  transition: border-color .12s, box-shadow .12s;
+}
+.customer-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.customer-search::placeholder { color: var(--text-faint); }
+.customer-count { flex: 0 0 auto; white-space: nowrap; }
+
+.customer-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.customer-pagination.hidden { display: none; }
+.customer-pagination button[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.customer-pageinfo { font-family: var(--font-mono); }
+
+/* "No results match search" empty state inside the grid. */
+.customer-empty {
+  grid-column: 1 / -1;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.customer-empty button {
+  margin-left: 8px;
 }
 
 /* ============ CONSOLE ============ */

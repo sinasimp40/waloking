@@ -270,7 +270,7 @@ export default function UpdateModal() {
             textTransform: 'uppercase',
             fontWeight: 600,
           }}>
-            {brand ? `${brand} • OTA` : 'OTA'}
+            {brand || 'Update'}
           </span>
         </div>
 
