@@ -39,7 +39,7 @@ const useStore = create(
         logo: null,
         bannerImage: null,
         splashImage: null,
-        accentColor: '#ff6a00',
+        accentColor: null,
         uiZoom: 100,
         autoCloseOnLaunch: false,
         secretKey: ADMIN_SECRET_KEY,
