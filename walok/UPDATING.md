@@ -24,7 +24,12 @@ You can manage everything from the **web admin panel** at `http://<YOUR-RDP-IP>:
 
 1. Browse to `http://<YOUR-RDP-IP>:4231/admin/` (or `http://localhost:4231/admin/` from the RDP itself).
 2. **Login password:**
-   - The server requires the `OTA_ADMIN_PASSWORD` environment variable to be set. Set it before launching `start.bat` (for example, in a `.env` file loaded by your start script, or with `set OTA_ADMIN_PASSWORD=your-password-here` in the same console window before running `node server.js`).
+   - The server requires the `OTA_ADMIN_PASSWORD` environment variable to be set. Set it before launching `start.bat` — open a CMD window in `update-server/` and run:
+     ```bat
+     set OTA_ADMIN_PASSWORD=admin
+     node server.js
+     ```
+     (Replace `admin` with whatever password you want. Use at least 8 characters in production.)
    - If `OTA_ADMIN_PASSWORD` is missing the server refuses to boot and prints a clear error — there is no auto-generated password file.
    - To change it, set a new value for `OTA_ADMIN_PASSWORD` and restart `start.bat`.
 3. After 5 wrong password attempts the panel locks that IP for 5 minutes — wait it out.
