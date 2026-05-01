@@ -401,14 +401,55 @@ button:disabled {
 .deps-pill.partial { background: var(--warning-soft); color: var(--warning); border-color: rgba(251,191,36,0.25); }
 .deps-pill.missing { background: var(--error-soft);   color: var(--error);   border-color: rgba(248,113,113,0.25); }
 
+/* ============ WORKSPACE SHELL ============
+   Two-column layout: the main grid on the left holds the operator's
+   primary actions (version control, customers, source-build form), while
+   the right-hand dock-sidebar pins the live build operations (queue +
+   consoles). The sidebar is independently scrollable and stays put as
+   the operator scrolls the main column — so a long customer list never
+   buries the running builds. Below the 1200px breakpoint the sidebar
+   reflows back UNDER the main column (handled below).
+*/
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 18px;
+  padding: 24px 28px 48px;
+  max-width: 1700px;
+  margin: 0 auto;
+  align-items: start;
+}
+.dock-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  /* Sit just under the topbar so the operator can always see queue +
+     active console without scrolling. 16px breathing room. */
+  top: 16px;
+  /* Cap height to viewport so an overflowing console list scrolls inside
+     the dock instead of pushing the page taller than the screen. */
+  max-height: calc(100vh - 32px);
+  min-width: 0;
+}
+.dock-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dock-panel .panel-body {
+  overflow-y: auto;
+  /* The console-card list inside #consoles-area can grow tall. Letting
+     just the body scroll keeps the panel-head sticky-visible. */
+  max-height: 100%;
+}
+
 /* ============ MAIN GRID ============ */
 .main-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
-  padding: 24px 28px 48px;
-  max-width: 1500px;
-  margin: 0 auto;
+  min-width: 0;
 }
 .panel {
   background: var(--bg-elev-1);
@@ -559,10 +600,10 @@ button:disabled {
 /* ============ MULTI CONSOLES (per-customer fan-out) ============ */
 .consoles-area {
   display: grid;
-  /* Two cards side-by-side on wide screens, full width on narrow ones.
-     The 2-slot worker pool means at most 2 actively-streaming consoles
-     plus any cancelled/finished cards still pinned for review. */
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  /* Sidebar dock is ~420px wide so each console card stacks vertically.
+     The min track is 0 so a card never overflows the dock when the
+     viewport tightens; 1fr fills whatever width the parent gives us. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .console-card {
@@ -1001,10 +1042,26 @@ button:disabled {
                panel padding shrinks, queue rows collapse to a card-like
                two-row layout, console card head wraps cleanly. */
 
+/* Below 1100px the 420px-wide dock crowds the main grid, so reflow the
+   sidebar UNDERNEATH the main column. We also drop sticky positioning
+   so the dock scrolls with the page (which is what users expect once
+   the layout is single-column). */
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    padding: 20px 20px 36px;
+    gap: 16px;
+  }
+  .dock-sidebar {
+    position: static;
+    max-height: none;
+  }
+  .dock-panel .panel-body { overflow-y: visible; max-height: none; }
+}
+
 @media (max-width: 1024px) {
   .topbar { padding: 12px 20px; gap: 18px; }
   .topbar-info { gap: 16px; font-size: 12px; }
-  .main-grid { padding: 20px 20px 36px; gap: 16px; }
   .panel-body { padding: 18px; }
   .banner { margin: 14px 20px 0; }
 }
@@ -1033,10 +1090,10 @@ button:disabled {
   /* Main grid: single column. */
   .main-grid {
     grid-template-columns: 1fr;
-    padding: 16px;
     gap: 14px;
     max-width: 100%;
   }
+  .workspace { padding: 16px; gap: 14px; }
   .panel-body { padding: 16px; }
   .banner { margin: 12px 16px 0; padding: 11px 14px; font-size: 12.5px; }
 
@@ -1125,7 +1182,8 @@ button:disabled {
   .topbar-info strong { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Main grid + panels — minimal padding on phones. */
-  .main-grid { padding: 12px; gap: 12px; }
+  .workspace { padding: 12px; gap: 12px; }
+  .main-grid { gap: 12px; }
   .panel-head { padding: 14px 16px; }
   .panel-body { padding: 14px 16px; }
   .panel-head h2 { font-size: 14px; }

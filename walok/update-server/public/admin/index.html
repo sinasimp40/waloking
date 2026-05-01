@@ -39,6 +39,7 @@
   <div id="warning-banner" class="banner hidden"></div>
   <div id="deps-banner" class="banner banner-warn hidden"></div>
 
+  <div class="workspace">
   <main class="main-grid">
     <section class="panel">
       <div class="panel-head">
@@ -107,7 +108,10 @@
       </div>
     </section>
 
-    <section class="panel full">
+  </main>
+
+  <aside class="dock-sidebar" aria-label="Build operations">
+    <section class="panel dock-panel">
       <div class="panel-head">
         <h2>Build Queue</h2>
         <span id="queue-slots" class="status-pill">Slots 0/2</span>
@@ -120,7 +124,7 @@
       </div>
     </section>
 
-    <section class="panel full">
+    <section class="panel dock-panel">
       <div class="panel-head">
         <h2>Build Consoles</h2>
         <div class="build-console-controls">
@@ -133,7 +137,8 @@
         </div>
       </div>
     </section>
-  </main>
+  </aside>
+  </div>
 </div>
 
 <div id="customer-modal" class="modal hidden">
