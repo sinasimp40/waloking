@@ -18,6 +18,10 @@ externalPort = 3000
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 5173
+externalPort = 5173
+
 [workflows]
 runButton = "Project"
 
@@ -30,6 +34,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Launcher Preview"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -41,6 +49,18 @@ outputType = "webview"
 task = "shell.exec"
 args = "cd update-server && node server.js"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Launcher Preview"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd walok && ./node_modules/.bin/vite --port 5173 --host 0.0.0.0 --strictPort"
+waitForPort = 5173
 
 [postMerge]
 path = "scripts/post-merge.sh"
