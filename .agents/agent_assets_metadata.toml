@@ -6,9 +6,3 @@ id = "MwFafqxEWbP_MxIkwXXeG"
 uri = "file://walok/docs/CLOUDFLARE-TUNNEL-SETUP.md"
 type = "text"
 title = "Cloudflare Tunnel Setup Guide"
-
-[[outputs]]
-id = "Ntus5rLXIWoj5Y86wmJA9"
-uri = "file://attached_assets/denfi-settings-merged.json"
-type = "unspecified"
-title = "denfi-settings-merged.json (73 games + DENFI branding)"
