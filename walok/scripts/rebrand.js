@@ -298,6 +298,26 @@ async function main() {
     process.exit(1)
   }
 
+  // Reject brand names containing characters that break JS string literals
+  // when the global string-replacement pass swaps them into single-quoted
+  // contexts like `setBrand('EXAMPLE CAFE')`. An apostrophe in the new name
+  // (e.g. "O'BRIEN CAFE") would produce `setBrand('O'BRIEN CAFE')` — a
+  // syntax error that breaks the launcher build. Same hazard with
+  // backslashes, double quotes, backticks, and newlines across .js / .jsx /
+  // .json / .html files. Validate up front instead of trying to escape
+  // per-file-type, which would need different rules for each format.
+  function validateBrandName(name) {
+    var bad = /['"`\\\r\n\t<>]/.exec(name)
+    if (bad) {
+      console.error('Error: brand name contains illegal character ' + JSON.stringify(bad[0]) + ' at position ' + bad.index)
+      console.error('  Brand name: ' + JSON.stringify(name))
+      console.error('  Allowed: letters, digits, spaces, hyphens, periods. (rejected: \' " ` \\ < > and whitespace control chars)')
+      process.exit(1)
+    }
+  }
+  validateBrandName(newName)
+  validateBrandName(newSubtitle)
+
   let config
   try {
     config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'))

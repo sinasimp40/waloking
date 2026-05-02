@@ -54,7 +54,7 @@ function getCurrentExeBasename() {
   return path.basename(process.execPath || '')
 }
 
-// Windows is case-insensitive: "O'BRIEN CAFE.EXE" and "o-brien-cafe.exe" point at the same
+// Windows is case-insensitive: "EXAMPLE CAFE.EXE" and "example-cafe.exe" point at the same
 // file. Always normalize before comparing exe basenames so case-only diffs in
 // the manifest never re-trigger cleanup against the running exe.
 function sameExe(a, b) {
@@ -160,7 +160,7 @@ function sha256(buffer) {
 }
 
 // === Per-exe identity sidecar (.ota-current-exe.json) ===
-// See walok/electron/updater.js for the full design rationale (architect
+// See example-cafe/electron/updater.js for the full design rationale (architect
 // round-3 finding). Server-side mirror of the same helpers.
 const CURRENT_EXE_RECORD = '.ota-current-exe.json'
 
@@ -294,7 +294,7 @@ function detectVersionMismatch(appRoot, currentBasename) {
   return { stale: true, candidate, reason: 'older-than-advertised', bundled, advertised }
 }
 
-// Transactional ZIP extraction. See walok/electron/updater.js for the long
+// Transactional ZIP extraction. See example-cafe/electron/updater.js for the long
 // rationale; mirrored here so the embedded server binary has the same
 // rollback-on-partial-failure semantics as the launcher.
 function extractZip(zipBuffer, destDir, opts) {
@@ -391,7 +391,7 @@ function extractZip(zipBuffer, destDir, opts) {
   return { extracted, failed, totalEntries, failedFiles, successfulEntries }
 }
 
-// Mirror of walok/electron/updater.js rollbackExtract.
+// Mirror of example-cafe/electron/updater.js rollbackExtract.
 // NEVER unlinks a replacement target without a backupPath (data loss).
 function rollbackExtract(successfulEntries) {
   const restored = []
@@ -419,7 +419,7 @@ function rollbackExtract(successfulEntries) {
   return { restored, removed, skipped }
 }
 
-// Mirror of walok/electron/updater.js recoverFromLeftoverBackup.
+// Mirror of example-cafe/electron/updater.js recoverFromLeftoverBackup.
 function recoverFromLeftoverBackup(backupDir, destDir) {
   const restored = []
   const failed = []
@@ -479,7 +479,7 @@ function listTopLevelExesInZip(zipBuffer) {
 }
 
 // Maximum consecutive failed apply attempts before clearing READY. See the
-// matching comment in walok/electron/updater.js — same retry-with-cap policy
+// matching comment in example-cafe/electron/updater.js — same retry-with-cap policy
 // so the server-side OTA never strands the user in an infinite retry loop on
 // a permanently-broken payload.
 const MAX_CONSECUTIVE_APPLY_FAILURES = 5
@@ -741,7 +741,7 @@ function sweepCleanupMarker(appRoot) {
   }
   // After deleting orphan exes, sweep dangling shortcuts (.lnk) on Windows
   // that point at any of them. Without this, the Start menu still shows
-  // "O'BRIEN CAFE" after a rebrand to "BLAST" and clicking it produces a missing-
+  // "EXAMPLE CAFE" after a rebrand to "BLAST" and clicking it produces a missing-
   // target error popup. Tolerated to be a no-op on POSIX (no .lnk format)
   // and on machines without obvious shortcut dirs.
   if (sweptExes.length > 0) {
@@ -976,7 +976,7 @@ async function downloadAndApply(manifest) {
   }
 }
 
-// See walok/electron/updater.js for the full design rationale — this is a
+// See example-cafe/electron/updater.js for the full design rationale — this is a
 // 1:1 mirror. The Phase-2 applier is a plain Windows .bat run through a
 // .vbs hidden-launcher shim. No PowerShell anywhere in the apply path.
 // Uses Win10 1803+ built-in tar.exe for zip extraction.
@@ -998,12 +998,12 @@ function buildPhase2ApplierBat() {
     'rem -- Wipe every file at the install-dir root EXCEPT user-specific',
     'rem -- state. KEEP these files:',
     'rem --   * .ota-instance-id (per-install identity, never lose)',
-    'rem --   * *-settings.json  (e.g. o-brien-cafe-settings.json — server prefs if any)',
-    'rem --   * *-config.json    (e.g. o-brien-cafe-server-config.json — port/host)',
+    'rem --   * *-settings.json  (e.g. example-cafe-settings.json — server prefs if any)',
+    'rem --   * *-config.json    (e.g. example-cafe-server-config.json — port/host)',
     'rem -- KEEP these folders:',
     'rem --   * .ota-pending     (we are running from inside it)',
-    'rem --   * *-data           (e.g. o-brien-cafe-server-data — DB + customer data)',
-    'rem --   * *-assets         (e.g. o-brien-cafe-server-assets — uploaded media)',
+    'rem --   * *-data           (e.g. example-cafe-server-data — DB + customer data)',
+    'rem --   * *-assets         (e.g. example-cafe-server-assets — uploaded media)',
     'pushd "%INSTALL_DIR%" >NUL 2>&1',
     'if errorlevel 1 (',
     '  echo [%date% %time%] FAIL pushd "%INSTALL_DIR%" >> "%APPLY_LOG%"',
@@ -1120,15 +1120,15 @@ function buildPhase2ApplierVbs(batRelative) {
     'For i = 0 To WScript.Arguments.Count - 1',
     '  args = args & " """ & WScript.Arguments(i) & """"',
     'Next',
-    "' Doubled-wrap quoting (see walok/electron/updater.js for details).",
+    "' Doubled-wrap quoting (see example-cafe/electron/updater.js for details).",
     'sh.Run "cmd /c """ & """" & batPath & """" & args & """", 0, False',
     '',
   ].join('\r\n')
 }
 
-// Mirror of walok/electron/updater.js — allows ASCII space because the
+// Mirror of example-cafe/electron/updater.js — allows ASCII space because the
 // companion server's productName is "<brand> Server" so its exe basename
-// always contains a space (e.g. "O'BRIEN CAFES Server.exe"). All other command
+// always contains a space (e.g. "EXAMPLE CAFES Server.exe"). All other command
 // metacharacters remain rejected — the value flows into the .bat through
 // quoted paths only.
 function isSafeExeBasename(name) {
@@ -1266,7 +1266,7 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
   }
 
   const tmpDir = opts._tmpDir || os.tmpdir()
-  const applierBase = 'walok-ota-srv-apply-' + Date.now() + '-' + process.pid
+  const applierBase = 'example-cafe-ota-srv-apply-' + Date.now() + '-' + process.pid
   const batPath = path.join(tmpDir, applierBase + '.bat')
   const vbsPath = path.join(tmpDir, applierBase + '.vbs')
   const batScript = opts._batScript || buildPhase2ApplierBat()
@@ -1444,7 +1444,7 @@ function applyPendingUpdateOnStartup(appRoot, _opts) {
 
     // Rebrand-aware step (mirrors electron/updater.js): when the manifest
     // declares a different exe name than the one we're currently running
-    // (e.g. O'BRIEN CAFE-server.exe -> BLAST-server.exe), stash the new exe path so
+    // (e.g. EXAMPLE CAFE-server.exe -> BLAST-server.exe), stash the new exe path so
     // init() can hand off BEFORE creating any window/server-listen, and
     // write a cleanup marker so the NEXT launch unlinks the now-orphaned
     // old exe (currently locked by us).

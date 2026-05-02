@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 
-const JWT_SECRET = process.env.EXAMPLE_CAFE_JWT_SECRET || 'o-brien-cafe-server-secret-key-change-me'
+const JWT_SECRET = process.env.EXAMPLE_CAFE_JWT_SECRET || 'example-cafe-server-secret-key-change-me'
 const TOKEN_EXPIRY = '7d'
 
 function hashPassword(password) {

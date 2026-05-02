@@ -57,14 +57,13 @@ const BRAND_SLUG = 'example-cafe'
 const DISPLAY_NAME = 'EXAMPLE CAFE'
 
 const LEGACY_BRAND_SLUGS = [
-  // newest → oldest (first match wins if multiple legacy data dirs coexist)
-  'nextreme-gaming-hub',
-  'jahel-gamers',
-  'gamerzspot',
-  'pikakz',
-  'denfi',
   'xyberzone',
-  // current — kept so changing BRAND_SLUG migrates from the default
+  'denfi',
+  'pikakz',
+  'gamerzspot',
+  'jahel-gamers',
+  'nextreme-gaming-hub',
+  'walok',
   'example-cafe'
 ]
 const BRAND_SUFFIXES = ['-settings.json', '-data', '-assets']

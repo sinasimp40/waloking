@@ -2,14 +2,14 @@
 ; REBRAND CHECKLIST FOR THIS FILE
 ; ---------------------------------------------------------------------
 ; NSIS scripts cannot share constants with the JS launcher (see
-; BRAND_SLUG in walok/electron/main.js). When you rebrand, you MUST
+; BRAND_SLUG in example-cafe/electron/main.js). When you rebrand, you MUST
 ; hand-edit the strings below to match the new BRAND_SLUG / display name.
 ;
-; If new BRAND_SLUG = 'o-brien-cafe' and display name = 'O'BRIEN CAFE', change:
-;   * preInit:        StrCpy $INSTDIR "$1O'brien-Cafe"        (was O'brien-Cafe)
-;   * customInstall:  DisplayName "O'BRIEN CAFE"               (was O'BRIEN CAFE)
-;   * customUnInit:   o-brien-cafe-data, o-brien-cafe-assets, o-brien-cafe-settings.json
-;                                                        (was o-brien-cafe-*)
+; If new BRAND_SLUG = 'example-cafe' and display name = 'EXAMPLE CAFE', change:
+;   * preInit:        StrCpy $INSTDIR "$1Example-Cafe"        (was Example-Cafe)
+;   * customInstall:  DisplayName "EXAMPLE CAFE"               (was EXAMPLE CAFE)
+;   * customUnInit:   example-cafe-data, example-cafe-assets, example-cafe-settings.json
+;                                                        (was example-cafe-*)
 ;
 ; Folder names here MUST match the launcher's BRAND_SLUG + suffix
 ; (BRAND_SLUG + '-data', BRAND_SLUG + '-assets',
@@ -20,16 +20,16 @@
 !macro preInit
   StrCpy $0 "$EXEPATH"
   StrCpy $1 $0 3
-  StrCpy $INSTDIR "$1O'brien-Cafe"
+  StrCpy $INSTDIR "$1Example-Cafe"
 !macroend
 
 !macro customInstall
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}" "DisplayName" "O'BRIEN CAFE"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}" "DisplayName" "EXAMPLE CAFE"
   WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}" "DisplayVersion" ""
 !macroend
 
 !macro customUnInit
-  RMDir /r "$INSTDIR\o-brien-cafe-data"
-  RMDir /r "$INSTDIR\o-brien-cafe-assets"
-  Delete "$INSTDIR\o-brien-cafe-settings.json"
+  RMDir /r "$INSTDIR\example-cafe-data"
+  RMDir /r "$INSTDIR\example-cafe-assets"
+  Delete "$INSTDIR\example-cafe-settings.json"
 !macroend

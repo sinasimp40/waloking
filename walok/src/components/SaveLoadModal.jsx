@@ -10,8 +10,8 @@ export default function SaveLoadModal({ onClose }) {
   const accentColor = settings.accentColor || getDefaultAccent()
   const serverUrl = settings.saveLoadServerUrl || ''
 
-  const [authToken, setAuthToken] = useState(() => sessionStorage.getItem('o-brien-cafe-sl-token') || '')
-  const [username, setUsername] = useState(() => sessionStorage.getItem('o-brien-cafe-sl-user') || '')
+  const [authToken, setAuthToken] = useState(() => sessionStorage.getItem('example-cafe-sl-token') || '')
+  const [username, setUsername] = useState(() => sessionStorage.getItem('example-cafe-sl-user') || '')
   const [authView, setAuthView] = useState('login')
   const [loginUser, setLoginUser] = useState('')
   const [loginPass, setLoginPass] = useState('')
@@ -81,8 +81,8 @@ export default function SaveLoadModal({ onClose }) {
       })
       setAuthToken(data.token)
       setUsername(data.user.username)
-      sessionStorage.setItem('o-brien-cafe-sl-token', data.token)
-      sessionStorage.setItem('o-brien-cafe-sl-user', data.user.username)
+      sessionStorage.setItem('example-cafe-sl-token', data.token)
+      sessionStorage.setItem('example-cafe-sl-user', data.user.username)
       toast.success(`Welcome back, ${data.user.username}!`)
       setLoginUser('')
       setLoginPass('')
@@ -106,8 +106,8 @@ export default function SaveLoadModal({ onClose }) {
       })
       setAuthToken(data.token)
       setUsername(data.user.username)
-      sessionStorage.setItem('o-brien-cafe-sl-token', data.token)
-      sessionStorage.setItem('o-brien-cafe-sl-user', data.user.username)
+      sessionStorage.setItem('example-cafe-sl-token', data.token)
+      sessionStorage.setItem('example-cafe-sl-user', data.user.username)
       toast.success('Account created!')
       setRegUser('')
       setRegPass('')
@@ -122,8 +122,8 @@ export default function SaveLoadModal({ onClose }) {
   const handleLogout = () => {
     setAuthToken('')
     setUsername('')
-    sessionStorage.removeItem('o-brien-cafe-sl-token')
-    sessionStorage.removeItem('o-brien-cafe-sl-user')
+    sessionStorage.removeItem('example-cafe-sl-token')
+    sessionStorage.removeItem('example-cafe-sl-user')
     setSaves([])
     toast.success('Logged out')
   }
@@ -685,7 +685,7 @@ export default function SaveLoadModal({ onClose }) {
 
         <div className="h-[1px] mx-6" style={{ background: `linear-gradient(90deg, transparent, ${accentColor}08, transparent)` }} />
         <div className="px-6 py-3 flex items-center justify-center flex-shrink-0">
-          <p className="font-rajdhani text-[10px] text-white/15 tracking-wider">O'BRIEN CAFE SAVE SYSTEM</p>
+          <p className="font-rajdhani text-[10px] text-white/15 tracking-wider">EXAMPLE CAFE SAVE SYSTEM</p>
         </div>
       </div>
     </div>

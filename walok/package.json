@@ -1,5 +1,5 @@
 {
-  "name": "o-brien-cafe",
+  "name": "example-cafe",
   "version": "1.0.0",
   "description": "Premium Futuristic Game Launcher",
   "main": "electron/main.js",
@@ -43,8 +43,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.o-brien-cafe.launcher",
-    "productName": "O'BRIEN CAFE",
+    "appId": "com.example-cafe.launcher",
+    "productName": "EXAMPLE CAFE",
     "icon": "public/icon.ico",
     "asar": true,
     "win": {
@@ -53,7 +53,7 @@
         "dir"
       ],
       "icon": "public/icon.ico",
-      "artifactName": "O'brien-Cafe-Portable-${version}.${ext}",
+      "artifactName": "Example-Cafe-Portable-${version}.${ext}",
       "signingHashAlgorithms": [
         "sha256"
       ],

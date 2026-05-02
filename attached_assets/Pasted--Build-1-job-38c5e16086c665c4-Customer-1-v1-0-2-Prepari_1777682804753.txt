@@ -1,0 +1,103 @@
+=== Build 1 (job 38c5e16086c665c4) ===
+== Customer "1" -> v1.0.2
+== Preparing isolated build workspace…
+   workspace: .build-jobs\38c5e16086c665c4
+=== Build customer "1" v1.0.2 [LAUNCHER ONLY] ===
+$ C:\Program Files\nodejs\node.exe scripts/build-customer.js 1
+[build-customer] === Building customer: DENFI (1) ===
+[build-customer] [cleanup] skipped — update-server/cleanup module not reachable from this workspace (OTA server will clean up post-build instead)
+[SUBSTEP_BEGIN] sync logo + rebrand source
+[build-customer] Logo synced: branding\1-logo.png -> branding/logo.png (sha256=81b631cbb910, 52952 bytes)
+[build-customer] Logo source for 1: branding\1-logo.png (sha256=81b631cbb910)
+[build-customer] Step 1/5: Rebranding source...
+[build-customer] $ C:\Program Files\nodejs\node.exe "scripts\\rebrand.js" "DENFI" "GAMING HUB"
+=== REBRAND ===
+  From: EXAMPLE CAFE (example-cafe)
+  To:   DENFI (denfi)
+  Subtitle: Premium Gaming Lounge -> GAMING HUB
+  Version: 30 -> 31
+  App ID: com.examplecafe -> com.denfi
+  Legacy: xyberzone, pikakz, gamerzspot, jahel-gamers, nextreme-gaming-hub, example-cafe
+Replacing brand strings...
+  [OK] electron\main.js
+  [OK] electron\splash.html
+  [OK] electron\installer.nsh
+  [OK] electron\updater.js
+  [OK] electron\ota-live.js
+  [OK] index.html
+  [OK] src\main.jsx
+  [OK] src\App.jsx
+  [OK] src\store\useStore.js
+  [OK] src\components\TitleBar.jsx
+  [OK] src\components\FeaturedBanner.jsx
+  [OK] src\components\AdminPanel.jsx
+  [OK] src\components\SaveLoadModal.jsx
+  [OK] src\components\UpdateModal.jsx
+  [OK] server\electron\main.js
+  [OK] server\electron\api.js
+  [OK] server\electron\auth.js
+  [OK] server\electron\db.js
+  [OK] server\electron\updater.js
+  [OK] server\electron\ota-live.js
+  [OK] server\src\dashboard.html
+  [OK] package.json
+  [OK] server\package.json
+Rebuilding migration arrays...
+  [OK] electron/main.js (migration array)
+  [OK] server/electron/main.js (migration array)
+  [OK] server/electron/db.js (legacy db names)
+  [OK] src/main.jsx (legacy storage keys)
+  [OK] electron\brand.js (BRAND_SLUG, DISPLAY_NAME, LEGACY_BRAND_SLUGS)
+  [OK] server\electron\brand.js (BRAND_SLUG, DISPLAY_NAME, LEGACY_BRAND_SLUGS)
+  [OK] Storage version -> 31
+  [rebrand] ICO source: branding\logo.png (52952 bytes, sha256=81b631cbb910, strategy=preferred-logo.png)
+  ICO written to public/icon.ico and server/src/icon.ico
+  Logo PNG -> denfi-logo.png (source: branding\logo.png)
+=== REBRAND COMPLETE ===
+"EXAMPLE CAFE" -> "DENFI"
+[SUBSTEP_END_OK] sync logo + rebrand source
+[build-customer] OTA config written for channel "1" v1.0.2
+[build-customer] BUILD_ROLE=launcher → launcher=true, server=false
+[SUBSTEP_BEGIN] vite build (launcher)
+[build-customer] Step 2/5: Vite build (launcher)...
+[build-customer] $ npm run build
+> o-brien-cafe@1.0.0 build
+> vite build
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+(node:1080) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Administrator/Desktop/waloking/walok/.build-jobs/38c5e16086c665c4/postcss.config.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\Administrator\Desktop\waloking\walok\.build-jobs\38c5e16086c665c4\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✓[39m 31 modules transformed.
+[31mx[39m Build failed in 3.27s
+[31merror during build:
+[31m[vite:esbuild] Transform failed with 1 error:
+C:/Users/Administrator/Desktop/waloking/walok/.build-jobs/38c5e16086c665c4/src/components/UpdateModal.jsx:30:18: ERROR: Expected ")" but found "BRIEN"[31m
+file: [36mC:/Users/Administrator/Desktop/waloking/walok/.build-jobs/38c5e16086c665c4/src/components/UpdateModal.jsx:30:18[31m
+[33m
+[33mExpected ")" but found "BRIEN"[33m
+28 |      let cancelled = false
+29 |      if (typeof window !== 'undefined' && window.location && window.location.search.includes('preview-update')) {
+30 |        setBrand('O'BRIEN CAFE')
+   |                    ^
+31 |        return
+32 |      }
+[31m
+    at failureErrorWithLog (C:\Users\Administrator\Desktop\waloking\walok\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\Users\Administrator\Desktop\waloking\walok\node_modules\esbuild\lib\main.js:755:50
+    at responseCallbacks.<computed> (C:\Users\Administrator\Desktop\waloking\walok\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (C:\Users\Administrator\Desktop\waloking\walok\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (C:\Users\Administrator\Desktop\waloking\walok\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+    at Readable.push (node:internal/streams/readable:394:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m
+[SUBSTEP_END_FAIL] vite build (launcher)
+[build-customer] ERROR: Command failed: npm run build
+[exit 1]
+!! JOB FAILED at step: Build customer "1" v1.0.2 [LAUNCHER ONLY] > vite build (launcher) (exit 1)
+=== FAILED (exit 1) ===
+!! Failing step: Build customer "1" v1.0.2 [LAUNCHER ONLY] > vite build (launcher)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>O'BRIEN CAFE Server</title>
+  <title>EXAMPLE CAFE Server</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
 
@@ -445,7 +445,7 @@
     }
 
     /* === OTA UPDATE MODAL ===
-       Mirrors walok/src/components/UpdateModal.jsx so the server dashboard
+       Mirrors example-cafe/src/components/UpdateModal.jsx so the server dashboard
        shows the SAME 5-4-3-2-1 countdown experience the launcher does.
        Premium dark aesthetic to match the OTA admin panel:
          bg/panel:    #0a0a0b backdrop, #131316 card
@@ -603,7 +603,7 @@
 
   <div class="titlebar">
     <div class="titlebar-left">
-      <span class="titlebar-brand">O'BRIEN CAFE</span>
+      <span class="titlebar-brand">EXAMPLE CAFE</span>
       <div class="titlebar-sep"></div>
       <span class="titlebar-sub">Server</span>
       <span id="titlebarVersion" style="margin-left:10px; font-size:10px; color:rgba(255,255,255,0.35); letter-spacing:0.05em;"></span>
@@ -690,7 +690,7 @@
   </div>
 
   <div class="footer">
-    <span class="footer-brand">POWERED BY O'BRIEN CAFE</span>
+    <span class="footer-brand">POWERED BY EXAMPLE CAFE</span>
     <span id="footerVersion">Save & Load Server</span>
   </div>
 
@@ -872,10 +872,10 @@
         .catch(() => {})
 
       // === OTA modal state ===
-      // Mirrors walok/src/components/UpdateModal.jsx — same stages, same
+      // Mirrors example-cafe/src/components/UpdateModal.jsx — same stages, same
       // copy, same 5-second countdown wired to ota:restart on click or
       // when the timer hits 0. The server emits the SAME ota:* IPC events
-      // the launcher does (broadcast() in walok/server/electron/updater.js),
+      // the launcher does (broadcast() in example-cafe/server/electron/updater.js),
       // so all we have to do here is subscribe and re-render.
       const $ = (id) => document.getElementById(id)
       const overlay = $('otaOverlay')
