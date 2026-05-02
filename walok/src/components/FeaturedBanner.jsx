@@ -92,19 +92,21 @@ function useScrambleText(text, { idle = false, restartGapMs = 7000 } = {}) {
 }
 
 // Animated background for the hero banner. Replaces the previous static
-// grid + single static glow with three drifting "aurora" blobs that share
-// the customer's accent color via `rgb(var(--accent-rgb) / X)`. The blobs
-// move on offset CSS keyframes (different durations + easings) so the
-// motion feels organic rather than mechanical. Because all three rely on
-// CSS animation, the global `html.app-idle *` rule in index.css freezes
-// them automatically when the user goes idle — no JS plumbing required.
+// grid + single static glow with four "glitch slice" tear lines. Each
+// slice sits dormant most of its cycle and briefly flicks across the
+// banner with a chromatic-aberration shadow (cyan/magenta offset),
+// pairing with the title scramble for a coherent digital-glitch vibe.
+// All four slices use plain CSS animations, so the global
+// `html.app-idle *` rule in index.css freezes them automatically when
+// the user goes idle — no JS plumbing required. Slice colors come from
+// `rgb(var(--accent-rgb) / X)` so the effect tints per-customer.
 function BannerCanvas() {
   return (
     <div className="absolute inset-0 overflow-hidden">
-      <div className="banner-aurora banner-aurora-1" />
-      <div className="banner-aurora banner-aurora-2" />
-      <div className="banner-aurora banner-aurora-3" />
-      <div className="banner-aurora-sheen" />
+      <div className="banner-glitch banner-glitch-1" />
+      <div className="banner-glitch banner-glitch-2" />
+      <div className="banner-glitch banner-glitch-3" />
+      <div className="banner-glitch banner-glitch-4" />
     </div>
   )
 }

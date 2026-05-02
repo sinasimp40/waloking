@@ -113,109 +113,95 @@
   100% { transform: scale(2); opacity: 0; }
 }
 
-/* --- FeaturedBanner animated aurora --------------------------------- *
- * Three large blurred radial blobs (positioned absolutely inside the
- * banner) drift on offset keyframes to create a subtle, living gradient
- * background. All colors come from `--accent-rgb` so the motion adopts
- * the active customer's brand color. The thin diagonal sheen on top
- * sweeps across slowly and adds the "premium" highlight feel.
+/* --- FeaturedBanner glitch slices ----------------------------------- *
+ * Four thin horizontal "tear" slices flick across the banner at
+ * staggered intervals. Each slice sits dormant for most of its cycle
+ * and briefly flashes on with a chromatic-aberration shadow — cyan
+ * offset to the left, magenta to the right — pairing with the title
+ * scramble for a coherent digital-glitch aesthetic. The fourth slice
+ * is a taller, rarer "big tear" with a subtle vertical scale wobble
+ * for variety. All colors derive from `--accent-rgb` so each
+ * customer's brand color carries through.
  *
  * Pause-on-idle is handled globally by the `html.app-idle *` rule near
  * the bottom of this file — no per-class override needed here.
  * -------------------------------------------------------------------- */
-.banner-aurora {
+.banner-glitch {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(40px);
+  left: 0;
+  width: 100%;
   pointer-events: none;
-  will-change: transform, opacity;
-  /* NOTE: mix-blend-mode: screen was removed here on purpose. With the
-   * stacked transparent banner layers above us (gradient overlays + canvas
-   * + content), `screen` blending was unpredictable and washed out the
-   * accent color almost entirely. Plain alpha compositing over the dark
-   * banner surface gives a reliably visible orange/accent glow across
-   * every customer's accent palette. */
+  opacity: 0;
+  background: rgb(var(--accent-rgb) / 0.95);
+  box-shadow:
+    -3px 0 0 rgb(0 220 255 / 0.6),
+    3px 0 0 rgb(255 40 120 / 0.6);
+  will-change: opacity, transform;
 }
 
-.banner-aurora-1 {
-  width: 320px;
-  height: 320px;
-  left: -70px;
-  top: -90px;
-  background: radial-gradient(
-    circle,
-    rgb(var(--accent-rgb) / 0.55) 0%,
-    rgb(var(--accent-rgb) / 0.18) 45%,
-    rgb(var(--accent-rgb) / 0) 72%
-  );
-  animation: bannerAuroraDrift1 14s ease-in-out infinite;
+.banner-glitch-1 {
+  top: 18%;
+  height: 2px;
+  animation: bannerGlitchFlick1 4.3s linear infinite;
 }
 
-.banner-aurora-2 {
-  width: 380px;
-  height: 380px;
-  right: 8%;
-  top: -120px;
-  background: radial-gradient(
-    circle,
-    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.45) 0%,
-    rgb(var(--accent-rgb) / 0.14) 50%,
-    rgb(var(--accent-rgb) / 0) 75%
-  );
-  animation: bannerAuroraDrift2 19s ease-in-out infinite;
+.banner-glitch-2 {
+  top: 47%;
+  height: 4px;
+  animation: bannerGlitchFlick2 5.7s linear 0.6s infinite;
 }
 
-.banner-aurora-3 {
-  width: 260px;
-  height: 260px;
-  left: 38%;
-  bottom: -100px;
-  background: radial-gradient(
-    circle,
-    rgb(var(--accent-rgb) / 0.42) 0%,
-    rgb(var(--accent-dark-rgb, var(--accent-rgb)) / 0.12) 50%,
-    rgb(var(--accent-rgb) / 0) 78%
-  );
-  animation: bannerAuroraDrift3 23s ease-in-out infinite;
+.banner-glitch-3 {
+  top: 72%;
+  height: 2px;
+  animation: bannerGlitchFlick3 6.5s linear 1.4s infinite;
 }
 
-/* Diagonal sheen — a thin highlight that sweeps across the banner every
- * ~9s so the surface always looks alive even between the slower blob
- * drifts. Uses accent color so it tints per-customer. Same reason as
- * above for not using mix-blend-mode here. */
-.banner-aurora-sheen {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(
-    105deg,
-    transparent 30%,
-    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.18) 50%,
-    transparent 70%
-  );
-  background-size: 220% 100%;
-  background-repeat: no-repeat;
-  animation: bannerAuroraSheen 9s linear infinite;
+/* Big tear — taller, lower opacity, larger displacement, rarer. */
+.banner-glitch-4 {
+  top: 38%;
+  height: 8px;
+  background: rgb(var(--accent-rgb) / 0.45);
+  box-shadow:
+    -6px 0 0 rgb(0 220 255 / 0.4),
+    6px 0 0 rgb(255 40 120 / 0.4);
+  animation: bannerGlitchFlick4 9.1s linear 2.2s infinite;
 }
 
-@keyframes bannerAuroraDrift1 {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.85; }
-  50%      { transform: translate(70px, 25px) scale(1.18); opacity: 1; }
+/* Each keyframe block holds opacity:0 for most of the cycle, then
+ * snaps through a 2-frame flash (~30-60ms each) to simulate a digital
+ * tear. Some slices flash twice per cycle for extra randomness. */
+@keyframes bannerGlitchFlick1 {
+  0%, 6%       { opacity: 0; transform: translateX(0); }
+  6.5%         { opacity: 0.95; transform: translateX(-12px); }
+  7%           { opacity: 0.5; transform: translateX(8px); }
+  7.5%, 58%    { opacity: 0; transform: translateX(0); }
+  58.5%        { opacity: 0.85; transform: translateX(10px); }
+  59.2%        { opacity: 0.45; transform: translateX(-7px); }
+  60%, 100%    { opacity: 0; transform: translateX(0); }
 }
 
-@keyframes bannerAuroraDrift2 {
-  0%, 100% { transform: translate(0, 0) scale(1.05); opacity: 0.75; }
-  50%      { transform: translate(-55px, 35px) scale(0.92); opacity: 1; }
+@keyframes bannerGlitchFlick2 {
+  0%, 24%      { opacity: 0; transform: translateX(0); }
+  24.5%        { opacity: 0.85; transform: translateX(14px); }
+  25.3%        { opacity: 0.4; transform: translateX(-6px); }
+  26%, 100%    { opacity: 0; transform: translateX(0); }
 }
 
-@keyframes bannerAuroraDrift3 {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.7; }
-  50%      { transform: translate(-40px, -30px) scale(1.22); opacity: 1; }
+@keyframes bannerGlitchFlick3 {
+  0%, 12%      { opacity: 0; transform: translateX(0); }
+  12.5%        { opacity: 0.7; transform: translateX(-9px); }
+  13.2%        { opacity: 0.3; transform: translateX(5px); }
+  14%, 75%     { opacity: 0; transform: translateX(0); }
+  75.5%        { opacity: 0.55; transform: translateX(7px); }
+  76.3%, 100%  { opacity: 0; transform: translateX(0); }
 }
 
-@keyframes bannerAuroraSheen {
-  0%   { background-position: -60% 0; }
-  100% { background-position: 160% 0; }
+@keyframes bannerGlitchFlick4 {
+  0%, 32%      { opacity: 0; transform: translateX(0) scaleY(1); }
+  32.6%        { opacity: 0.7; transform: translateX(-18px) scaleY(1.4); }
+  33.4%        { opacity: 0.35; transform: translateX(11px) scaleY(0.7); }
+  34.2%, 100%  { opacity: 0; transform: translateX(0) scaleY(1); }
 }
 
 .animate-float {
