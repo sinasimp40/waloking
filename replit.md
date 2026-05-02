@@ -19,6 +19,7 @@ Preferred communication style: Simple, everyday language.
 - **Electron Integration:** Secure `electronAPI` bridge for renderer process communication.
 - **Distribution:** Portable ZIP format, no installation required.
 - **Integrity Protection:** Verifies application integrity at startup.
+- **Streaming Services:** Sidebar tiles (Netflix, YouTube, Twitch, Disney+, Prime Video, Spotify by default) open the chosen site in a popup. In Electron the popup is a sandboxed `BrowserWindow` with a unique non-persisted `session.fromPartition('streaming-…')`, `nodeIntegration:false`, `contextIsolation:true`, `sandbox:true`, `devTools:false`, `will-navigate`/`will-redirect` guards locking the popup to http(s), and storage cleared on close — so each customer logs in with their own account and the next customer starts clean. In the browser preview it falls back to `window.open(..., 'noopener')`. Operators manage the tile list (name, icon letter or image, URL, color) from the in-launcher AdminPanel → Streaming section. Settings are stored in Zustand (schema v31, migration preserves any pre-existing customized list).
 
 ### Per-Customer Branding System
 - **Configuration:** Branding details are stored in JSON files, including channel, brand name, logo, and update server information.

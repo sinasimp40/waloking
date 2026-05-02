@@ -3,7 +3,7 @@ import {
   X, Plus, Edit2, Trash2, Star, Pin, Upload, Save, Search,
   Gamepad2, Settings, Image, Layout, Key, Monitor, DollarSign,
   Share2, Briefcase, ExternalLink, Power, Megaphone, Bold, Italic,
-  Underline, Type, Palette, AlignLeft, List, Network, ChevronRight
+  Underline, Type, Palette, AlignLeft, List, Network, ChevronRight, Tv
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
@@ -25,6 +25,7 @@ export default function AdminPanel() {
     { id: 'rates', label: 'Rates', icon: DollarSign },
     { id: 'social', label: 'Social', icon: Share2 },
     { id: 'office', label: 'Top Apps', icon: Briefcase },
+    { id: 'streaming', label: 'Streaming', icon: Tv },
     { id: 'pcgroups', label: 'PC Groups', icon: Network },
     { id: 'announcement', label: 'Announce', icon: Megaphone },
     { id: 'appearance', label: 'Appearance', icon: Layout },
@@ -94,6 +95,7 @@ export default function AdminPanel() {
             {adminSection === 'rates' && <RatesSection />}
             {adminSection === 'social' && <SocialSection />}
             {adminSection === 'office' && <OfficeSection />}
+            {adminSection === 'streaming' && <StreamingSection />}
             {adminSection === 'pcgroups' && <PCGroupsSection />}
             {adminSection === 'announcement' && <AnnouncementSection />}
             {adminSection === 'appearance' && <AppearanceSection />}
@@ -1205,6 +1207,78 @@ function OfficeSection() {
           </div>
         </div>
         <AccentButton onClick={handleAdd}><Plus size={13} />ADD TOP APP</AccentButton>
+      </CardBox>
+    </SectionWrapper>
+  )
+}
+
+function StreamingSection() {
+  const { settings, updateSettings } = useStore()
+  const accentColor = settings.accentColor || getDefaultAccent()
+  const [services, setServices] = useState(settings.streamingServices || [])
+  const [newItem, setNewItem] = useState({ name: '', icon: '', url: '', image: '', color: 'from-red-500 to-red-600' })
+
+  const save = (updated) => { setServices(updated); updateSettings({ streamingServices: updated }) }
+  const handleAdd = () => {
+    if (!newItem.name.trim()) return toast.error('Name is required')
+    if (!newItem.icon.trim() && !newItem.image.trim()) return toast.error('Icon letter or image is required')
+    if (!newItem.url.trim()) return toast.error('URL is required')
+    try {
+      const p = new URL(newItem.url)
+      if (!['http:', 'https:'].includes(p.protocol)) return toast.error('URL must start with https:// or http://')
+    } catch { return toast.error('URL must start with https:// or http://') }
+    save([...services, { ...newItem, id: Date.now().toString() }])
+    setNewItem({ name: '', icon: '', url: '', image: '', color: 'from-red-500 to-red-600' })
+    toast.success('Streaming service added!')
+  }
+  const handleRemove = (id) => { save(services.filter(s => s.id !== id)); toast.success('Streaming service removed') }
+  const handleUpdate = (id, field, value) => save(services.map(s => s.id === id ? { ...s, [field]: value } : s))
+
+  return (
+    <SectionWrapper>
+      <SectionTitle icon={Tv} title="Streaming Services" />
+      <p className="font-rajdhani text-white/40 text-sm">Customers click these tiles to open Netflix, YouTube, Twitch and other streaming sites in a popup window. Each popup uses an isolated session — when the customer closes it, their login is wiped automatically so the next person starts clean.</p>
+      <div className="space-y-2">
+        {services.map((svc) => (
+          <div key={svc.id} className="flex items-center gap-3 p-3 rounded-xl border transition-all" style={{ background: 'rgba(255,255,255,0.015)', borderColor: 'rgba(255,255,255,0.04)' }}>
+            <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${svc.color} flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden`}>
+              {svc.image ? <img src={svc.image} alt={svc.name} className="w-full h-full object-cover" /> : svc.icon}
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <InputField value={svc.name} onChange={e => handleUpdate(svc.id, 'name', e.target.value)} placeholder="Name" />
+                <InputField value={svc.icon} onChange={e => handleUpdate(svc.id, 'icon', e.target.value)} placeholder="Icon letter" maxLength={3} className="text-center" />
+                <InputField value={svc.url} onChange={e => handleUpdate(svc.id, 'url', e.target.value)} placeholder="https://www.netflix.com" />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 flex gap-1">
+                  <InputField value={svc.image || ''} onChange={e => handleUpdate(svc.id, 'image', e.target.value)} placeholder="Image path — overrides icon letter" className="flex-1" />
+                  <button onClick={async () => { if (window.electronAPI?.selectImage) { const path = await window.electronAPI.selectImage(); if (path) handleUpdate(svc.id, 'image', `file:///${path}`) } else { const path = prompt('Enter image path:'); if (path) handleUpdate(svc.id, 'image', path) } }} className="px-2 py-2 border border-white/[0.06] rounded-lg text-white/20 hover:text-white/50 transition-all" title="Browse image"><Image size={12} /></button>
+                </div>
+                <select value={svc.color} onChange={e => handleUpdate(svc.id, 'color', e.target.value)} className="px-2 py-2 bg-black/30 border border-white/[0.06] rounded-lg text-white/40 text-[10px] font-rajdhani focus:outline-none w-20">
+                  {GRADIENT_COLORS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <button onClick={() => handleRemove(svc.id)} className="w-8 h-8 flex items-center justify-center text-white/15 hover:text-red-400 transition-all rounded-lg"><Trash2 size={13} /></button>
+          </div>
+        ))}
+      </div>
+      <CardBox highlight>
+        <h4 className="font-orbitron text-xs uppercase tracking-[0.15em]" style={{ color: `${accentColor}60` }}>Add Streaming Service</h4>
+        <div className="grid grid-cols-4 gap-2">
+          <div><label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Name</label><InputField value={newItem.name} onChange={e => setNewItem(s => ({ ...s, name: e.target.value }))} placeholder="Netflix" /></div>
+          <div><label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Icon Letter</label><InputField value={newItem.icon} onChange={e => setNewItem(s => ({ ...s, icon: e.target.value }))} placeholder="N" maxLength={3} className="text-center" /></div>
+          <div><label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">URL</label><InputField value={newItem.url} onChange={e => setNewItem(s => ({ ...s, url: e.target.value }))} placeholder="https://www.netflix.com" /></div>
+          <div><label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Color</label><select value={newItem.color} onChange={e => setNewItem(s => ({ ...s, color: e.target.value }))} className="w-full px-3 py-2.5 bg-black/30 border border-white/[0.06] rounded-lg text-white/40 text-sm font-rajdhani focus:outline-none">{GRADIENT_COLORS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+        </div>
+        <div><label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Image (optional)</label>
+          <div className="flex gap-1">
+            <InputField value={newItem.image} onChange={e => setNewItem(s => ({ ...s, image: e.target.value }))} placeholder="/icons/netflix.png or https://..." className="flex-1" />
+            <button onClick={async () => { if (window.electronAPI?.selectImage) { const path = await window.electronAPI.selectImage(); if (path) setNewItem(s => ({ ...s, image: `file://${path}` })) } else { const path = prompt('Enter image path:'); if (path) setNewItem(s => ({ ...s, image: path })) } }} className="px-3 py-2 border border-white/[0.06] rounded-lg text-white/20 hover:text-white/50 transition-all" title="Browse image"><Image size={14} /></button>
+          </div>
+        </div>
+        <AccentButton onClick={handleAdd}><Plus size={13} />ADD STREAMING SERVICE</AccentButton>
       </CardBox>
     </SectionWrapper>
   )

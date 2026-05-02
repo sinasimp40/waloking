@@ -239,6 +239,78 @@ function createWindow(splash) {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  ipcMain.handle('open-streaming-popup', async (event, payload) => {
+    try {
+      const url = payload && payload.url
+      const name = (payload && payload.name) || 'Streaming'
+      if (!url) return { success: false, error: 'URL is required' }
+      const parsed = new URL(url)
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return { success: false, error: 'Only http(s) URLs are allowed' }
+      }
+      const { session } = require('electron')
+      const partition = `streaming-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const ephemeralSession = session.fromPartition(partition)
+
+      const popup = new BrowserWindow({
+        width: 1400,
+        height: 900,
+        minWidth: 800,
+        minHeight: 600,
+        title: name,
+        backgroundColor: '#000000',
+        autoHideMenuBar: true,
+        webPreferences: {
+          partition,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          devTools: false,
+        },
+      })
+
+      popup.setMenuBarVisibility(false)
+
+      popup.on('closed', () => {
+        try { ephemeralSession.clearStorageData() } catch (e) {}
+      })
+
+      const guardNav = (e, navUrl) => {
+        try {
+          const np = new URL(navUrl)
+          if (!['http:', 'https:'].includes(np.protocol)) {
+            e.preventDefault()
+          }
+        } catch (err) {
+          e.preventDefault()
+        }
+      }
+      popup.webContents.on('will-navigate', guardNav)
+      popup.webContents.on('will-redirect', guardNav)
+
+      popup.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+        try {
+          const childParsed = new URL(childUrl)
+          if (['http:', 'https:'].includes(childParsed.protocol)) {
+            shell.openExternal(childUrl)
+          }
+        } catch (e) {}
+        return { action: 'deny' }
+      })
+
+      popup.webContents.on('before-input-event', (e, input) => {
+        const k = (input.key || '').toLowerCase()
+        if ((input.control || input.meta) && input.shift && k === 'i') e.preventDefault()
+        if (k === 'f12') e.preventDefault()
+      })
+
+      await popup.loadURL(parsed.toString())
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle('open-external', async (event, url) => {
     try {
       const parsed = new URL(url)

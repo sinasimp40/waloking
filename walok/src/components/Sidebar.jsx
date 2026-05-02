@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight, Tv } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
@@ -43,6 +43,7 @@ export default function Sidebar() {
           <ComputerRates />
           <SocialMedia />
           <OfficeApps />
+          <StreamingServices />
           <Announcement />
           <ZoomControl />
         </div>
@@ -316,6 +317,71 @@ function OfficeApps() {
             className={`w-8 h-8 rounded-full bg-gradient-to-br ${app.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
           >
             {app.image ? <img src={app.image} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
+          </motion.button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StreamingServices() {
+  const { settings } = useStore()
+  const services = settings.streamingServices || []
+
+  const handleClick = async (svc) => {
+    if (!svc.url) {
+      toast.error(`No URL set for ${svc.name}`)
+      return
+    }
+    try {
+      const p = new URL(svc.url)
+      if (!['http:', 'https:'].includes(p.protocol)) {
+        toast.error(`${svc.name}: only http(s) URLs are allowed`)
+        return
+      }
+    } catch {
+      toast.error(`${svc.name}: invalid URL`)
+      return
+    }
+    if (window.electronAPI?.openStreaming) {
+      const result = await window.electronAPI.openStreaming({ url: svc.url, name: svc.name })
+      if (result?.success) {
+        toast.success(`Opening ${svc.name}...`)
+      } else {
+        toast.error(result?.error || `Could not open ${svc.name}`)
+      }
+    } else {
+      const w = 1400, h = 900
+      const left = Math.max(0, (window.screen.availWidth - w) / 2)
+      const top = Math.max(0, (window.screen.availHeight - h) / 2)
+      const popup = window.open(svc.url, `streaming-${svc.id}-${Date.now()}`, `popup=yes,width=${w},height=${h},left=${left},top=${top},noopener`)
+      if (!popup || popup.closed) {
+        toast.error('Popup blocked — allow popups in your browser')
+      } else {
+        toast.success(`Opening ${svc.name}... (preview mode)`)
+      }
+    }
+  }
+
+  if (services.length === 0) return null
+
+  return (
+    <div className="px-3 py-2 border-b border-neon-orange/10">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Tv size={10} className="text-neon-orange/80" />
+        <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold">Streaming</span>
+      </div>
+      <div className="flex gap-1.5 justify-center flex-wrap">
+        {services.map((svc) => (
+          <motion.button
+            key={svc.id}
+            whileHover={{ scale: 1.15, y: -2 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => handleClick(svc)}
+            title={svc.name}
+            className={`w-8 h-8 rounded-lg bg-gradient-to-br ${svc.color || 'from-red-500 to-red-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
+          >
+            {svc.image ? <img src={svc.image} alt={svc.name} className="w-full h-full object-cover" /> : svc.icon}
           </motion.button>
         ))}
       </div>

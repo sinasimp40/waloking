@@ -60,6 +60,14 @@ const useStore = create(
           { id: '3', name: 'Excel', icon: 'X', exePath: '', color: 'from-emerald-500 to-emerald-600' },
           { id: '4', name: 'Word', icon: 'W', exePath: '', color: 'from-blue-500 to-blue-600' },
         ],
+        streamingServices: [
+          { id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' },
+          { id: 's2', name: 'YouTube', icon: '▶', url: 'https://www.youtube.com', color: 'from-red-500 to-red-600' },
+          { id: 's3', name: 'Twitch', icon: 'T', url: 'https://www.twitch.tv', color: 'from-purple-500 to-purple-600' },
+          { id: 's4', name: 'Disney+', icon: 'D', url: 'https://www.disneyplus.com', color: 'from-blue-600 to-blue-700' },
+          { id: 's5', name: 'Prime', icon: 'P', url: 'https://www.primevideo.com', color: 'from-cyan-500 to-cyan-600' },
+          { id: 's6', name: 'Spotify', icon: '♫', url: 'https://open.spotify.com', color: 'from-emerald-500 to-emerald-600' },
+        ],
         poweredBy: 'EXAMPLE CAFE',
         topBannerLogos: [],
         announcement: '',
@@ -138,7 +146,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 30,
+      version: 31,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -166,6 +174,14 @@ const useStore = create(
               { id: '2', name: 'PowerPoint', icon: 'P', exePath: '', color: 'from-orange-500 to-orange-600' },
               { id: '3', name: 'Excel', icon: 'X', exePath: '', color: 'from-emerald-500 to-emerald-600' },
               { id: '4', name: 'Word', icon: 'W', exePath: '', color: 'from-blue-500 to-blue-600' },
+            ],
+            streamingServices: Array.isArray(persistedState.settings?.streamingServices) ? persistedState.settings.streamingServices : [
+              { id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' },
+              { id: 's2', name: 'YouTube', icon: '▶', url: 'https://www.youtube.com', color: 'from-red-500 to-red-600' },
+              { id: 's3', name: 'Twitch', icon: 'T', url: 'https://www.twitch.tv', color: 'from-purple-500 to-purple-600' },
+              { id: 's4', name: 'Disney+', icon: 'D', url: 'https://www.disneyplus.com', color: 'from-blue-600 to-blue-700' },
+              { id: 's5', name: 'Prime', icon: 'P', url: 'https://www.primevideo.com', color: 'from-cyan-500 to-cyan-600' },
+              { id: 's6', name: 'Spotify', icon: '♫', url: 'https://open.spotify.com', color: 'from-emerald-500 to-emerald-600' },
             ],
             topBannerLogos: persistedState.settings?.topBannerLogos || [],
             bannerImage: persistedState.settings?.bannerImage ?? null,
