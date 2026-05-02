@@ -91,27 +91,121 @@ function useScrambleText(text, { idle = false, restartGapMs = 7000 } = {}) {
   return display
 }
 
-// Animated background for the hero banner. Replaces the previous static
-// grid + single static glow with four "glitch slice" tear lines. Each
-// slice sits dormant most of its cycle and briefly flicks across the
-// banner with a chromatic-aberration shadow (cyan/magenta offset),
-// pairing with the title scramble for a coherent digital-glitch vibe.
-// All four slices use plain CSS animations, so the global
-// `html.app-idle *` rule in index.css freezes them automatically when
-// the user goes idle — no JS plumbing required. Slice colors come from
-// `rgb(var(--accent-rgb) / X)` so the effect tints per-customer.
-function BannerCanvas() {
+// Animated background for the hero banner. The shipped default uses
+// "glitch slice" tear lines; additional `variant` values render
+// alternative effects so they can be previewed via the
+// `?preview=banner-<variant>` route in App.jsx without touching the
+// rest of the launcher UI. All variants are pure CSS animations and
+// pause via the global `html.app-idle *` rule in index.css.
+function BannerCanvas({ variant }) {
   return (
     <div className="absolute inset-0 overflow-hidden">
-      <div className="banner-glitch banner-glitch-1" />
-      <div className="banner-glitch banner-glitch-2" />
-      <div className="banner-glitch banner-glitch-3" />
-      <div className="banner-glitch banner-glitch-4" />
+      {variant === 'spotlight' && <BannerSpotlight />}
+      {variant === 'eq'        && <BannerEq />}
+      {variant === 'particles' && <BannerParticles />}
+      {variant === 'marquee'   && <BannerMarquee />}
+      {variant === 'hex'       && <BannerHex />}
+      {variant === 'static'    && <BannerStatic />}
+      {!variant && <BannerGlitch />}
     </div>
   )
 }
 
-export default function FeaturedBanner() {
+function BannerGlitch() {
+  return (
+    <>
+      <div className="banner-glitch banner-glitch-1" />
+      <div className="banner-glitch banner-glitch-2" />
+      <div className="banner-glitch banner-glitch-3" />
+      <div className="banner-glitch banner-glitch-4" />
+    </>
+  )
+}
+
+function BannerSpotlight() {
+  return <div className="banner-spotlight" />
+}
+
+function BannerEq() {
+  return (
+    <div className="absolute inset-0 flex items-end gap-px px-1">
+      {Array.from({ length: 40 }).map((_, i) => (
+        <div key={i} className={`banner-eq-bar banner-eq-bar-${(i % 8) + 1}`} />
+      ))}
+    </div>
+  )
+}
+
+function BannerParticles() {
+  const particles = [
+    { left: '5%',  delay: '0s'    },
+    { left: '12%', delay: '-3s'   },
+    { left: '21%', delay: '-7s'   },
+    { left: '28%', delay: '-1s'   },
+    { left: '37%', delay: '-5s'   },
+    { left: '44%', delay: '-9s'   },
+    { left: '53%', delay: '-2s'   },
+    { left: '61%', delay: '-6s'   },
+    { left: '70%', delay: '-4s'   },
+    { left: '78%', delay: '-8s'   },
+    { left: '86%', delay: '-1.5s' },
+    { left: '94%', delay: '-5.5s' },
+  ]
+  return (
+    <>
+      {particles.map((p, i) => (
+        <div
+          key={i}
+          className={`banner-particle banner-particle-${(i % 4) + 1}`}
+          style={{ left: p.left, animationDelay: p.delay }}
+        />
+      ))}
+    </>
+  )
+}
+
+function BannerMarquee() {
+  const phrase = 'PREMIUM • PLAY • WIN • '
+  return (
+    <div className="banner-marquee">
+      <span>{phrase.repeat(8)}</span>
+    </div>
+  )
+}
+
+function BannerHex() {
+  const cells = []
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 26; col++) {
+      const x = col * 50 + (row % 2 === 0 ? 0 : 25)
+      const y = row * 38
+      const idx = row * 26 + col
+      cells.push(
+        <polygon
+          key={idx}
+          points="25,0 50,14 50,42 25,56 0,42 0,14"
+          transform={`translate(${x}, ${y})`}
+          className={`banner-hex-cell banner-hex-cell-${(idx % 12) + 1}`}
+        />
+      )
+    }
+  }
+  return (
+    <svg
+      viewBox="0 0 1300 240"
+      preserveAspectRatio="xMidYMid slice"
+      className="absolute inset-0 w-full h-full"
+    >
+      {cells}
+    </svg>
+  )
+}
+
+function BannerStatic() {
+  return <div className="banner-static-gradient" />
+}
+
+export default function FeaturedBanner({ bgVariant }) {
   const settings = useStore(s => s.settings)
 
   return (
@@ -131,7 +225,7 @@ export default function FeaturedBanner() {
       <div className="absolute inset-0 bg-gradient-to-r from-dark-500/60 via-dark-500/20 to-dark-500/50" />
       <div className="absolute inset-0 bg-gradient-to-b from-white/[0.03] via-transparent to-dark-500/80" />
 
-      <BannerCanvas />
+      <BannerCanvas variant={bgVariant} />
 
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-neon-orange/40 to-transparent" />

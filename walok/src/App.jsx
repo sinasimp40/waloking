@@ -11,6 +11,17 @@ import AdminLogin from './components/AdminLogin'
 import ParticleBackground from './components/ParticleBackground'
 import SaveLoadModal from './components/SaveLoadModal'
 import UpdateModal from './components/UpdateModal'
+import BannerPreview from './components/BannerPreview'
+
+const VALID_BANNER_VARIANTS = ['spotlight', 'eq', 'particles', 'marquee', 'hex', 'static']
+
+function getBannerPreviewVariant() {
+  if (typeof window === 'undefined') return null
+  const v = new URLSearchParams(window.location.search).get('preview')
+  if (!v || !v.startsWith('banner-')) return null
+  const name = v.slice('banner-'.length)
+  return VALID_BANNER_VARIANTS.includes(name) ? name : null
+}
 
 function hexToRgb(hex) {
   const h = hex.replace('#', '')
@@ -66,6 +77,7 @@ function useIdleDetection(timeoutMs = 30000) {
 export default function App() {
   const { isAdminOpen, isAdminAuthenticated, settings, updateSettings } = useStore()
   const [showSaveLoad, setShowSaveLoad] = React.useState(false)
+  const [previewVariant] = useState(getBannerPreviewVariant)
 
   const setLocalIP = useStore(s => s.setLocalIP)
   const accentColor = settings.accentColor
@@ -115,6 +127,10 @@ export default function App() {
     }
     detectIP()
   }, [setLocalIP])
+
+  if (previewVariant) {
+    return <BannerPreview variant={previewVariant} />
+  }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
