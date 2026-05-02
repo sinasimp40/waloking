@@ -168,6 +168,23 @@ function buildPayload(unpackedDir, outZipPath) {
   log('Packed ' + (sz / 1024 / 1024).toFixed(2) + ' MiB in ' + (Date.now() - t0) + ' ms → ' + path.relative(ROOT, outZipPath))
 }
 
+// Read the buildId that build-customer.js baked into the unpacked role's
+// resources/ota-config.json. Returns null if the field isn't present (e.g.
+// a build produced by an older build-customer.js that predates the rebump-
+// detection feature). When null, the manifest simply omits buildId and the
+// launcher falls back to the version-only compare path — preserving prior
+// behavior for legacy artifacts.
+function readBakedBuildId(unpackedDir) {
+  if (!unpackedDir) return null
+  const cfgPath = path.join(unpackedDir, 'resources', 'ota-config.json')
+  try {
+    if (!fs.existsSync(cfgPath)) return null
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'))
+    if (cfg && typeof cfg.buildId === 'string' && cfg.buildId) return cfg.buildId
+  } catch (_) {}
+  return null
+}
+
 function publishChannel(channel, version, multi) {
   const channelDir = path.join(RELEASES_DIR, channel, version)
   if (!fs.existsSync(channelDir)) {
@@ -217,12 +234,19 @@ function publishChannel(channel, version, multi) {
   // bogus manifest in the first place.
   if (launcherInfo) {
     const exeName = computeExeName(channel, multi)
+    // Lift the buildId baked by build-customer.js out of the unpacked
+    // launcher's ota-config.json. Including it in the manifest lets the
+    // running launcher detect a same-version REBUMP — when local.buildId
+    // != manifest.buildId, the launcher pulls even though `version` is
+    // unchanged. Omitted gracefully for legacy builds without a buildId.
+    const launcherBuildId = readBakedBuildId(launcherUnpacked)
     const launcherManifest = {
       version: version,
       channel: channel,
       releasedAt: new Date().toISOString(),
       launcher: launcherInfo,
       ...(exeName ? { exeName } : {}),
+      ...(launcherBuildId ? { buildId: launcherBuildId } : {}),
       notes: 'Update v' + version
     }
     const manifestPath = path.join(UPDATE_SERVER_PUBLIC, channel, 'latest.json')
@@ -261,6 +285,12 @@ function publishChannel(channel, version, multi) {
         'Server OTA needs exeName in the manifest or applyPendingUpdateOnStartup will write FAILED.')
       return false
     }
+    // Mirror the launcher's buildId behavior for the server manifest. The
+    // server build's resources/ota-config.json (sourced from
+    // branding/ota-config-server.json) carries the same buildId that
+    // build-customer.js wrote, so a rebump rebuilds both roles with a fresh
+    // buildId and both companion installs pull the new payload.
+    const serverBuildId = readBakedBuildId(serverUnpacked)
     const serverManifest = {
       version: version,
       channel: channel + '-server',
@@ -271,6 +301,7 @@ function publishChannel(channel, version, multi) {
         sha256: serverInfo.sha256
       },
       ...(serverExeName ? { exeName: serverExeName } : {}),
+      ...(serverBuildId ? { buildId: serverBuildId } : {}),
       notes: 'Server update v' + version
     }
     const serverManifestPath = path.join(UPDATE_SERVER_PUBLIC, channel + '-server', 'latest.json')

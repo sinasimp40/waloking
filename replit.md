@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
 ### OTA Update Flow
 - **Update Mechanism:** Launchers poll the update server and utilize Server-Sent Events (SSE) for real-time notifications.
 - **Update Application:** New versions are downloaded, verified (SHA-256), staged, and applied upon application restart.
+- **Rebump Detection:** Each build is stamped with a unique `buildId` baked into `ota-config.json` by `build-customer.js` and re-emitted into the OTA manifest by `publish-update.js`. The launcher and server `checkForUpdate` paths pull when `manifest.buildId !== local.buildId` even if `version` is unchanged, so same-version republishes ("rebumps") trigger an OTA pull on both launcher and server clients. Downgrades are blocked: rebump pull only fires on exact version match, never when remote is older.
 - **Windows Updater:** A `.bat` applier spawned by a `.vbs` shim handles out-of-process updates, ensuring transactional integrity and avoiding file locks.
 - **Executable Management:** Manages executable renaming and cleanup of old files and shortcuts.
 - **Concurrency Control:** Prevents multiple instances of the launcher or server.

@@ -854,16 +854,42 @@ async function checkForUpdate(opts = {}) {
   STATE.isChecking = true
   try {
     const url = STATE.config.updateServer.replace(/\/$/, '') + '/updates/' + STATE.config.channel + '/latest.json'
-    log('Checking ' + url + ' (current v' + STATE.config.version + ')')
+    log('Checking ' + url + ' (current v' + STATE.config.version + (STATE.config.buildId ? ' build=' + STATE.config.buildId : '') + ')')
     const buf = await fetchUrl(url)
     const manifest = JSON.parse(buf.toString('utf-8'))
     const remoteVer = manifest.version || '0.0.0'
     const cmp = compareVersions(remoteVer, STATE.config.version)
-    if (cmp <= 0) {
-      log('Up to date (remote v' + remoteVer + ')')
+    // Rebump detection: when version is unchanged, the operator may have
+    // re-shipped the SAME version (a "rebump") with new payload bytes — a
+    // hotfix, an asset swap, a rebrand. The publisher (publish-update.js)
+    // includes a `buildId` field in the manifest, originally baked into
+    // ota-config.json by build-customer.js. If our local buildId differs
+    // from the manifest's, we must pull even though `version` matches —
+    // otherwise the field would never receive the rebumped payload.
+    //
+    // Why `cmp === 0` and not `cmp <= 0`: we must NEVER pull when remote is
+    // OLDER (cmp < 0) because that would be a downgrade; the operator may
+    // have rolled back the manifest temporarily and we'd thrash. So rebump
+    // pull only fires on EXACT version match.
+    //
+    // Backward compat: if `manifest.buildId` is missing (legacy publish),
+    // the trigger never fires and we fall back to pure version compare.
+    // If our local `STATE.config.buildId` is missing (legacy install) but
+    // the manifest carries one, the inequality still fires — which is the
+    // intended one-time migration pull that puts the field on the new
+    // build-id-aware code path.
+    const remoteBuildId = manifest.buildId
+    const isRebump = cmp === 0 && remoteBuildId && STATE.config.buildId !== remoteBuildId
+    if (cmp < 0 || (cmp === 0 && !isRebump)) {
+      log('Up to date (remote v' + remoteVer + (remoteBuildId ? ' build=' + remoteBuildId : '') + ')')
       return { hasUpdate: false, currentVersion: STATE.config.version, latestVersion: remoteVer }
     }
-    log('Update available: v' + remoteVer + ' (current v' + STATE.config.version + ')')
+    if (isRebump) {
+      log('Rebump detected (v' + remoteVer + ' local-build=' + (STATE.config.buildId || '<none>') +
+        ' remote-build=' + remoteBuildId + ') — pulling republished payload')
+    } else {
+      log('Update available: v' + remoteVer + ' (current v' + STATE.config.version + ')')
+    }
     const result = {
       hasUpdate: true,
       currentVersion: STATE.config.version,
@@ -1266,6 +1292,21 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     }
     if (baseline && typeof baseline === 'object') {
       baseline.version = String(manifest.version)
+      // Propagate the manifest's buildId into the merged overlay so that
+      // after the .bat applier copies merged-ota-config.json over the
+      // freshly-extracted resources/ota-config.json, the running launcher
+      // sees the NEW buildId on the very next boot. Without this, the OLD
+      // buildId from the prior install survives, STATE.config.buildId
+      // never converges to manifest.buildId, and checkForUpdate would
+      // detect the same "rebump" mismatch on every poll — pulling the
+      // exact same payload over and over in a loop.
+      // For legacy publishes that don't carry buildId, we DELETE any
+      // local buildId field so the launcher cleanly degrades to the
+      // version-only compare path (avoids a stale local id lingering
+      // forever and falsely triggering rebumps once the operator later
+      // adds a buildId-carrying manifest).
+      if (manifest.buildId) baseline.buildId = String(manifest.buildId)
+      else delete baseline.buildId
       fs.writeFileSync(
         path.join(pendingDir, 'merged-ota-config.json'),
         JSON.stringify(baseline, null, 2),

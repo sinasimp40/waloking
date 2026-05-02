@@ -153,10 +153,21 @@ function syncLogo(customer) {
 }
 
 function writeOtaConfig(customer, version) {
+  // buildId uniquely identifies THIS build, even when `version` is unchanged
+  // (a "rebump"). It's baked into the launcher's ota-config.json so the
+  // running launcher knows which exact build it is, and re-emitted into the
+  // OTA manifest by publish-update.js. The launcher's checkForUpdate then
+  // pulls when remote.buildId differs from local.buildId, which makes
+  // same-version rebumps trigger an OTA update instead of being silently
+  // ignored. Format: "<timestamp>-<short-rand>" — millisecond precision is
+  // already enough to distinguish back-to-back builds, but the random suffix
+  // prevents a same-millisecond clash on faster machines.
+  const buildId = String(Date.now()) + '-' + crypto.randomBytes(3).toString('hex')
   const otaConfig = {
     channel: customer.channel,
     updateServer: customer.updateServer.replace(/\/$/, ''),
     version: version,
+    buildId: buildId,
     checkIntervalMs: 120000,
     enabled: true,
     brand: customer.brandName,
@@ -170,7 +181,7 @@ function writeOtaConfig(customer, version) {
     path.join(BRANDING_DIR, 'ota-config-server.json'),
     JSON.stringify({ ...otaConfig, channel: otaConfig.channel + '-server' }, null, 2)
   )
-  log('OTA config written for channel "' + customer.channel + '" v' + version)
+  log('OTA config written for channel "' + customer.channel + '" v' + version + ' (buildId=' + buildId + ')')
 }
 
 function run(cmd, cwd) {

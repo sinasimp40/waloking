@@ -883,15 +883,28 @@ async function checkForUpdate(opts = {}) {
   STATE.isChecking = true
   try {
     const url = STATE.config.updateServer.replace(/\/$/, '') + '/updates/' + STATE.config.channel + '/latest.json'
-    log('Checking ' + url + ' (current v' + STATE.config.version + ')')
+    log('Checking ' + url + ' (current v' + STATE.config.version + (STATE.config.buildId ? ' build=' + STATE.config.buildId : '') + ')')
     const buf = await fetchUrl(url)
     const manifest = JSON.parse(buf.toString('utf-8'))
     const remoteVer = manifest.version || '0.0.0'
-    if (compareVersions(remoteVer, STATE.config.version) <= 0) {
-      log('Up to date (remote v' + remoteVer + ')')
+    const cmp = compareVersions(remoteVer, STATE.config.version)
+    // Rebump detection — see launcher updater.js for the full rationale.
+    // Same-version republish carries a fresh `buildId` in the manifest;
+    // when local.buildId differs we pull even though version is unchanged.
+    // cmp === 0 (not cmp <= 0) prevents a manifest rollback from
+    // triggering an unintended downgrade.
+    const remoteBuildId = manifest.buildId
+    const isRebump = cmp === 0 && remoteBuildId && STATE.config.buildId !== remoteBuildId
+    if (cmp < 0 || (cmp === 0 && !isRebump)) {
+      log('Up to date (remote v' + remoteVer + (remoteBuildId ? ' build=' + remoteBuildId : '') + ')')
       return { hasUpdate: false, currentVersion: STATE.config.version, latestVersion: remoteVer }
     }
-    log('Server update available: v' + remoteVer)
+    if (isRebump) {
+      log('Server rebump detected (v' + remoteVer + ' local-build=' + (STATE.config.buildId || '<none>') +
+        ' remote-build=' + remoteBuildId + ') — pulling republished payload')
+    } else {
+      log('Server update available: v' + remoteVer)
+    }
     const result = { hasUpdate: true, currentVersion: STATE.config.version, latestVersion: remoteVer, manifest }
     broadcast('ota:update-available', result)
     if (!opts.checkOnly) {
@@ -1225,6 +1238,14 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     }
     if (baseline && typeof baseline === 'object') {
       baseline.version = String(manifest.version)
+      // Propagate manifest.buildId into the merged overlay — see launcher
+      // updater.js for the full rationale. Without this, the OLD buildId
+      // survives the apply, STATE.config.buildId never converges, and the
+      // server's checkForUpdate detects the same rebump mismatch on every
+      // poll, pulling the same payload in a loop. Drop a stale local
+      // buildId when the manifest doesn't carry one (legacy publish).
+      if (manifest.buildId) baseline.buildId = String(manifest.buildId)
+      else delete baseline.buildId
       fs.writeFileSync(
         path.join(pendingDir, 'merged-ota-config.json'),
         JSON.stringify(baseline, null, 2),
