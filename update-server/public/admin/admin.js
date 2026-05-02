@@ -890,7 +890,26 @@ async function triggerBuild(opts) {
       version,
       status: res.status,
     }] : [])
-    if (jobs.length === 0) throw new Error('server returned no job ids')
+    // Build All can legitimately return zero jobs when every customer is
+    // already on the target version (server returns res.skipped + allSkipped).
+    // Per-customer builds never skip, so an empty jobs[] there is a real bug.
+    if (jobs.length === 0) {
+      if (opts.all && Array.isArray(res.skipped) && res.skipped.length > 0) {
+        const v = res.version || version || 'current version'
+        const list = res.skipped.map(s => s.channel).join(', ')
+        alert('Nothing to build — all ' + res.skipped.length + ' customer(s) already on v' + v + ':\n  ' + list + '\n\nTo re-ship the same version (rebump), use the per-customer Build / Launcher / Server button on that customer\'s card.')
+        return
+      }
+      throw new Error('server returned no job ids')
+    }
+    // Partial skip: some customers already on target, others got built.
+    // Surface a small notice so the operator knows why fewer jobs spawned
+    // than they have customers; the streamed job consoles handle the rest.
+    if (opts.all && Array.isArray(res.skipped) && res.skipped.length > 0) {
+      const v = res.version || version || jobs[0]?.version || 'current'
+      const list = res.skipped.map(s => s.channel).join(', ')
+      console.info('[build-all] skipped ' + res.skipped.length + ' customer(s) already on v' + v + ': ' + list)
+    }
     for (const j of jobs) {
       streamJob(j.jobId, 'Build ' + (j.channel || opts.channel || 'all'))
     }

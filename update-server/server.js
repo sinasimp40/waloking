@@ -990,6 +990,67 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
     return res.json({ dryRun: true, perChannelVersion })
   }
 
+  // === SKIP-SAME-VERSION: only when all=true (Build All Customers) ===
+  // Build All is a "ship anything that needs shipping" sweep — if a customer
+  // has already published the resolved target version for the requested
+  // role(s), rebuilding would just churn out an identical payload. Skip them
+  // and report the skip in the response so the UI can show the operator
+  // exactly which customers were no-ops.
+  //
+  // Per-customer / per-role buttons (single `channel` in the request) are
+  // explicit operator intent — typically a "rebump" to re-ship the same
+  // version after a config / branding tweak. Those are NEVER skipped, even
+  // when the version matches what's already on disk; the operator can see the
+  // version field on the card and clicked Build deliberately.
+  //
+  // Edge cases:
+  //   - Brand-new customer (launcherVersion=null): null !== "1.0.4" so it
+  //     gets built. First-time builds always run.
+  //   - Half-shipped customer (launcher=1.0.4, server=null) with a FULL build
+  //     request: BOTH roles must match the target to skip, so the partial
+  //     gets built to catch the missing role up.
+  //   - Build All + roleFilter='launcher': only checks launcherVersion. A
+  //     customer whose launcher matches but whose server is stale won't have
+  //     its server rebuilt (correctly — operator only asked for launchers).
+  const skippedChannels = []
+  let workingChannels = targetChannels
+  if (all) {
+    workingChannels = []
+    for (const ch of targetChannels) {
+      const cust = dbApi.getCustomer(ch)
+      const v = perChannelVersion[ch]
+      const lv = cust ? (cust.launcherVersion || null) : null
+      const sv = cust ? (cust.serverVersion || null)   : null
+      let alreadyAtVersion
+      if (roleFilter === 'launcher')      alreadyAtVersion = lv === v
+      else if (roleFilter === 'server')   alreadyAtVersion = sv === v
+      else                                alreadyAtVersion = lv === v && sv === v
+      if (alreadyAtVersion) {
+        skippedChannels.push({
+          channel: ch,
+          version: v,
+          role: roleFilter || 'both',
+          reason: 'already on v' + v,
+        })
+      } else {
+        workingChannels.push(ch)
+      }
+    }
+    // All customers were already on the target version — nothing to enqueue.
+    // Return a successful response (NOT an error) with the skip details so
+    // the UI can show "all N customers already on v1.0.4" instead of looking
+    // like the build silently failed.
+    if (workingChannels.length === 0) {
+      return res.json({
+        jobs: [],
+        jobIds: [],
+        skipped: skippedChannels,
+        allSkipped: true,
+        version: perChannelVersion[targetChannels[0]] || null,
+      })
+    }
+  }
+
   // Per-customer fan-out: each customer gets ITS OWN job, scoped to a single
   // channel. The job-runner's 2-slot worker pool then runs up to MAX_CONCURRENT
   // of these in parallel; channel-conflict avoidance (channels=[ch] declared on
@@ -1204,7 +1265,7 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
     return job
   }
 
-  const jobs = targetChannels.map(enqueueOneCustomerJob)
+  const jobs = workingChannels.map(enqueueOneCustomerJob)
   const queueState = jobRunner.getQueueState()
   const jobSummaries = jobs.map(job => ({
     jobId: job.id,
@@ -1215,13 +1276,17 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
   }))
 
   // Response shape:
-  //   - all=true  -> {jobs: [...], jobIds: [...]} (new fan-out shape)
+  //   - all=true  -> {jobs: [...], jobIds: [...], skipped: [...]} (new fan-out shape)
   //   - single ch -> {jobId, status, queuePosition} for back-compat with any
   //     scripted callers, plus jobs/jobIds for new callers.
+  // `skipped` is always present on Build All responses (empty array if
+  // nothing was skipped) so the UI can rely on its existence; absent on
+  // single-channel responses since per-customer builds never skip.
   const body = {
     jobs: jobSummaries,
     jobIds: jobSummaries.map(s => s.jobId),
   }
+  if (all) body.skipped = skippedChannels
   if (!all && jobs.length === 1) {
     body.jobId = jobs[0].id
     body.status = jobs[0].status
