@@ -837,18 +837,85 @@ app.get('/api/admin/customers/:channel/netflix-cookies', requireAdmin, (req, res
   res.json({ ok: true, cookies: cookies || [], hasCookies: !!cookies })
 })
 
+// Cookies that Netflix marks as HttpOnly in the browser. When the operator
+// pastes the raw "document.cookie" string format (which strips attributes
+// and only gives us name=value pairs), we restore HttpOnly on these so
+// Electron sets them with the same flag Netflix expects. Other cookies
+// stay non-HttpOnly so Netflix's frontend JS can still read them.
+const NETFLIX_HTTPONLY_COOKIES = new Set(['NetflixId', 'SecureNetflixId'])
+
+// Parse a browser "Cookie:" header style string into Electron-compatible
+// cookie objects. Input looks like: "name1=value1; name2=value2; ..."
+// This is what you get from Chrome DevTools → Application → Cookies →
+// "Copy as cURL" / right-click "Copy value", or from running
+// `document.cookie` in the JS console while logged into Netflix.
+function parseCookieHeaderString(str, domain = '.netflix.com') {
+  const oneYearFromNow = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365
+  return str
+    .split(/;\s*/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(pair => {
+      const eq = pair.indexOf('=')
+      if (eq < 1) return null
+      const name = pair.slice(0, eq).trim()
+      const value = pair.slice(eq + 1).trim()
+      if (!name) return null
+      return {
+        domain,
+        name,
+        value,
+        path: '/',
+        secure: true,
+        httpOnly: NETFLIX_HTTPONLY_COOKIES.has(name),
+        expirationDate: oneYearFromNow,
+      }
+    })
+    .filter(Boolean)
+}
+
 app.post('/api/admin/customers/:channel/netflix-cookies', requireAdmin, (req, res) => {
   const channel = req.params.channel
   if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
-  // Body shape: { cookiesJson: "<raw JSON string>" } OR { cookies: <array> }
-  // OR { clear: true } to wipe. Accept either ergonomic form.
+  // Body shape: { cookiesJson: "<raw JSON string OR raw cookie-header string>" }
+  // OR { cookies: <array> } OR { clear: true } to wipe.
+  // Accepts THREE input formats for cookiesJson — auto-detected:
+  //   1. JSON array (from "Get cookies.txt LOCALLY" extension → Export as JSON)
+  //   2. JSON object (rare; rejected so user gets a clear error)
+  //   3. Raw cookie-header string "name=value; name2=value2; ..."
+  //      (from Chrome DevTools console: document.cookie)
   let cookiesJson = null
   if (req.body && req.body.clear) {
     cookiesJson = null
-  } else if (req.body && typeof req.body.cookiesJson === 'string') {
-    cookiesJson = req.body.cookiesJson
   } else if (req.body && Array.isArray(req.body.cookies)) {
     cookiesJson = JSON.stringify(req.body.cookies)
+  } else if (req.body && typeof req.body.cookiesJson === 'string') {
+    const trimmed = req.body.cookiesJson.trim()
+    if (!trimmed) {
+      return res.status(400).json({ error: 'cookiesJson is empty' })
+    }
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      // JSON path
+      let parsed
+      try {
+        parsed = JSON.parse(trimmed)
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid JSON: ' + e.message })
+      }
+      if (!Array.isArray(parsed)) {
+        return res.status(400).json({ error: 'Cookies must be a JSON array' })
+      }
+      cookiesJson = JSON.stringify(parsed)
+    } else if (trimmed.includes('=')) {
+      // Cookie-header string path — auto-convert to Electron cookie objects.
+      const converted = parseCookieHeaderString(trimmed)
+      if (converted.length === 0) {
+        return res.status(400).json({ error: 'Could not parse any name=value pairs from input. Expected JSON array OR "name=value; name2=value2; ..." string.' })
+      }
+      cookiesJson = JSON.stringify(converted)
+    } else {
+      return res.status(400).json({ error: 'Unrecognized format. Paste a JSON array OR a "name=value; name2=value2; ..." cookie string.' })
+    }
   } else {
     return res.status(400).json({ error: 'expected cookiesJson string, cookies array, or clear:true' })
   }
