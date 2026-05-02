@@ -62,11 +62,6 @@ const useStore = create(
         ],
         streamingServices: [
           { id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' },
-          { id: 's2', name: 'YouTube', icon: '▶', url: 'https://www.youtube.com', color: 'from-red-500 to-red-600' },
-          { id: 's3', name: 'Twitch', icon: 'T', url: 'https://www.twitch.tv', color: 'from-purple-500 to-purple-600' },
-          { id: 's4', name: 'Disney+', icon: 'D', url: 'https://www.disneyplus.com', color: 'from-blue-600 to-blue-700' },
-          { id: 's5', name: 'Prime', icon: 'P', url: 'https://www.primevideo.com', color: 'from-cyan-500 to-cyan-600' },
-          { id: 's6', name: 'Spotify', icon: '♫', url: 'https://open.spotify.com', color: 'from-emerald-500 to-emerald-600' },
         ],
         poweredBy: 'EXAMPLE CAFE',
         topBannerLogos: [],
@@ -146,7 +141,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 31,
+      version: 32,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -175,14 +170,19 @@ const useStore = create(
               { id: '3', name: 'Excel', icon: 'X', exePath: '', color: 'from-emerald-500 to-emerald-600' },
               { id: '4', name: 'Word', icon: 'W', exePath: '', color: 'from-blue-500 to-blue-600' },
             ],
-            streamingServices: Array.isArray(persistedState.settings?.streamingServices) ? persistedState.settings.streamingServices : [
-              { id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' },
-              { id: 's2', name: 'YouTube', icon: '▶', url: 'https://www.youtube.com', color: 'from-red-500 to-red-600' },
-              { id: 's3', name: 'Twitch', icon: 'T', url: 'https://www.twitch.tv', color: 'from-purple-500 to-purple-600' },
-              { id: 's4', name: 'Disney+', icon: 'D', url: 'https://www.disneyplus.com', color: 'from-blue-600 to-blue-700' },
-              { id: 's5', name: 'Prime', icon: 'P', url: 'https://www.primevideo.com', color: 'from-cyan-500 to-cyan-600' },
-              { id: 's6', name: 'Spotify', icon: '♫', url: 'https://open.spotify.com', color: 'from-emerald-500 to-emerald-600' },
-            ],
+            streamingServices: (() => {
+              const NETFLIX_ONLY = [{ id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' }]
+              const list = persistedState.settings?.streamingServices
+              if (!Array.isArray(list)) return NETFLIX_ONLY
+              // If the user still has the old auto-seeded 6-service default
+              // (s1..s6 untouched), reset to Netflix-only. Anything else is
+              // treated as customized and preserved as-is.
+              const oldDefaultIds = ['s1','s2','s3','s4','s5','s6']
+              const looksLikeOldDefault =
+                list.length === 6 &&
+                list.every((s, i) => s?.id === oldDefaultIds[i])
+              return looksLikeOldDefault ? NETFLIX_ONLY : list
+            })(),
             topBannerLogos: persistedState.settings?.topBannerLogos || [],
             bannerImage: persistedState.settings?.bannerImage ?? null,
             announcementImages: persistedState.settings?.announcementImages || [],

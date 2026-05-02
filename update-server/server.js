@@ -805,6 +805,69 @@ app.post('/api/admin/customers/:channel/updates-enabled', requireAdmin, (req, re
   res.json({ ok: true, customer: updated })
 })
 
+// ----- Netflix cookies (per-customer) ---------------------------------------
+// The operator pastes cookies exported from a logged-in browser session
+// (Chrome extension "Get cookies.txt LOCALLY" → Export As JSON) and the
+// launcher fetches them on Netflix-tile click to pre-populate its
+// ephemeral popup session — so the cafe customer lands directly on the
+// "Who's Watching?" screen without typing a password.
+//
+// Threat model — be honest with the operator about it:
+//   • The /updates/<channel>/netflix-cookies.json endpoint is PUBLIC, gated
+//     only by knowing the channel name. Channel names live inside every
+//     shipped launcher binary (ota-config.json) — anyone who can run the
+//     launcher can read the channel and curl this endpoint. This is the
+//     same threat model as the existing /updates/<channel>/latest.json.
+//   • A leaked Netflix session cookie = full account takeover until the
+//     account holder forces a sign-out from netflix.com → Account →
+//     "Sign out of all devices". The OTA admin should treat this as a
+//     "share my Netflix login with every cafe customer who has the
+//     launcher" decision, NOT a "cafe customers individually log in"
+//     decision.
+//   • Cookies expire — Netflix's NetflixId session typically lasts ~1
+//     year, but a forced sign-out invalidates it instantly. When a cookie
+//     stops working, every launcher in the channel breaks at once until
+//     the operator re-pastes a fresh export.
+
+app.get('/api/admin/customers/:channel/netflix-cookies', requireAdmin, (req, res) => {
+  const channel = req.params.channel
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!dbApi.getCustomer(channel)) return res.status(404).json({ error: 'customer not found' })
+  const cookies = dbApi.getNetflixCookies(channel)
+  res.json({ ok: true, cookies: cookies || [], hasCookies: !!cookies })
+})
+
+app.post('/api/admin/customers/:channel/netflix-cookies', requireAdmin, (req, res) => {
+  const channel = req.params.channel
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  // Body shape: { cookiesJson: "<raw JSON string>" } OR { cookies: <array> }
+  // OR { clear: true } to wipe. Accept either ergonomic form.
+  let cookiesJson = null
+  if (req.body && req.body.clear) {
+    cookiesJson = null
+  } else if (req.body && typeof req.body.cookiesJson === 'string') {
+    cookiesJson = req.body.cookiesJson
+  } else if (req.body && Array.isArray(req.body.cookies)) {
+    cookiesJson = JSON.stringify(req.body.cookies)
+  } else {
+    return res.status(400).json({ error: 'expected cookiesJson string, cookies array, or clear:true' })
+  }
+  const result = dbApi.setNetflixCookies(channel, cookiesJson)
+  if (!result.ok) return res.status(400).json({ error: result.error })
+  res.json({ ok: true, count: result.count })
+})
+
+// PUBLIC — launcher fetches at click time. See threat-model note above.
+app.get('/updates/:channel/netflix-cookies.json', (req, res) => {
+  const channel = req.params.channel
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!dbApi.getCustomer(channel)) return res.status(404).json({ error: 'channel not found' })
+  const cookies = dbApi.getNetflixCookies(channel)
+  if (!cookies) return res.status(404).json({ error: 'no cookies configured' })
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ cookies })
+})
+
 app.delete('/api/admin/customers/:channel', requireAdmin, (req, res) => {
   if (!CUSTOMERS_DIR) return res.status(503).json({ error: 'project root not found' })
   const channel = req.params.channel

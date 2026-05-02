@@ -203,6 +203,34 @@
   </div>
 </div>
 
+<div id="netflix-modal" class="modal hidden">
+  <div class="modal-card">
+    <h3>Netflix Cookies — <span id="nf-channel-name"></span></h3>
+    <p class="muted small">Paste cookies exported from a browser where you are already logged into Netflix. Every launcher in this channel will inject these cookies into its Netflix popup so the cafe customer lands logged-in.</p>
+    <details style="margin: 8px 0 12px 0;">
+      <summary style="cursor:pointer; font-weight:600;">How to export Netflix cookies (one-time setup)</summary>
+      <ol style="margin:8px 0 0 18px; padding:0; line-height:1.6; font-size:13px;">
+        <li>In Chrome / Edge, install the extension <strong>"Get cookies.txt LOCALLY"</strong> (open-source).</li>
+        <li>Open <code>https://www.netflix.com</code> and log in with the cafe's Netflix account.</li>
+        <li>Click the extension icon → set format to <strong>JSON</strong> → click <strong>Export</strong>.</li>
+        <li>Open the downloaded file, copy the entire contents, and paste into the textarea below.</li>
+        <li>Click <strong>Save</strong>. Cookies are stored on this server and served to launchers in this channel only.</li>
+      </ol>
+      <p class="muted small" style="margin-top:8px;"><strong>Heads up:</strong> Anyone with this account's cookies can use the Netflix account. To invalidate them, go to Netflix → Account → <em>Sign out of all devices</em>, then re-export and re-paste.</p>
+    </details>
+    <label>Cookies (JSON array)
+      <textarea id="nf-cookies" rows="12" style="width:100%; font-family:monospace; font-size:12px;" placeholder='[{"domain":".netflix.com","name":"NetflixId","value":"...","path":"/","secure":true,"httpOnly":true}]'></textarea>
+    </label>
+    <div id="nf-status" class="muted small" style="margin-top:6px;"></div>
+    <div class="modal-actions">
+      <button type="button" id="nf-cancel" class="btn-ghost">Cancel</button>
+      <button type="button" id="nf-clear" class="btn-danger">Clear Cookies</button>
+      <button type="button" id="nf-save" class="btn-primary">Save</button>
+    </div>
+    <div id="nf-error" class="error"></div>
+  </div>
+</div>
+
 <div id="customer-modal" class="modal hidden">
   <div class="modal-card">
     <h3 id="customer-modal-title">Customer</h3>
