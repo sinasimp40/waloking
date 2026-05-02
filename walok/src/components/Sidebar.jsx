@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight, Tv } from 'lucide-react'
+import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight, Tv, Play } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
@@ -365,26 +365,89 @@ function StreamingServices() {
 
   if (services.length === 0) return null
 
+  // Split: Netflix gets its own premium hero card. Any other services the
+  // operator adds via AdminPanel → Streaming render below as small tiles.
+  const isNetflix = (s) => /^netflix$/i.test((s.name || '').trim())
+  const netflix = services.find(isNetflix)
+  const others = services.filter(s => !isNetflix(s))
+
   return (
-    <div className="px-3 py-2 border-b border-neon-orange/10">
-      <div className="flex items-center gap-1.5 mb-1.5">
+    <div className="px-3 py-2.5 border-b border-neon-orange/10">
+      <div className="flex items-center gap-1.5 mb-2">
         <Tv size={10} className="text-neon-orange/80" />
         <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold">Streaming</span>
       </div>
-      <div className="flex gap-1.5 justify-center flex-wrap">
-        {services.map((svc) => (
-          <motion.button
-            key={svc.id}
-            whileHover={{ scale: 1.15, y: -2 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => handleClick(svc)}
-            title={svc.name}
-            className={`w-8 h-8 rounded-lg bg-gradient-to-br ${svc.color || 'from-red-500 to-red-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
-          >
-            {svc.image ? <img src={svc.image} alt={svc.name} className="w-full h-full object-cover" /> : svc.icon}
-          </motion.button>
-        ))}
-      </div>
+
+      {netflix && (
+        <motion.button
+          whileHover={{ scale: 1.03, y: -1 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => handleClick(netflix)}
+          title="Open Netflix"
+          className="relative w-full h-14 rounded-lg overflow-hidden group cursor-pointer mb-2 bg-black"
+          style={{
+            boxShadow: '0 0 18px rgba(229,9,20,0.35), inset 0 0 0 1px rgba(229,9,20,0.45)',
+          }}
+        >
+          {/* radial red glow behind the wordmark */}
+          <div
+            className="absolute inset-0 opacity-70"
+            style={{
+              background: 'radial-gradient(ellipse 80% 60% at center, rgba(229,9,20,0.55) 0%, rgba(0,0,0,0) 70%)',
+            }}
+          />
+          {/* horizontal scan-line texture */}
+          <div
+            className="absolute inset-0 opacity-15 pointer-events-none"
+            style={{
+              backgroundImage:
+                'repeating-linear-gradient(0deg, rgba(0,0,0,0.6) 0px, rgba(0,0,0,0.6) 1px, transparent 1px, transparent 3px)',
+            }}
+          />
+          {/* Netflix wordmark */}
+          <div className="relative h-full w-full flex items-center justify-center">
+            <span
+              className="font-black select-none"
+              style={{
+                color: '#E50914',
+                fontFamily: 'Impact, "Arial Black", "Helvetica Neue", sans-serif',
+                fontSize: '22px',
+                letterSpacing: '0.06em',
+                textShadow:
+                  '0 0 14px rgba(229,9,20,0.9), 0 0 28px rgba(229,9,20,0.5), 0 1px 0 rgba(0,0,0,0.85)',
+              }}
+            >
+              NETFLIX
+            </span>
+          </div>
+          {/* play indicator pill, top-right */}
+          <div className="absolute top-1 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm">
+            <Play size={8} className="text-white fill-white" />
+            <span className="text-[7px] font-orbitron uppercase tracking-wider text-white/95 font-bold">
+              Watch
+            </span>
+          </div>
+          {/* hover sheen */}
+          <div className="absolute inset-0 bg-white/0 group-hover:bg-white/[0.06] transition-colors duration-200 pointer-events-none" />
+        </motion.button>
+      )}
+
+      {others.length > 0 && (
+        <div className="flex gap-1.5 justify-center flex-wrap">
+          {others.map((svc) => (
+            <motion.button
+              key={svc.id}
+              whileHover={{ scale: 1.15, y: -2 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => handleClick(svc)}
+              title={svc.name}
+              className={`w-8 h-8 rounded-lg bg-gradient-to-br ${svc.color || 'from-red-500 to-red-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
+            >
+              {svc.image ? <img src={svc.image} alt={svc.name} className="w-full h-full object-cover" /> : svc.icon}
+            </motion.button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

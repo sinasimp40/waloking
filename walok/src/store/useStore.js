@@ -141,7 +141,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 32,
+      version: 33,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -171,17 +171,14 @@ const useStore = create(
               { id: '4', name: 'Word', icon: 'W', exePath: '', color: 'from-blue-500 to-blue-600' },
             ],
             streamingServices: (() => {
-              const NETFLIX_ONLY = [{ id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' }]
-              const list = persistedState.settings?.streamingServices
-              if (!Array.isArray(list)) return NETFLIX_ONLY
-              // If the user still has the old auto-seeded 6-service default
-              // (s1..s6 untouched), reset to Netflix-only. Anything else is
-              // treated as customized and preserved as-is.
-              const oldDefaultIds = ['s1','s2','s3','s4','s5','s6']
-              const looksLikeOldDefault =
-                list.length === 6 &&
-                list.every((s, i) => s?.id === oldDefaultIds[i])
-              return looksLikeOldDefault ? NETFLIX_ONLY : list
+              // v33: Hard reset to Netflix-only. The user explicitly asked
+              // for Netflix only — earlier conditional migrations missed
+              // some browser-cached states that still showed the old 6-tile
+              // list. This unconditionally wipes any prior streamingServices
+              // config so Netflix is the single source of truth from this
+              // version onward. If the operator wants more services later,
+              // they add them via AdminPanel → Streaming.
+              return [{ id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' }]
             })(),
             topBannerLogos: persistedState.settings?.topBannerLogos || [],
             bannerImage: persistedState.settings?.bannerImage ?? null,
