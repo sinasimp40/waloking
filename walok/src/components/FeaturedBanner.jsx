@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import useStore from '../store/useStore'
 
 const SCRAMBLE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@!$%&'
@@ -91,216 +91,37 @@ function useScrambleText(text, { idle = false, restartGapMs = 7000 } = {}) {
   return display
 }
 
-// Animated background for the hero banner. The shipped default uses
-// "glitch slice" tear lines; additional `variant` values render
-// alternative effects so they can be previewed via the
-// `?preview=banner-<variant>` route in App.jsx without touching the
-// rest of the launcher UI. All variants are pure CSS animations and
-// pause via the global `html.app-idle *` rule in index.css.
-function BannerCanvas({ variant }) {
-  return (
-    <div className="absolute inset-0 overflow-hidden">
-      {variant === 'spotlight' && <BannerSpotlight />}
-      {variant === 'eq'        && <BannerEq />}
-      {variant === 'particles' && <BannerParticles />}
-      {variant === 'marquee'   && <BannerMarquee />}
-      {variant === 'hex'       && <BannerHex />}
-      {variant === 'static'    && <BannerStatic />}
-      {variant === 'scanlines' && <BannerScanlines />}
-      {variant === 'rings'     && <BannerPulseRings />}
-      {variant === 'stripes'   && <BannerSpeedStripes />}
-      {variant === 'warp'      && <BannerWarp />}
-      {variant === 'tron'      && <BannerTronGrid />}
-      {variant === 'matrix'    && <BannerMatrix />}
-      {!variant && <BannerGlitch />}
-    </div>
-  )
-}
-
-function BannerGlitch() {
-  return (
-    <>
-      <div className="banner-glitch banner-glitch-1" />
-      <div className="banner-glitch banner-glitch-2" />
-      <div className="banner-glitch banner-glitch-3" />
-      <div className="banner-glitch banner-glitch-4" />
-    </>
-  )
-}
-
-function BannerSpotlight() {
-  return <div className="banner-spotlight" />
-}
-
-function BannerEq() {
-  return (
-    <div className="absolute inset-0 flex items-end gap-px px-1">
-      {Array.from({ length: 40 }).map((_, i) => (
-        <div key={i} className={`banner-eq-bar banner-eq-bar-${(i % 8) + 1}`} />
-      ))}
-    </div>
-  )
-}
-
-function BannerParticles() {
-  const particles = [
-    { left: '5%',  delay: '0s'    },
-    { left: '12%', delay: '-3s'   },
-    { left: '21%', delay: '-7s'   },
-    { left: '28%', delay: '-1s'   },
-    { left: '37%', delay: '-5s'   },
-    { left: '44%', delay: '-9s'   },
-    { left: '53%', delay: '-2s'   },
-    { left: '61%', delay: '-6s'   },
-    { left: '70%', delay: '-4s'   },
-    { left: '78%', delay: '-8s'   },
-    { left: '86%', delay: '-1.5s' },
-    { left: '94%', delay: '-5.5s' },
-  ]
-  return (
-    <>
-      {particles.map((p, i) => (
-        <div
-          key={i}
-          className={`banner-particle banner-particle-${(i % 4) + 1}`}
-          style={{ left: p.left, animationDelay: p.delay }}
-        />
-      ))}
-    </>
-  )
-}
-
-function BannerMarquee() {
-  const phrase = 'PREMIUM • PLAY • WIN • '
-  return (
-    <div className="banner-marquee">
-      <span>{phrase.repeat(8)}</span>
-    </div>
-  )
-}
-
-function BannerHex() {
-  const cells = []
-  for (let row = 0; row < 6; row++) {
-    for (let col = 0; col < 26; col++) {
-      const x = col * 50 + (row % 2 === 0 ? 0 : 25)
-      const y = row * 38
-      const idx = row * 26 + col
-      cells.push(
-        <polygon
-          key={idx}
-          points="25,0 50,14 50,42 25,56 0,42 0,14"
-          transform={`translate(${x}, ${y})`}
-          className={`banner-hex-cell banner-hex-cell-${(idx % 12) + 1}`}
-        />
-      )
-    }
-  }
-  return (
-    <svg
-      viewBox="0 0 1300 240"
-      preserveAspectRatio="xMidYMid slice"
-      className="absolute inset-0 w-full h-full"
-    >
-      {cells}
-    </svg>
-  )
-}
-
-function BannerStatic() {
-  return <div className="banner-static-gradient" />
-}
-
-function BannerScanlines() {
-  return (
-    <>
-      <div className="banner-scanlines-bg" />
-      <div className="banner-scanline-sweep" />
-    </>
-  )
-}
-
-function BannerPulseRings() {
-  return (
-    <div className="banner-pulse-anchor">
-      {[0, 1, 2, 3].map(i => (
-        <div
-          key={i}
-          className="banner-pulse-ring"
-          style={{ animationDelay: `${i * 1.2}s` }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function BannerSpeedStripes() {
-  return <div className="banner-speed-stripes" />
-}
-
-function BannerWarp() {
+// Animated background for the hero banner — the "Starfield Warp" effect.
+// A ring of light streaks shoots outward from the banner center, tinted
+// by `--accent-rgb` so each customer's brand color carries through.
+// Pure CSS animations; paused via the global `html.app-idle *` rule in
+// index.css when the cafe goes idle.
+function BannerCanvas() {
   const streaks = Array.from({ length: 18 }, (_, i) => ({
     angle: (i * 20) % 360,
     delay: -((i * 0.22) % 2.5).toFixed(2) + 's',
     duration: (1.8 + (i % 4) * 0.35).toFixed(2) + 's',
   }))
   return (
-    <div className="banner-warp-stage">
-      {streaks.map((s, i) => (
-        <div
-          key={i}
-          className="banner-warp-streak"
-          style={{
-            '--angle': `${s.angle}deg`,
-            animationDelay: s.delay,
-            animationDuration: s.duration,
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function BannerTronGrid() {
-  return (
-    <div className="banner-tron-stage">
-      <div className="banner-tron-grid" />
-    </div>
-  )
-}
-
-function BannerMatrix() {
-  const columns = []
-  for (let i = 0; i < 28; i++) {
-    const left = (i * (100 / 28)).toFixed(2) + '%'
-    const delay = (-((i * 0.7) % 6)).toFixed(2) + 's'
-    const duration = (3.2 + (i % 5) * 0.7).toFixed(2) + 's'
-    const seed = '0110100110010101101001100101'
-    const chars = (seed + seed).slice((i * 3) % seed.length, (i * 3) % seed.length + 9)
-    columns.push({ left, delay, duration, chars })
-  }
-  return (
     <div className="absolute inset-0 overflow-hidden">
-      {columns.map((c, i) => (
-        <div
-          key={i}
-          className="banner-matrix-col"
-          style={{
-            left: c.left,
-            animationDelay: c.delay,
-            animationDuration: c.duration,
-          }}
-        >
-          {c.chars.split('').map((ch, j) => (
-            <span key={j}>{ch}</span>
-          ))}
-        </div>
-      ))}
+      <div className="banner-warp-stage">
+        {streaks.map((s, i) => (
+          <div
+            key={i}
+            className="banner-warp-streak"
+            style={{
+              '--angle': `${s.angle}deg`,
+              animationDelay: s.delay,
+              animationDuration: s.duration,
+            }}
+          />
+        ))}
+      </div>
     </div>
   )
 }
 
-export default function FeaturedBanner({ bgVariant }) {
+export default function FeaturedBanner() {
   const settings = useStore(s => s.settings)
 
   return (
@@ -320,7 +141,7 @@ export default function FeaturedBanner({ bgVariant }) {
       <div className="absolute inset-0 bg-gradient-to-r from-dark-500/60 via-dark-500/20 to-dark-500/50" />
       <div className="absolute inset-0 bg-gradient-to-b from-white/[0.03] via-transparent to-dark-500/80" />
 
-      <BannerCanvas variant={bgVariant} />
+      <BannerCanvas />
 
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-neon-orange/40 to-transparent" />
