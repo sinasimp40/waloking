@@ -3,62 +3,108 @@ import useStore from '../store/useStore'
 
 const SCRAMBLE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@!$%&'
 
-function useScrambleText(text) {
+// Watches the global `html.app-idle` class so JS-driven animations (like
+// the scramble loop below) can stop when the user goes idle and resume
+// the moment they move the mouse / press a key. The CSS rule in index.css
+// already pauses *CSS* animations on idle; this hook is the JS twin.
+function useIsIdle() {
+  const [idle, setIdle] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('app-idle')
+  )
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    setIdle(root.classList.contains('app-idle'))
+    const obs = new MutationObserver(() => {
+      setIdle(root.classList.contains('app-idle'))
+    })
+    obs.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [])
+  return idle
+}
+
+// Brand-name scramble. Originally fired once on mount which made the
+// header look "dead" after the first reveal. Now it loops on a fixed
+// gap (RESTART_GAP_MS) between cycles whenever the app is active, and
+// fully stops when `html.app-idle` is set so we don't waste CPU on the
+// idle screen. When the user becomes active again, MutationObserver
+// flips `idle` back to false, the effect re-runs, and the loop kicks
+// off again — matching what the user expects from a "living" header.
+function useScrambleText(text, { idle = false, restartGapMs = 7000 } = {}) {
   const [display, setDisplay] = useState(text)
-  const timerRef = useRef(null)
 
   useEffect(() => {
     if (!text) return
+    // While idle, freeze on the stable brand text. The next time `idle`
+    // flips back to false this effect re-runs (idle is in the dep list)
+    // and the loop starts over.
+    if (idle) {
+      setDisplay(text)
+      return
+    }
 
-    let iteration = 0
-    const totalFrames = text.length * 3
+    let cancelled = false
+    let frameTimer = null
+    let cycleTimer = null
+    const FRAME_MS = 40
+    const FRAMES_PER_CHAR = 3
 
-    const animate = () => {
-      iteration++
-      const result = text.split('').map((char, i) => {
-        if (char === ' ') return ' '
-        if (i < Math.floor(iteration / 3)) return char
-        return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]
-      }).join('')
-      setDisplay(result)
-      if (iteration < totalFrames) {
-        timerRef.current = setTimeout(animate, 40)
-      } else {
-        setDisplay(text)
+    const runScramble = () => {
+      if (cancelled) return
+      let iteration = 0
+      const totalFrames = text.length * FRAMES_PER_CHAR
+      const tick = () => {
+        if (cancelled) return
+        iteration++
+        const result = text.split('').map((char, i) => {
+          if (char === ' ') return ' '
+          if (i < Math.floor(iteration / FRAMES_PER_CHAR)) return char
+          return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]
+        }).join('')
+        setDisplay(result)
+        if (iteration < totalFrames) {
+          frameTimer = setTimeout(tick, FRAME_MS)
+        } else {
+          setDisplay(text)
+          // Schedule the next cycle. Re-checked at fire time so a quick
+          // idle-then-unidle sequence still leaves a clean gap.
+          cycleTimer = setTimeout(() => {
+            if (!cancelled) runScramble()
+          }, restartGapMs)
+        }
       }
+      tick()
     }
 
-    timerRef.current = setTimeout(animate, 500)
+    // Initial reveal feels best with a short pre-roll; subsequent loops
+    // are spaced by restartGapMs above.
+    cycleTimer = setTimeout(runScramble, 500)
+
     return () => {
-      clearTimeout(timerRef.current)
+      cancelled = true
+      if (frameTimer) clearTimeout(frameTimer)
+      if (cycleTimer) clearTimeout(cycleTimer)
     }
-  }, [text])
+  }, [text, idle, restartGapMs])
 
   return display
 }
 
+// Animated background for the hero banner. Replaces the previous static
+// grid + single static glow with three drifting "aurora" blobs that share
+// the customer's accent color via `rgb(var(--accent-rgb) / X)`. The blobs
+// move on offset CSS keyframes (different durations + easings) so the
+// motion feels organic rather than mechanical. Because all three rely on
+// CSS animation, the global `html.app-idle *` rule in index.css freezes
+// them automatically when the user goes idle — no JS plumbing required.
 function BannerCanvas() {
   return (
     <div className="absolute inset-0 overflow-hidden">
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: `
-            linear-gradient(to right, rgb(var(--accent-rgb) / 0.06) 1px, transparent 1px),
-            linear-gradient(to bottom, rgb(var(--accent-rgb) / 0.06) 1px, transparent 1px)
-          `,
-          backgroundSize: '60px 30px',
-        }}
-      />
-      <div
-        className="absolute w-40 h-40 rounded-full"
-        style={{
-          right: '20%',
-          top: '20%',
-          background: 'radial-gradient(circle, rgb(var(--accent-rgb) / 0.06) 0%, transparent 70%)',
-          filter: 'blur(20px)',
-        }}
-      />
+      <div className="banner-aurora banner-aurora-1" />
+      <div className="banner-aurora banner-aurora-2" />
+      <div className="banner-aurora banner-aurora-3" />
+      <div className="banner-aurora-sheen" />
     </div>
   )
 }
@@ -134,7 +180,8 @@ export default function FeaturedBanner() {
 
 function BannerTitle({ settings }) {
   const name = (settings.launcherName || 'EXAMPLE CAFE').toUpperCase()
-  const scrambled = useScrambleText(name)
+  const idle = useIsIdle()
+  const scrambled = useScrambleText(name, { idle })
 
   return (
     <div className="min-w-0 flex-1">

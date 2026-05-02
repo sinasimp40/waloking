@@ -113,6 +113,106 @@
   100% { transform: scale(2); opacity: 0; }
 }
 
+/* --- FeaturedBanner animated aurora --------------------------------- *
+ * Three large blurred radial blobs (positioned absolutely inside the
+ * banner) drift on offset keyframes to create a subtle, living gradient
+ * background. All colors come from `--accent-rgb` so the motion adopts
+ * the active customer's brand color. The thin diagonal sheen on top
+ * sweeps across slowly and adds the "premium" highlight feel.
+ *
+ * Pause-on-idle is handled globally by the `html.app-idle *` rule near
+ * the bottom of this file — no per-class override needed here.
+ * -------------------------------------------------------------------- */
+.banner-aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(34px);
+  pointer-events: none;
+  will-change: transform, opacity;
+  mix-blend-mode: screen;
+}
+
+.banner-aurora-1 {
+  width: 280px;
+  height: 280px;
+  left: -60px;
+  top: -80px;
+  background: radial-gradient(
+    circle,
+    rgb(var(--accent-rgb) / 0.32) 0%,
+    rgb(var(--accent-rgb) / 0.08) 45%,
+    rgb(var(--accent-rgb) / 0) 72%
+  );
+  animation: bannerAuroraDrift1 14s ease-in-out infinite;
+}
+
+.banner-aurora-2 {
+  width: 340px;
+  height: 340px;
+  right: 8%;
+  top: -110px;
+  background: radial-gradient(
+    circle,
+    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.22) 0%,
+    rgb(var(--accent-rgb) / 0.06) 50%,
+    rgb(var(--accent-rgb) / 0) 75%
+  );
+  animation: bannerAuroraDrift2 19s ease-in-out infinite;
+}
+
+.banner-aurora-3 {
+  width: 220px;
+  height: 220px;
+  left: 38%;
+  bottom: -90px;
+  background: radial-gradient(
+    circle,
+    rgb(var(--accent-rgb) / 0.20) 0%,
+    rgb(var(--accent-dark-rgb, var(--accent-rgb)) / 0.05) 50%,
+    rgb(var(--accent-rgb) / 0) 78%
+  );
+  animation: bannerAuroraDrift3 23s ease-in-out infinite;
+}
+
+/* Diagonal sheen — a thin, very low-opacity highlight that sweeps across
+ * the banner every ~9s so the surface always looks alive even between
+ * the slower blob drifts. Uses accent color so it tints per-customer. */
+.banner-aurora-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.07) 50%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: bannerAuroraSheen 9s linear infinite;
+  mix-blend-mode: screen;
+}
+
+@keyframes bannerAuroraDrift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.85; }
+  50%      { transform: translate(70px, 25px) scale(1.18); opacity: 1; }
+}
+
+@keyframes bannerAuroraDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1.05); opacity: 0.75; }
+  50%      { transform: translate(-55px, 35px) scale(0.92); opacity: 1; }
+}
+
+@keyframes bannerAuroraDrift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.7; }
+  50%      { transform: translate(-40px, -30px) scale(1.22); opacity: 1; }
+}
+
+@keyframes bannerAuroraSheen {
+  0%   { background-position: -60% 0; }
+  100% { background-position: 160% 0; }
+}
+
 .animate-float {
   animation: float 3s ease-in-out infinite;
 }
