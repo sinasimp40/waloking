@@ -60,9 +60,6 @@ const useStore = create(
           { id: '3', name: 'Excel', icon: 'X', exePath: '', color: 'from-emerald-500 to-emerald-600' },
           { id: '4', name: 'Word', icon: 'W', exePath: '', color: 'from-blue-500 to-blue-600' },
         ],
-        streamingServices: [
-          { id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' },
-        ],
         poweredBy: 'EXAMPLE CAFE',
         topBannerLogos: [],
         announcement: '',
@@ -141,7 +138,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 34,
+      version: 30,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -170,16 +167,6 @@ const useStore = create(
               { id: '3', name: 'Excel', icon: 'X', exePath: '', color: 'from-emerald-500 to-emerald-600' },
               { id: '4', name: 'Word', icon: 'W', exePath: '', color: 'from-blue-500 to-blue-600' },
             ],
-            streamingServices: (() => {
-              // v33: Hard reset to Netflix-only. The user explicitly asked
-              // for Netflix only — earlier conditional migrations missed
-              // some browser-cached states that still showed the old 6-tile
-              // list. This unconditionally wipes any prior streamingServices
-              // config so Netflix is the single source of truth from this
-              // version onward. If the operator wants more services later,
-              // they add them via AdminPanel → Streaming.
-              return [{ id: 's1', name: 'Netflix', icon: 'N', url: 'https://www.netflix.com', color: 'from-red-600 to-red-700' }]
-            })(),
             topBannerLogos: persistedState.settings?.topBannerLogos || [],
             bannerImage: persistedState.settings?.bannerImage ?? null,
             announcementImages: persistedState.settings?.announcementImages || [],

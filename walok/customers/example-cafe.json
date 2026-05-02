@@ -2,6 +2,6 @@
   "channel": "example-cafe",
   "brandName": "EXAMPLE CAFE",
   "subtitle": "Premium Gaming Lounge",
-  "updateServer": "https://0c63d4e9-b49b-4074-8413-a53edbcf07f5-00-2jssbjd61xl9b.picard.replit.dev",
+  "updateServer": "http://YOUR-RDP-IP:4231",
   "logo": "branding/example-cafe-logo.png"
 }

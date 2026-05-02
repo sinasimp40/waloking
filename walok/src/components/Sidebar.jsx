@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight, Tv, Play } from 'lucide-react'
+import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronLeft, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
@@ -43,7 +43,6 @@ export default function Sidebar() {
           <ComputerRates />
           <SocialMedia />
           <OfficeApps />
-          <StreamingServices />
           <Announcement />
           <ZoomControl />
         </div>
@@ -320,179 +319,6 @@ function OfficeApps() {
           </motion.button>
         ))}
       </div>
-    </div>
-  )
-}
-
-function StreamingServices() {
-  const { settings } = useStore()
-  const services = settings.streamingServices || []
-
-  const handleClick = async (svc) => {
-    if (!svc.url) {
-      toast.error(`No URL set for ${svc.name}`)
-      return
-    }
-    try {
-      const p = new URL(svc.url)
-      if (!['http:', 'https:'].includes(p.protocol)) {
-        toast.error(`${svc.name}: only http(s) URLs are allowed`)
-        return
-      }
-    } catch {
-      toast.error(`${svc.name}: invalid URL`)
-      return
-    }
-    if (window.electronAPI?.openStreaming) {
-      const result = await window.electronAPI.openStreaming({ url: svc.url, name: svc.name })
-      if (result?.success) {
-        toast.success(`Opening ${svc.name}...`)
-      } else {
-        toast.error(result?.error || `Could not open ${svc.name}`)
-      }
-    } else {
-      const w = 1400, h = 900
-      const left = Math.max(0, (window.screen.availWidth - w) / 2)
-      const top = Math.max(0, (window.screen.availHeight - h) / 2)
-      const popup = window.open(svc.url, `streaming-${svc.id}-${Date.now()}`, `popup=yes,width=${w},height=${h},left=${left},top=${top},noopener`)
-      if (!popup || popup.closed) {
-        toast.error('Popup blocked — allow popups in your browser')
-      } else {
-        toast.success(`Opening ${svc.name}... (preview mode)`)
-      }
-    }
-  }
-
-  if (services.length === 0) return null
-
-  // Split: Netflix gets its own premium hero card. Any other services the
-  // operator adds via AdminPanel → Streaming render below as small tiles.
-  const isNetflix = (s) => /^netflix$/i.test((s.name || '').trim())
-  const netflix = services.find(isNetflix)
-  const others = services.filter(s => !isNetflix(s))
-
-  return (
-    <div className="px-3 py-2.5 border-b border-neon-orange/10">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Tv size={10} className="text-neon-orange/80" />
-        <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold">Streaming</span>
-      </div>
-
-      {netflix && (
-        <motion.button
-          whileHover={{ scale: 1.02, y: -1 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => handleClick(netflix)}
-          title="Open Netflix"
-          className="relative w-full rounded-xl overflow-hidden group cursor-pointer mb-2 bg-black flex flex-col"
-          style={{
-            height: 168,
-            boxShadow: '0 8px 24px rgba(229,9,20,0.25), 0 0 0 1px rgba(229,9,20,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
-          }}
-        >
-          {/* vertical red gradient — poster vibe */}
-          <div
-            className="absolute inset-0"
-            style={{
-              background: 'linear-gradient(180deg, #1a0306 0%, #4a0810 55%, #b00710 90%, #e50914 100%)',
-            }}
-          />
-          {/* radial sheen behind the wordmark */}
-          <div
-            className="absolute inset-0 opacity-60"
-            style={{
-              background: 'radial-gradient(ellipse 90% 55% at 50% 38%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 65%)',
-            }}
-          />
-          {/* horizontal scan-line texture */}
-          <div
-            className="absolute inset-0 opacity-15 pointer-events-none"
-            style={{
-              backgroundImage:
-                'repeating-linear-gradient(0deg, rgba(0,0,0,0.6) 0px, rgba(0,0,0,0.6) 1px, transparent 1px, transparent 3px)',
-            }}
-          />
-          {/* STREAMING badge top-left */}
-          <div className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 rounded-md bg-black/55 backdrop-blur-sm">
-            <span className="text-[7px] font-orbitron uppercase tracking-[0.18em] text-white/90 font-bold">
-              Streaming
-            </span>
-          </div>
-          {/* SIGNED IN dot top-right */}
-          <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/55 backdrop-blur-sm">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-            </span>
-            <span className="text-[7px] font-orbitron uppercase tracking-wider text-white/95 font-bold">
-              Live
-            </span>
-          </div>
-
-          {/* Netflix wordmark — center */}
-          <div className="relative flex-1 flex flex-col items-center justify-center pt-3">
-            <span
-              className="font-black select-none leading-none"
-              style={{
-                color: '#fff',
-                fontFamily: 'Impact, "Arial Black", "Helvetica Neue", sans-serif',
-                fontSize: '38px',
-                letterSpacing: '0.03em',
-                textShadow:
-                  '0 0 14px rgba(0,0,0,0.6), 0 2px 0 rgba(0,0,0,0.45)',
-              }}
-            >
-              N
-            </span>
-            <span
-              className="font-black select-none mt-0.5"
-              style={{
-                color: '#fff',
-                fontFamily: 'Impact, "Arial Black", "Helvetica Neue", sans-serif',
-                fontSize: '14px',
-                letterSpacing: '0.18em',
-                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
-              }}
-            >
-              NETFLIX
-            </span>
-            <span className="text-[8px] font-orbitron uppercase tracking-[0.18em] text-white/70 mt-1.5">
-              Ready to watch
-            </span>
-          </div>
-
-          {/* WATCH NOW button at the bottom */}
-          <div className="relative px-2 pb-2 pt-1">
-            <div
-              className="w-full h-7 rounded-md flex items-center justify-center gap-1.5 bg-white text-[#e50914] font-bold tracking-wider transition group-hover:bg-white/95"
-              style={{ boxShadow: '0 4px 10px rgba(0,0,0,0.35)' }}
-            >
-              <Play size={10} className="fill-[#e50914]" />
-              <span className="text-[9px] font-orbitron uppercase">Watch Now</span>
-            </div>
-          </div>
-
-          {/* hover sheen overlay */}
-          <div className="absolute inset-0 bg-white/0 group-hover:bg-white/[0.04] transition-colors duration-200 pointer-events-none" />
-        </motion.button>
-      )}
-
-      {others.length > 0 && (
-        <div className="flex gap-1.5 justify-center flex-wrap">
-          {others.map((svc) => (
-            <motion.button
-              key={svc.id}
-              whileHover={{ scale: 1.15, y: -2 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => handleClick(svc)}
-              title={svc.name}
-              className={`w-8 h-8 rounded-lg bg-gradient-to-br ${svc.color || 'from-red-500 to-red-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
-            >
-              {svc.image ? <img src={svc.image} alt={svc.name} className="w-full h-full object-cover" /> : svc.icon}
-            </motion.button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

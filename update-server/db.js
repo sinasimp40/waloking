@@ -64,13 +64,6 @@ CREATE TABLE IF NOT EXISTS meta (
     // admin UI; when 0 the server returns 404 for /updates/<channel>/latest.json
     // so launchers see "no update available" without any client-side change.
     ['updates_enabled',        'INTEGER'],
-    // Netflix cookies (JSON-encoded array of cookie objects exported from a
-    // browser extension like "Get cookies.txt LOCALLY"). Stored per-customer
-    // so the operator can paste a freshly-logged-in Netflix session and have
-    // every launcher in that channel pick it up on next Netflix click. NULL
-    // means "no cookies configured" — launcher falls back to opening
-    // netflix.com cold so the cafe customer logs in themselves.
-    ['netflix_cookies',        'TEXT'],
   ]
   for (const [name, type] of adds) {
     if (!cols.has(name)) db.exec('ALTER TABLE customers ADD COLUMN ' + name + ' ' + type)
@@ -129,8 +122,6 @@ const stmts = {
   // Cheap one-field toggle endpoint — avoids round-tripping the full upsert
   // payload from the admin UI just to flip a single boolean.
   setUpdatesEnabled: db.prepare(`UPDATE customers SET updates_enabled=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
-  getNetflixCookies: db.prepare('SELECT netflix_cookies FROM customers WHERE channel=?'),
-  setNetflixCookies: db.prepare(`UPDATE customers SET netflix_cookies=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
   metaGet: db.prepare('SELECT v FROM meta WHERE k = ?'),
   metaSet: db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'),
 }
@@ -326,50 +317,6 @@ function setUpdatesEnabled(channel, enabled) {
   return getCustomer(channel)
 }
 
-// Netflix cookies (per-customer) — stored as the raw JSON-encoded array
-// the operator pasted from a browser extension. We don't normalize at write
-// time so any extension format works; the launcher does the conversion to
-// Electron's session.cookies.set() shape on the read side.
-//
-// Returns the parsed array (so callers don't have to JSON.parse), or `null`
-// when the customer doesn't exist OR no cookies have been saved yet.
-function getNetflixCookies(channel) {
-  if (!channel) return null
-  const row = stmts.getNetflixCookies.get(channel)
-  if (!row) return null
-  if (!row.netflix_cookies) return null
-  try {
-    const parsed = JSON.parse(row.netflix_cookies)
-    return Array.isArray(parsed) ? parsed : null
-  } catch (e) {
-    return null
-  }
-}
-
-// Save (or clear) the Netflix cookie payload for a customer.
-//   cookiesJsonOrNull = JSON string of an array, OR null/empty to clear.
-// Validates that the JSON parses to an array before writing — bad input
-// returns { ok: false, error } so the admin UI can show a clear message
-// instead of silently storing junk that will fail at launcher-fetch time.
-function setNetflixCookies(channel, cookiesJsonOrNull) {
-  if (!channel) return { ok: false, error: 'channel required' }
-  if (!stmts.get.get(channel)) return { ok: false, error: 'customer not found' }
-  let toStore = null
-  if (cookiesJsonOrNull && String(cookiesJsonOrNull).trim()) {
-    try {
-      const parsed = JSON.parse(cookiesJsonOrNull)
-      if (!Array.isArray(parsed)) {
-        return { ok: false, error: 'Cookies must be a JSON array' }
-      }
-      toStore = JSON.stringify(parsed)
-    } catch (e) {
-      return { ok: false, error: 'Invalid JSON: ' + e.message }
-    }
-  }
-  stmts.setNetflixCookies.run(toStore, channel)
-  return { ok: true, count: toStore ? JSON.parse(toStore).length : 0 }
-}
-
 // Baseline refresh tracking — when did the operator last upload a Full Repo
 // zip for this kind. Stored in the meta table so it survives server restarts
 // without needing yet another column on customers (it's not per-customer —
@@ -557,8 +504,6 @@ module.exports = {
   recordServerPublished,
   recordBuild,
   setUpdatesEnabled,
-  getNetflixCookies,
-  setNetflixCookies,
   getBaselineRefreshedAt,
   setBaselineRefreshedAt,
   getSourceUpdatedAt,

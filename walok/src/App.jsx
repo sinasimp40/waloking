@@ -5,7 +5,6 @@ import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import FeaturedBanner from './components/FeaturedBanner'
-import FeaturedSlider from './components/FeaturedSlider'
 import GameGrid from './components/GameGrid'
 import AdminPanel from './components/AdminPanel'
 import AdminLogin from './components/AdminLogin'
@@ -141,7 +140,6 @@ export default function App() {
           <div className="flex-1 flex flex-col overflow-hidden">
             <Header />
             <FeaturedBanner />
-            <FeaturedSlider />
             <GameGrid />
           </div>
         </div>

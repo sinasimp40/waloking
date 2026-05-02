@@ -11,7 +11,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   selectImage: () => ipcRenderer.invoke('select-image'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
-  openStreaming: (payload) => ipcRenderer.invoke('open-streaming-popup', payload),
   loadSettings: () => ipcRenderer.invoke('load-settings'),
   saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
   igdbSearch: (query, clientId, clientSecret) => ipcRenderer.invoke('igdb-search', query, clientId, clientSecret),

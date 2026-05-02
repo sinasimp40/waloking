@@ -752,7 +752,6 @@ function renderCustomer(c) {
     </div>
     <div class="cc-action-bar">
       <button class="btn-secondary small" data-action="edit" title="Edit this customer's brand, subtitle, logo, and update-server URL.">Edit</button>
-      <button class="btn-secondary small" data-action="netflix" title="Paste Netflix cookies so launchers in this channel auto-login to Netflix.">🎬 Netflix</button>
       <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship BOTH launcher and server for this customer using the master source on disk.">⚡ Build</button>
       <button class="btn-secondary small" data-action="build-launcher" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the launcher (skips the server electron-builder substep).">Launcher</button>
       <button class="btn-secondary small" data-action="build-server" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the server (skips the vite + launcher electron-builder substep).">Server</button>
@@ -812,8 +811,6 @@ async function handleCustomerAction(channel, action, srcEl) {
     triggerBuild({ channel, roles: ['launcher'] })
   } else if (action === 'build-server') {
     triggerBuild({ channel, roles: ['server'] })
-  } else if (action === 'netflix') {
-    openNetflixModal(channel)
   } else if (action === 'delete') {
     if (!confirm('Delete customer "' + channel + '"?\n\nThis removes the customer config AND all of its published builds (launcher + server payloads under /updates/' + channel + ', plus any local releases/' + channel + ' folder). This cannot be undone.')) return
     try {
@@ -1681,59 +1678,6 @@ async function saveCustomer(e) {
     await loadCustomers()
   } catch (e) {
     $('#cm-error').textContent = e.message
-  }
-}
-
-// ---- Netflix cookies modal ----
-async function openNetflixModal(channel) {
-  $('#nf-channel-name').textContent = channel
-  $('#nf-error').textContent = ''
-  $('#nf-status').textContent = 'Loading…'
-  $('#nf-cookies').value = ''
-  $('#netflix-modal').classList.remove('hidden')
-  $('#nf-cancel').onclick = () => $('#netflix-modal').classList.add('hidden')
-  $('#nf-save').onclick = () => saveNetflixCookies(channel)
-  $('#nf-clear').onclick = () => clearNetflixCookies(channel)
-  try {
-    const r = await api('GET', '/api/admin/customers/' + encodeURIComponent(channel) + '/netflix-cookies')
-    if (r && r.hasCookies && Array.isArray(r.cookies)) {
-      $('#nf-cookies').value = JSON.stringify(r.cookies, null, 2)
-      $('#nf-status').textContent = r.cookies.length + ' cookie(s) currently saved.'
-    } else {
-      $('#nf-status').textContent = 'No cookies saved yet — Netflix popup will open cold.'
-    }
-  } catch (e) {
-    $('#nf-status').textContent = ''
-    $('#nf-error').textContent = 'Could not load: ' + e.message
-  }
-}
-
-async function saveNetflixCookies(channel) {
-  const text = $('#nf-cookies').value.trim()
-  $('#nf-error').textContent = ''
-  if (!text) {
-    $('#nf-error').textContent = 'Paste cookies first, or click "Clear Cookies" to remove.'
-    return
-  }
-  try {
-    const r = await api('POST', '/api/admin/customers/' + encodeURIComponent(channel) + '/netflix-cookies', { cookiesJson: text })
-    $('#nf-status').textContent = 'Saved ' + r.count + ' cookie(s). Launchers in this channel will use them on next Netflix click.'
-    setTimeout(() => $('#netflix-modal').classList.add('hidden'), 1200)
-  } catch (e) {
-    $('#nf-error').textContent = e.message
-  }
-}
-
-async function clearNetflixCookies(channel) {
-  if (!confirm('Clear Netflix cookies for "' + channel + '"?\n\nLaunchers will open Netflix cold (cafe customer logs in themselves).')) return
-  $('#nf-error').textContent = ''
-  try {
-    await api('POST', '/api/admin/customers/' + encodeURIComponent(channel) + '/netflix-cookies', { clear: true })
-    $('#nf-cookies').value = ''
-    $('#nf-status').textContent = 'Cookies cleared.'
-    setTimeout(() => $('#netflix-modal').classList.add('hidden'), 1000)
-  } catch (e) {
-    $('#nf-error').textContent = e.message
   }
 }
 
