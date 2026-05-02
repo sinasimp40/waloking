@@ -126,57 +126,63 @@
 .banner-aurora {
   position: absolute;
   border-radius: 50%;
-  filter: blur(34px);
+  filter: blur(40px);
   pointer-events: none;
   will-change: transform, opacity;
-  mix-blend-mode: screen;
+  /* NOTE: mix-blend-mode: screen was removed here on purpose. With the
+   * stacked transparent banner layers above us (gradient overlays + canvas
+   * + content), `screen` blending was unpredictable and washed out the
+   * accent color almost entirely. Plain alpha compositing over the dark
+   * banner surface gives a reliably visible orange/accent glow across
+   * every customer's accent palette. */
 }
 
 .banner-aurora-1 {
-  width: 280px;
-  height: 280px;
-  left: -60px;
-  top: -80px;
+  width: 320px;
+  height: 320px;
+  left: -70px;
+  top: -90px;
   background: radial-gradient(
     circle,
-    rgb(var(--accent-rgb) / 0.32) 0%,
-    rgb(var(--accent-rgb) / 0.08) 45%,
+    rgb(var(--accent-rgb) / 0.55) 0%,
+    rgb(var(--accent-rgb) / 0.18) 45%,
     rgb(var(--accent-rgb) / 0) 72%
   );
   animation: bannerAuroraDrift1 14s ease-in-out infinite;
 }
 
 .banner-aurora-2 {
-  width: 340px;
-  height: 340px;
+  width: 380px;
+  height: 380px;
   right: 8%;
-  top: -110px;
+  top: -120px;
   background: radial-gradient(
     circle,
-    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.22) 0%,
-    rgb(var(--accent-rgb) / 0.06) 50%,
+    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.45) 0%,
+    rgb(var(--accent-rgb) / 0.14) 50%,
     rgb(var(--accent-rgb) / 0) 75%
   );
   animation: bannerAuroraDrift2 19s ease-in-out infinite;
 }
 
 .banner-aurora-3 {
-  width: 220px;
-  height: 220px;
+  width: 260px;
+  height: 260px;
   left: 38%;
-  bottom: -90px;
+  bottom: -100px;
   background: radial-gradient(
     circle,
-    rgb(var(--accent-rgb) / 0.20) 0%,
-    rgb(var(--accent-dark-rgb, var(--accent-rgb)) / 0.05) 50%,
+    rgb(var(--accent-rgb) / 0.42) 0%,
+    rgb(var(--accent-dark-rgb, var(--accent-rgb)) / 0.12) 50%,
     rgb(var(--accent-rgb) / 0) 78%
   );
   animation: bannerAuroraDrift3 23s ease-in-out infinite;
 }
 
-/* Diagonal sheen — a thin, very low-opacity highlight that sweeps across
- * the banner every ~9s so the surface always looks alive even between
- * the slower blob drifts. Uses accent color so it tints per-customer. */
+/* Diagonal sheen — a thin highlight that sweeps across the banner every
+ * ~9s so the surface always looks alive even between the slower blob
+ * drifts. Uses accent color so it tints per-customer. Same reason as
+ * above for not using mix-blend-mode here. */
 .banner-aurora-sheen {
   position: absolute;
   inset: 0;
@@ -184,13 +190,12 @@
   background: linear-gradient(
     105deg,
     transparent 30%,
-    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.07) 50%,
+    rgb(var(--accent-light-rgb, var(--accent-rgb)) / 0.18) 50%,
     transparent 70%
   );
   background-size: 220% 100%;
   background-repeat: no-repeat;
   animation: bannerAuroraSheen 9s linear infinite;
-  mix-blend-mode: screen;
 }
 
 @keyframes bannerAuroraDrift1 {
