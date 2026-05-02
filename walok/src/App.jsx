@@ -13,7 +13,10 @@ import SaveLoadModal from './components/SaveLoadModal'
 import UpdateModal from './components/UpdateModal'
 import BannerPreview from './components/BannerPreview'
 
-const VALID_BANNER_VARIANTS = ['spotlight', 'eq', 'particles', 'marquee', 'hex', 'static']
+const VALID_BANNER_VARIANTS = [
+  'spotlight', 'eq', 'particles', 'marquee', 'hex', 'static',
+  'scanlines', 'rings', 'stripes', 'warp', 'tron', 'matrix',
+]
 
 function getBannerPreviewVariant() {
   if (typeof window === 'undefined') return null

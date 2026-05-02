@@ -373,3 +373,197 @@ html.app-idle *::after {
       rgb(var(--accent-rgb) / 0.13) 100%);
   pointer-events: none;
 }
+
+/* =========================================================================
+ * FeaturedBanner background variants — round 2 (mockups 7-12).
+ * ========================================================================= */
+
+/* --- Variant 7: Scan Lines (CRT) ---------------------------------------- */
+.banner-scanlines-bg {
+  position: absolute;
+  inset: -10%;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(var(--accent-rgb) / 0.10) 0px,
+    rgb(var(--accent-rgb) / 0.10) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  animation: bannerScanDrift 6s linear infinite;
+  pointer-events: none;
+  will-change: transform;
+}
+@keyframes bannerScanDrift {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(20px); }
+}
+.banner-scanline-sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgb(var(--accent-rgb) / 0.85) 50%,
+    transparent
+  );
+  box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.7);
+  animation: bannerScanSweep 7s linear infinite;
+  pointer-events: none;
+  will-change: top, opacity;
+}
+@keyframes bannerScanSweep {
+  0%   { top: -8%;  opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 108%; opacity: 0; }
+}
+
+/* --- Variant 8: Pulse Rings (Radar) ------------------------------------- */
+.banner-pulse-anchor {
+  position: absolute;
+  right: 12%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.banner-pulse-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  border-radius: 50%;
+  border: 1.5px solid rgb(var(--accent-rgb) / 0.7);
+  box-shadow: 0 0 12px rgb(var(--accent-rgb) / 0.35);
+  animation: bannerPulseRing 4.8s ease-out infinite;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+@keyframes bannerPulseRing {
+  0%   { transform: scale(0.3); opacity: 0.95; border-width: 2px;   }
+  60%  { opacity: 0.5;          border-width: 1.2px; }
+  100% { transform: scale(22);  opacity: 0;          border-width: 0.6px; }
+}
+
+/* --- Variant 9: Speed Stripes (diagonal racing) ------------------------- */
+.banner-speed-stripes {
+  position: absolute;
+  inset: -25%;
+  background: repeating-linear-gradient(
+    115deg,
+    transparent 0px,
+    transparent 60px,
+    rgb(var(--accent-rgb) / 0.07) 60px,
+    rgb(var(--accent-rgb) / 0.18) 78px,
+    rgb(var(--accent-rgb) / 0.07) 96px,
+    transparent 96px,
+    transparent 160px
+  );
+  animation: bannerSpeedStripes 5.5s linear infinite;
+  pointer-events: none;
+  will-change: transform;
+}
+@keyframes bannerSpeedStripes {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-160px); }
+}
+
+/* --- Variant 10: Starfield Warp ----------------------------------------- */
+.banner-warp-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.banner-warp-streak {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 240px;
+  height: 1.5px;
+  transform-origin: 0 50%;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgb(var(--accent-rgb) / 0.95) 70%,
+    rgb(var(--accent-rgb) / 0) 100%
+  );
+  box-shadow: 0 0 6px rgb(var(--accent-rgb) / 0.6);
+  animation: bannerWarpStreak linear infinite;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+@keyframes bannerWarpStreak {
+  0%   { transform: rotate(var(--angle)) translateX(0)    scaleX(0.15); opacity: 0; }
+  18%  { opacity: 1; }
+  100% { transform: rotate(var(--angle)) translateX(800px) scaleX(1.1); opacity: 0; }
+}
+
+/* --- Variant 11: Tron Perspective Grid ---------------------------------- */
+.banner-tron-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  perspective: 220px;
+  perspective-origin: 50% 0%;
+  pointer-events: none;
+}
+.banner-tron-grid {
+  position: absolute;
+  left: -100%;
+  right: -100%;
+  bottom: -50%;
+  height: 250%;
+  background:
+    repeating-linear-gradient(to right,
+      transparent 0,
+      transparent 49px,
+      rgb(var(--accent-rgb) / 0.45) 49px,
+      rgb(var(--accent-rgb) / 0.45) 50px),
+    repeating-linear-gradient(to bottom,
+      transparent 0,
+      transparent 49px,
+      rgb(var(--accent-rgb) / 0.45) 49px,
+      rgb(var(--accent-rgb) / 0.45) 50px);
+  transform-origin: 50% 100%;
+  animation: bannerTronGridScroll 3.2s linear infinite;
+  will-change: transform;
+}
+@keyframes bannerTronGridScroll {
+  0%   { transform: rotateX(62deg) translateY(0); }
+  100% { transform: rotateX(62deg) translateY(50px); }
+}
+
+/* --- Variant 12: Matrix Rain (digital downpour) ------------------------- */
+.banner-matrix-col {
+  position: absolute;
+  top: -120%;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Orbitron', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: rgb(var(--accent-rgb) / 0.8);
+  text-shadow: 0 0 5px rgb(var(--accent-rgb) / 0.65);
+  animation: bannerMatrixFall linear infinite;
+  pointer-events: none;
+  will-change: transform;
+}
+.banner-matrix-col span:first-child {
+  color: #fff;
+  text-shadow: 0 0 10px rgb(var(--accent-rgb) / 1);
+}
+.banner-matrix-col span:nth-child(n+2) { opacity: 0.85; }
+.banner-matrix-col span:nth-child(n+4) { opacity: 0.55; }
+.banner-matrix-col span:nth-child(n+6) { opacity: 0.3; }
+.banner-matrix-col span:nth-child(n+8) { opacity: 0.12; }
+@keyframes bannerMatrixFall {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(360%); }
+}

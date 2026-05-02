@@ -106,6 +106,12 @@ function BannerCanvas({ variant }) {
       {variant === 'marquee'   && <BannerMarquee />}
       {variant === 'hex'       && <BannerHex />}
       {variant === 'static'    && <BannerStatic />}
+      {variant === 'scanlines' && <BannerScanlines />}
+      {variant === 'rings'     && <BannerPulseRings />}
+      {variant === 'stripes'   && <BannerSpeedStripes />}
+      {variant === 'warp'      && <BannerWarp />}
+      {variant === 'tron'      && <BannerTronGrid />}
+      {variant === 'matrix'    && <BannerMatrix />}
       {!variant && <BannerGlitch />}
     </div>
   )
@@ -203,6 +209,95 @@ function BannerHex() {
 
 function BannerStatic() {
   return <div className="banner-static-gradient" />
+}
+
+function BannerScanlines() {
+  return (
+    <>
+      <div className="banner-scanlines-bg" />
+      <div className="banner-scanline-sweep" />
+    </>
+  )
+}
+
+function BannerPulseRings() {
+  return (
+    <div className="banner-pulse-anchor">
+      {[0, 1, 2, 3].map(i => (
+        <div
+          key={i}
+          className="banner-pulse-ring"
+          style={{ animationDelay: `${i * 1.2}s` }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function BannerSpeedStripes() {
+  return <div className="banner-speed-stripes" />
+}
+
+function BannerWarp() {
+  const streaks = Array.from({ length: 18 }, (_, i) => ({
+    angle: (i * 20) % 360,
+    delay: -((i * 0.22) % 2.5).toFixed(2) + 's',
+    duration: (1.8 + (i % 4) * 0.35).toFixed(2) + 's',
+  }))
+  return (
+    <div className="banner-warp-stage">
+      {streaks.map((s, i) => (
+        <div
+          key={i}
+          className="banner-warp-streak"
+          style={{
+            '--angle': `${s.angle}deg`,
+            animationDelay: s.delay,
+            animationDuration: s.duration,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function BannerTronGrid() {
+  return (
+    <div className="banner-tron-stage">
+      <div className="banner-tron-grid" />
+    </div>
+  )
+}
+
+function BannerMatrix() {
+  const columns = []
+  for (let i = 0; i < 28; i++) {
+    const left = (i * (100 / 28)).toFixed(2) + '%'
+    const delay = (-((i * 0.7) % 6)).toFixed(2) + 's'
+    const duration = (3.2 + (i % 5) * 0.7).toFixed(2) + 's'
+    const seed = '0110100110010101101001100101'
+    const chars = (seed + seed).slice((i * 3) % seed.length, (i * 3) % seed.length + 9)
+    columns.push({ left, delay, duration, chars })
+  }
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {columns.map((c, i) => (
+        <div
+          key={i}
+          className="banner-matrix-col"
+          style={{
+            left: c.left,
+            animationDelay: c.delay,
+            animationDuration: c.duration,
+          }}
+        >
+          {c.chars.split('').map((ch, j) => (
+            <span key={j}>{ch}</span>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export default function FeaturedBanner({ bgVariant }) {
