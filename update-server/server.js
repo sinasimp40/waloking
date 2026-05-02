@@ -373,44 +373,32 @@ function getProjectVersion() {
   catch (e) { return null }
 }
 
-// Auto-bump per-customer build version. Strategy:
-//   1. If the customer has a previously-published launcher version, take the
-//      MAX of (launcher_version, server_version) and bump the patch by 1.
-//      This guarantees strict monotonicity even if launcher and server got
-//      out of sync via manual upload.
-//   2. Otherwise (fresh customer, no prior publish), seed from the global
-//      package.json version so the very first BUILD ships at e.g. 1.0.0
-//      instead of arbitrarily jumping to 1.0.1.
-// The result is purely advisory — the upload routes still enforce strict
-// monotonicity at write time, so a stale read here can't downgrade an
-// already-published payload.
-function bumpPatch(v) {
-  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v || '')
-  if (!m) return null
-  return m[1] + '.' + m[2] + '.' + (parseInt(m[3], 10) + 1)
-}
-function maxSemver(a, b) {
-  if (!a) return b
-  if (!b) return a
-  const pa = a.split('.').map(n => parseInt(n, 10))
-  const pb = b.split('.').map(n => parseInt(n, 10))
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) > (pb[i] || 0)) return a
-    if ((pa[i] || 0) < (pb[i] || 0)) return b
-  }
-  return a
-}
-function computeNextVersion(channel) {
-  // dbApi.getCustomer() returns camelCase fields (launcherVersion /
-  // serverVersion) — the snake_case columns are mapped at the boundary in
-  // db.js. Read both, take the max so an out-of-sync launcher/server pair
-  // still produces a strictly-monotonic next version.
-  const c = dbApi.getCustomer(channel)
-  const prior = c ? maxSemver(c.launcherVersion, c.serverVersion) : null
-  if (prior && /^\d+\.\d+\.\d+$/.test(prior)) {
-    const bumped = bumpPatch(prior)
-    if (bumped) return bumped
-  }
+// Per-customer build version policy:
+//   The version is taken VERBATIM from the global "Set Version" field
+//   (persisted in walok/package.json) — operators control bumping explicitly.
+//   No auto-increment.
+//
+// Why no auto-bump:
+//   The previous strategy auto-incremented the patch from each customer's
+//   prior published version on every build. That removed operator control —
+//   click Build twice without touching anything and the version silently
+//   walked from 1.0.0 -> 1.0.1 -> 1.0.2, surprising operators who expected
+//   "still 1.0.0 because I didn't change anything".
+//
+// Same-version re-publish:
+//   The DB already tracks idempotent re-publishes via the rebump counter
+//   (db.js _recordLauncherTx / _recordServerTx) — when the new version
+//   equals the prior version, launcher_rebuild_count++ and the admin UI
+//   shows "Rebump xN". Clients won't pull the rebuild because the OTA
+//   manifest version is unchanged; that's the correct semantic for "I'm
+//   reshipping the same release".
+//
+// To actually ship an update to clients:
+//   The operator updates the global "Set Version" field to a higher version
+//   (e.g. 1.0.0 -> 1.0.1) before clicking Build. POST /api/admin/version
+//   writes the new value to walok/package.json + walok/server/package.json,
+//   and subsequent builds pick it up here.
+function computeNextVersion(_channel) {
   return getProjectVersion() || '1.0.0'
 }
 
@@ -982,8 +970,10 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
 
   // Resolve per-customer build version BEFORE spawning anything:
   //   - explicit `version` from request: used for ALL target channels (admin
-  //     override, e.g. emergency major bump).
-  //   - otherwise: each customer auto-bumps its own patch from its DB row.
+  //     override, e.g. emergency major bump from a one-off API call).
+  //   - otherwise: every customer ships at the global project version (the
+  //     value last written by /api/admin/version aka "Set Version"). No
+  //     auto-bump — see computeNextVersion() above for the rationale.
   // perChannelVersion is captured by both the per-channel build steps AND
   // the post-build cleanup/push callback, so they always agree on what was
   // just shipped.
