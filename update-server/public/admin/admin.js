@@ -626,9 +626,13 @@ function renderCustomer(c) {
   // visible pill is always relevant to the version it sits next to.
   function rebumpPill(count, ts) {
     if (!count || count < 1) return ''
+    // Visible pill stays compact ("⟳ rebump ×N") so it fits the narrow
+    // 2-column version mini-card without overflowing or truncating mid-
+    // word. The full "Most recent: <date>" is preserved in the tooltip
+    // (hover) so the operator can still see when the rebump happened.
     const when = ts ? new Date(ts).toLocaleString() : '—'
     const tip = `This version was re-shipped ${count} time${count === 1 ? '' : 's'} via Build From Uploaded Source. Most recent: ${when}.`
-    return ` <span class="rebump-pill" title="${escapeHtml(tip)}">⟳ rebump ×${count} · ${escapeHtml(when)}</span>`
+    return ` <span class="rebump-pill" title="${escapeHtml(tip)}">⟳ rebump ×${count}</span>`
   }
   // Build a version mini-card. Splits the previous one-line layout into:
   //   row 1: cc-vbox-head      → uppercase label + status dot

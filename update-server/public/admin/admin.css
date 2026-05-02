@@ -1022,6 +1022,15 @@ button:disabled {
   border-radius: 999px;
   white-space: nowrap;
   cursor: help;
+  /* Hard layout safety: the pill lives inside a narrow 2-column mini-card
+   * (.cc-vbox), so clamp its width to the parent and ellipsis any future
+   * overflow rather than letting it spill into the sibling Server box or
+   * the card meta rows below. max-width:100% requires a vertical-align so
+   * the inline-block baseline doesn't push siblings around. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
 }
 
 /* --- Meta lines (Subtitle / Server / Logo / Last release) --- */
