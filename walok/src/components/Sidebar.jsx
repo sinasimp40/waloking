@@ -380,20 +380,28 @@ function StreamingServices() {
 
       {netflix && (
         <motion.button
-          whileHover={{ scale: 1.03, y: -1 }}
-          whileTap={{ scale: 0.97 }}
+          whileHover={{ scale: 1.02, y: -1 }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => handleClick(netflix)}
           title="Open Netflix"
-          className="relative w-full h-14 rounded-lg overflow-hidden group cursor-pointer mb-2 bg-black"
+          className="relative w-full rounded-xl overflow-hidden group cursor-pointer mb-2 bg-black flex flex-col"
           style={{
-            boxShadow: '0 0 18px rgba(229,9,20,0.35), inset 0 0 0 1px rgba(229,9,20,0.45)',
+            height: 168,
+            boxShadow: '0 8px 24px rgba(229,9,20,0.25), 0 0 0 1px rgba(229,9,20,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
           }}
         >
-          {/* radial red glow behind the wordmark */}
+          {/* vertical red gradient — poster vibe */}
           <div
-            className="absolute inset-0 opacity-70"
+            className="absolute inset-0"
             style={{
-              background: 'radial-gradient(ellipse 80% 60% at center, rgba(229,9,20,0.55) 0%, rgba(0,0,0,0) 70%)',
+              background: 'linear-gradient(180deg, #1a0306 0%, #4a0810 55%, #b00710 90%, #e50914 100%)',
+            }}
+          />
+          {/* radial sheen behind the wordmark */}
+          <div
+            className="absolute inset-0 opacity-60"
+            style={{
+              background: 'radial-gradient(ellipse 90% 55% at 50% 38%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 65%)',
             }}
           />
           {/* horizontal scan-line texture */}
@@ -404,31 +412,68 @@ function StreamingServices() {
                 'repeating-linear-gradient(0deg, rgba(0,0,0,0.6) 0px, rgba(0,0,0,0.6) 1px, transparent 1px, transparent 3px)',
             }}
           />
-          {/* Netflix wordmark */}
-          <div className="relative h-full w-full flex items-center justify-center">
+          {/* STREAMING badge top-left */}
+          <div className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 rounded-md bg-black/55 backdrop-blur-sm">
+            <span className="text-[7px] font-orbitron uppercase tracking-[0.18em] text-white/90 font-bold">
+              Streaming
+            </span>
+          </div>
+          {/* SIGNED IN dot top-right */}
+          <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/55 backdrop-blur-sm">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+            </span>
+            <span className="text-[7px] font-orbitron uppercase tracking-wider text-white/95 font-bold">
+              Live
+            </span>
+          </div>
+
+          {/* Netflix wordmark — center */}
+          <div className="relative flex-1 flex flex-col items-center justify-center pt-3">
             <span
-              className="font-black select-none"
+              className="font-black select-none leading-none"
               style={{
-                color: '#E50914',
+                color: '#fff',
                 fontFamily: 'Impact, "Arial Black", "Helvetica Neue", sans-serif',
-                fontSize: '22px',
-                letterSpacing: '0.06em',
+                fontSize: '38px',
+                letterSpacing: '0.03em',
                 textShadow:
-                  '0 0 14px rgba(229,9,20,0.9), 0 0 28px rgba(229,9,20,0.5), 0 1px 0 rgba(0,0,0,0.85)',
+                  '0 0 14px rgba(0,0,0,0.6), 0 2px 0 rgba(0,0,0,0.45)',
+              }}
+            >
+              N
+            </span>
+            <span
+              className="font-black select-none mt-0.5"
+              style={{
+                color: '#fff',
+                fontFamily: 'Impact, "Arial Black", "Helvetica Neue", sans-serif',
+                fontSize: '14px',
+                letterSpacing: '0.18em',
+                textShadow: '0 1px 2px rgba(0,0,0,0.5)',
               }}
             >
               NETFLIX
             </span>
-          </div>
-          {/* play indicator pill, top-right */}
-          <div className="absolute top-1 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm">
-            <Play size={8} className="text-white fill-white" />
-            <span className="text-[7px] font-orbitron uppercase tracking-wider text-white/95 font-bold">
-              Watch
+            <span className="text-[8px] font-orbitron uppercase tracking-[0.18em] text-white/70 mt-1.5">
+              Ready to watch
             </span>
           </div>
-          {/* hover sheen */}
-          <div className="absolute inset-0 bg-white/0 group-hover:bg-white/[0.06] transition-colors duration-200 pointer-events-none" />
+
+          {/* WATCH NOW button at the bottom */}
+          <div className="relative px-2 pb-2 pt-1">
+            <div
+              className="w-full h-7 rounded-md flex items-center justify-center gap-1.5 bg-white text-[#e50914] font-bold tracking-wider transition group-hover:bg-white/95"
+              style={{ boxShadow: '0 4px 10px rgba(0,0,0,0.35)' }}
+            >
+              <Play size={10} className="fill-[#e50914]" />
+              <span className="text-[9px] font-orbitron uppercase">Watch Now</span>
+            </div>
+          </div>
+
+          {/* hover sheen overlay */}
+          <div className="absolute inset-0 bg-white/0 group-hover:bg-white/[0.04] transition-colors duration-200 pointer-events-none" />
         </motion.button>
       )}
 
