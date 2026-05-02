@@ -1,0 +1,50 @@
+Task #18 follow-up: redesign Windows OOP applier (PowerShell, no staged/)
+
+Field bug report: cmd window flashed visible, parent never exited, payload
+in .ota-pending never extracted on Windows. The Task #18 OOP applier was
+unfit for the field.
+
+Root causes:
+1. cmd.exe + windowsHide is unreliable when spawned detached on Win10/11.
+2. cmd's `tasklist /FI "PID eq X" | find` parent-wait loop can hang
+   forever on PID reuse.
+3. app.exit(0) was being called from updater.init(), which main.js wires
+   in BEFORE app.whenReady() — pre-ready app.exit doesn't actually
+   terminate the parent, so the asar lock never releases.
+
+Redesign (mirrored in walok/electron/updater.js and walok/server/electron/updater.js):
+- Replaced cmd.exe + apply.cmd with powershell.exe + apply.ps1.
+  Args bound through PowerShell param() (no shell injection surface).
+  -WindowStyle Hidden reliably hides the console.
+- Eliminated the staged/ subfolder. Expand-Archive extracts payload.zip
+  directly onto the install dir (the user's "delete everything, just
+  extract" model — implemented via -Force overwrite, NOT pre-wipe, so
+  user data files outside the payload survive).
+- Pre-write three overlay files at .ota-pending root from Node:
+  cleanup-marker.json, current-exe-sidecar.json, merged-ota-config.json
+  (version-bumped clone preserving customer fields). PowerShell copies
+  them into the install dir post-extract.
+- Parent-wait uses Get-Process -Id $pid + StartTime comparison captured
+  at script start to defeat PID reuse.
+- Replaced app.exit hook with process.exit (hard kill) so the parent
+  actually terminates regardless of whenReady state.
+- Added SUCCESS-marker sweep at the top of applyPendingUpdateOnStartup:
+  if a prior OOP run wrote SUCCESS but its background self-cleanup
+  didn't reach the pending dir before the NEW exe boots, wipe the
+  pending dir and move on (no re-apply loop).
+
+Test coverage:
+- test-rebrand-update.js: rewrote 3 OOP scenarios for new contract,
+  added SUCCESS-sweep scenario. 116 assertions (was 111).
+- test-server-rebrand.js: added server SUCCESS-sweep + hard-kill exit
+  hook regression tests. 65 assertions (was 58).
+- test-build-all-logo-isolation.js: 39 assertions, unchanged.
+- All 220 assertions pass.
+
+Architect code review fed back two real issues, both fixed:
+1. Server updater still used app.exit fallback in OOP exit hook — now
+   process.exit (mirrors launcher).
+2. No server-side SUCCESS-sweep regression test — added.
+
+replit.md Task #18 note rewritten to reflect PowerShell + no-staged-dir
+design and the second field bug.

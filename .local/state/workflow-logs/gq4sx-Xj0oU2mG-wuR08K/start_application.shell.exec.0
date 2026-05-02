@@ -1,0 +1,21 @@
+[server] WARNING: OTA_ADMIN_PASSWORD is shorter than 8 characters — please use a stronger password.
+[server] PROJECT_ROOT=/home/runner/workspace/walok
+[server] SERVER_VERSION=v1.0.0
+[db] customers already migrated; 1 in DB
+[db] WARN: customer "example-cafe" logo missing on disk: branding/example-cafe-logo.png — build for this customer will fail until you upload a logo
+
+============================================
+  OTA UPDATE SERVER  v1.0.0
+============================================
+  Listening on:    http://0.0.0.0:5000
+  Updates served:  /home/runner/workspace/update-server/public/updates
+  Health check:    http://localhost:5000/health
+  Web dashboard:   http://localhost:5000/
+  Admin panel:     http://localhost:5000/admin/
+  Admin password:  (from OTA_ADMIN_PASSWORD env var)
+  Project root:    /home/runner/workspace/walok
+  Customers in DB: 1
+============================================
+
+IMPORTANT: Make sure port 5000 is open in your Windows Firewall.
+Run start.bat which adds the firewall rule automatically.
