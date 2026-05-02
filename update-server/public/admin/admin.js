@@ -1762,9 +1762,38 @@ $('#cm-cancel').addEventListener('click', closeCustomerModal)
 $('#customer-form').addEventListener('submit', saveCustomer)
 $('#cm-logo-upload').addEventListener('change', autoFillLogoPathFromUpload)
 $('#cm-channel').addEventListener('input', autoFillLogoPathFromUpload)
-$('#customer-modal').addEventListener('click', (e) => {
-  if (e.target === $('#customer-modal')) closeCustomerModal()
-})
+// Backdrop-to-close, drag-safe.
+//
+// Old behavior used a plain `click` listener that fired close() whenever
+// the click *ended* on the backdrop. That misfired in two annoying ways:
+//   1. Operator selects text inside an input (e.g., the long server URL),
+//      drags past the modal edge, releases outside → click target ===
+//      backdrop → modal closes mid-edit, losing all unsaved input.
+//   2. Operator click-drags from inside the card to outside (rubber-band
+//      style) for any reason → same false close.
+//
+// Fix: track where the press STARTED. We only close when BOTH the
+// mousedown AND the mouseup landed on the backdrop element itself —
+// i.e. a real, intentional click on the dark area outside the card.
+// Any drag that originated inside the card is ignored. We also reset
+// the press flag on every fresh mousedown so a previous press can't
+// poison the next one.
+;(() => {
+  const modal = $('#customer-modal')
+  let pressedOnBackdrop = false
+  modal.addEventListener('mousedown', (e) => {
+    pressedOnBackdrop = (e.target === modal)
+  })
+  modal.addEventListener('mouseup', (e) => {
+    if (pressedOnBackdrop && e.target === modal) {
+      closeCustomerModal()
+    }
+    pressedOnBackdrop = false
+  })
+  // Safety: if the press is cancelled (e.g. context menu, alt-tab away),
+  // clear the flag so a later stray mouseup on the backdrop doesn't fire.
+  modal.addEventListener('mouseleave', () => { pressedOnBackdrop = false })
+})()
 
 // ---- Update Source Files: wire the source-card forms ----------------
 // Per-kind forms carry data-source-kind="launcher|server" and post to
