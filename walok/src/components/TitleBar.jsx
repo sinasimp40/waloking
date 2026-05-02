@@ -61,7 +61,7 @@ export default function TitleBar({ onOpenSaveLoad }) {
         </span>
         <div className="w-px h-3 bg-neon-orange/20 flex-shrink-0" />
         <span className="font-rajdhani text-[8px] md:text-[9px] lg:text-[10px] text-white/60 uppercase tracking-[0.08em] md:tracking-[0.1em] lg:tracking-[0.15em] truncate">
-          Test
+          Premium Gaming Lounge
         </span>
         {otaVersion && (
           <>
