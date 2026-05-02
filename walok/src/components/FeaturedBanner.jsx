@@ -380,7 +380,7 @@ function BannerTitle({ settings }) {
         className="font-orbitron font-black text-xl md:text-2xl lg:text-4xl leading-none tracking-[0.15em] lg:tracking-[0.2em] whitespace-nowrap overflow-hidden text-ellipsis"
         style={{
           color: 'rgb(var(--accent-rgb))',
-          textShadow: '0 0 20px rgb(var(--accent-rgb) / 0.5), 0 0 60px rgb(var(--accent-rgb) / 0.2), 0 2px 4px rgba(0,0,0,0.8)',
+          textShadow: '0 2px 4px rgba(0,0,0,0.8)',
           fontVariantNumeric: 'tabular-nums',
           fontFeatureSettings: '"tnum"',
         }}
