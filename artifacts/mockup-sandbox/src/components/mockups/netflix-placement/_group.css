@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Bebas+Neue&display=swap');
+
+.nf-launcher {
+  --bg-0: #0a0a0e;
+  --bg-1: #111118;
+  --bg-2: #181822;
+  --bg-3: #20202c;
+  --line: #2a2a38;
+  --text: #f3f3f7;
+  --muted: #8a8a99;
+  --accent: #ff7a18;
+  --accent-2: #ffb547;
+  --netflix: #e50914;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg-0);
+}
+
+.nf-launcher * { box-sizing: border-box; }
+
+.nf-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.nf-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+.nf-tile {
+  background: linear-gradient(160deg, #2a2a38 0%, #181822 100%);
+  border: 1px solid #2a2a38;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+.nf-tile:hover { transform: translateY(-2px); border-color: var(--accent); }
+.nf-tile-art { aspect-ratio: 16/9; background-size: cover; background-position: center; }
+.nf-tile-meta { padding: 10px 12px 12px; }
+.nf-tile-title { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.nf-tile-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.nf-section-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+
+.nf-marquee-track {
+  display: flex;
+  gap: 48px;
+  animation: nf-marquee 30s linear infinite;
+  white-space: nowrap;
+}
+@keyframes nf-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
