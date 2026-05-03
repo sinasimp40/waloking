@@ -190,25 +190,25 @@ function BannerCanvas() {
         <line x1="1040" y1="0" x2="990" y2="130"
           style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.08 }} />
 
-        {/* ── Traveling pulse lines — bright segment runs top→bottom ── */}
-        {/* Line length ≈139 SVG units; dasharray 22+155=177 covers full travel */}
+        {/* ── Glitch lines — segments spark at random positions on each edge */}
+        {/* dasharray 35+104=139 ≈ line length; dashoffset jumps expose top/mid/bottom */}
         {[
-          { x1: 395, y1: 0, x2: 345, y2: 130, sw: 3,   delay: '0s',    filter: 'url(#cpGlowHard)' },
-          { x1: 515, y1: 0, x2: 465, y2: 130, sw: 2.5, delay: '-0.5s', filter: 'url(#cpGlowHard)' },
-          { x1: 655, y1: 0, x2: 605, y2: 130, sw: 2,   delay: '-1.0s', filter: 'url(#cpGlowSoft)' },
-          { x1: 795, y1: 0, x2: 745, y2: 130, sw: 2,   delay: '-1.5s', filter: 'url(#cpGlowSoft)' },
-          { x1: 940, y1: 0, x2: 890, y2: 130, sw: 1.5, delay: '-2.0s', filter: undefined },
+          { x1: 395, y1: 0, x2: 345, y2: 130, sw: 3.5, dur: '3.2s', delay: '0s',    anim: 'cpGlitch0', filter: 'url(#cpGlowHard)' },
+          { x1: 515, y1: 0, x2: 465, y2: 130, sw: 3,   dur: '2.8s', delay: '-1.1s', anim: 'cpGlitch1', filter: 'url(#cpGlowHard)' },
+          { x1: 655, y1: 0, x2: 605, y2: 130, sw: 2.5, dur: '3.5s', delay: '-0.7s', anim: 'cpGlitch2', filter: 'url(#cpGlowSoft)' },
+          { x1: 795, y1: 0, x2: 745, y2: 130, sw: 2.5, dur: '2.6s', delay: '-2.2s', anim: 'cpGlitch0', filter: 'url(#cpGlowSoft)' },
+          { x1: 940, y1: 0, x2: 890, y2: 130, sw: 2,   dur: '3.8s', delay: '-1.5s', anim: 'cpGlitch1', filter: undefined },
         ].map((l, i) => (
-          <line key={`pulse-${i}`}
+          <line key={`glitch-${i}`}
             x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
             filter={l.filter}
             style={{
               stroke: 'rgb(var(--accent-rgb))',
               strokeWidth: l.sw,
-              opacity: 1,
-              strokeDasharray: '22 155',
-              strokeDashoffset: 22,
-              animation: `cpLinePulse 2.5s linear ${l.delay} infinite`,
+              strokeDasharray: '35 104',
+              strokeDashoffset: 0,
+              opacity: 0,
+              animation: `${l.anim} ${l.dur} step-start ${l.delay} infinite`,
             }}
           />
         ))}
@@ -255,6 +255,80 @@ function BannerCanvas() {
         @keyframes cpFlash {
           0%, 100% { transform: translateX(-130%); }
           50%      { transform: translateX(130%); }
+        }
+
+        /* Glitch variant A — rapid triple-burst, mostly dark */
+        @keyframes cpGlitch0 {
+          0%   { opacity:0; stroke-dashoffset:0; }
+          3%   { opacity:1; stroke-dashoffset:0; }
+          4%   { opacity:0; stroke-dashoffset:0; }
+          6%   { opacity:.8; stroke-dashoffset:-52; }
+          7%   { opacity:0; stroke-dashoffset:-52; }
+          8%   { opacity:1; stroke-dashoffset:-104; }
+          10%  { opacity:1; stroke-dashoffset:-104; }
+          11%  { opacity:0; stroke-dashoffset:-104; }
+          35%  { opacity:0; stroke-dashoffset:-52; }
+          36%  { opacity:.9; stroke-dashoffset:-52; }
+          37%  { opacity:0; stroke-dashoffset:-52; }
+          55%  { opacity:0; stroke-dashoffset:0; }
+          56%  { opacity:1; stroke-dashoffset:0; }
+          57%  { opacity:.4; stroke-dashoffset:-70; }
+          58%  { opacity:0; stroke-dashoffset:-70; }
+          75%  { opacity:0; stroke-dashoffset:-104; }
+          76%  { opacity:.8; stroke-dashoffset:-104; }
+          78%  { opacity:.8; stroke-dashoffset:-104; }
+          79%  { opacity:0; stroke-dashoffset:-104; }
+          80%  { opacity:.6; stroke-dashoffset:-25; }
+          81%  { opacity:0; stroke-dashoffset:-25; }
+          100% { opacity:0; stroke-dashoffset:0; }
+        }
+
+        /* Glitch variant B — longer gaps, snappier flashes */
+        @keyframes cpGlitch1 {
+          0%   { opacity:0; stroke-dashoffset:-52; }
+          2%   { opacity:.9; stroke-dashoffset:-52; }
+          4%   { opacity:0; stroke-dashoffset:-52; }
+          20%  { opacity:0; stroke-dashoffset:-104; }
+          21%  { opacity:1; stroke-dashoffset:-104; }
+          22%  { opacity:.5; stroke-dashoffset:-80; }
+          23%  { opacity:0; stroke-dashoffset:-80; }
+          45%  { opacity:0; stroke-dashoffset:0; }
+          46%  { opacity:1; stroke-dashoffset:0; }
+          47%  { opacity:0; stroke-dashoffset:0; }
+          48%  { opacity:.7; stroke-dashoffset:-30; }
+          49%  { opacity:0; stroke-dashoffset:-30; }
+          65%  { opacity:0; stroke-dashoffset:-70; }
+          67%  { opacity:.8; stroke-dashoffset:-70; }
+          68%  { opacity:0; stroke-dashoffset:-70; }
+          85%  { opacity:0; stroke-dashoffset:-104; }
+          86%  { opacity:1; stroke-dashoffset:-104; }
+          88%  { opacity:1; stroke-dashoffset:-104; }
+          89%  { opacity:0; stroke-dashoffset:-104; }
+          100% { opacity:0; stroke-dashoffset:-52; }
+        }
+
+        /* Glitch variant C — double-tap bursts, bottom-biased */
+        @keyframes cpGlitch2 {
+          0%   { opacity:0; stroke-dashoffset:-104; }
+          5%   { opacity:1; stroke-dashoffset:-104; }
+          6%   { opacity:.3; stroke-dashoffset:0; }
+          7%   { opacity:0; stroke-dashoffset:0; }
+          25%  { opacity:0; stroke-dashoffset:-25; }
+          26%  { opacity:.8; stroke-dashoffset:-25; }
+          27%  { opacity:0; stroke-dashoffset:-25; }
+          40%  { opacity:0; stroke-dashoffset:-80; }
+          41%  { opacity:1; stroke-dashoffset:-80; }
+          43%  { opacity:1; stroke-dashoffset:-80; }
+          44%  { opacity:0; stroke-dashoffset:-80; }
+          60%  { opacity:0; stroke-dashoffset:-52; }
+          61%  { opacity:.9; stroke-dashoffset:-52; }
+          62%  { opacity:0; stroke-dashoffset:-52; }
+          63%  { opacity:.6; stroke-dashoffset:-15; }
+          64%  { opacity:0; stroke-dashoffset:-15; }
+          80%  { opacity:0; stroke-dashoffset:-104; }
+          82%  { opacity:1; stroke-dashoffset:-104; }
+          83%  { opacity:0; stroke-dashoffset:-104; }
+          100% { opacity:0; stroke-dashoffset:-104; }
         }
       `}</style>
     </div>
