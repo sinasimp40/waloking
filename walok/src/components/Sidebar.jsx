@@ -317,39 +317,17 @@ function SocialMedia() {
   return (
     <div className="px-3 py-2 border-b border-neon-orange/10">
       <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold block mb-1.5">Social Media</span>
-      <div className="flex flex-col gap-1">
-        {socials.map((s, i) => (
+      <div className="flex gap-1.5 justify-center flex-wrap">
+        {socials.map((s) => (
           <motion.button
             key={s.id}
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.06, duration: 0.3 }}
-            whileHover={{ x: 4, scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
+            whileHover={{ scale: 1.15, y: -2 }}
+            whileTap={{ scale: 0.9 }}
             onClick={() => handleClick(s.url)}
             title={s.name}
-            className="relative flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer overflow-hidden group text-left w-full"
-            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+            className={`w-8 h-8 rounded-full bg-gradient-to-br ${s.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white text-xs shadow-lg cursor-pointer overflow-hidden`}
           >
-            {/* Hover glow fill */}
-            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.05)' }} />
-            {/* Left accent line */}
-            <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              style={{ background: 'rgb(var(--accent-rgb))' }} />
-            {/* Icon circle */}
-            <div className={`relative flex-shrink-0 w-6 h-6 rounded-full bg-gradient-to-br ${s.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white shadow-md overflow-hidden`}
-              style={{ fontSize: '10px' }}>
-              {s.image
-                ? <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
-                : s.icon}
-            </div>
-            {/* Name */}
-            <span className="relative text-[9px] font-rajdhani font-bold text-white/65 group-hover:text-white/90 transition-colors uppercase tracking-wide truncate">
-              {s.name}
-            </span>
-            {/* Arrow */}
-            <span className="relative ml-auto text-[8px] text-white/20 group-hover:text-white/50 transition-colors flex-shrink-0">›</span>
+            {s.image ? <img src={s.image} alt={s.name} className="w-full h-full object-cover" /> : s.icon}
           </motion.button>
         ))}
       </div>
@@ -383,46 +361,17 @@ function OfficeApps() {
   return (
     <div className="px-3 py-2 border-b border-neon-orange/10">
       <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold block mb-1.5">Top Apps</span>
-      <div className="grid grid-cols-2 gap-1">
-        {apps.map((app, i) => (
+      <div className="flex gap-1.5 justify-center flex-wrap">
+        {apps.map((app) => (
           <motion.button
             key={app.id}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05, duration: 0.25 }}
-            whileHover={{ y: -2, scale: 1.04 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.15, y: -2 }}
+            whileTap={{ scale: 0.9 }}
             onClick={() => handleClick(app)}
             title={app.name}
-            className="relative flex flex-col items-center gap-1 py-2 px-1 rounded-lg cursor-pointer overflow-hidden group"
-            style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.07)',
-            }}
+            className={`w-8 h-8 rounded-full bg-gradient-to-br ${app.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
           >
-            {/* Hover glow */}
-            <div
-              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.06)' }}
-            />
-            {/* Bottom accent bar on hover */}
-            <div
-              className="absolute bottom-0 left-2 right-2 h-px rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              style={{ background: 'rgb(var(--accent-rgb) / 0.6)' }}
-            />
-            {/* Icon */}
-            <div
-              className={`relative w-8 h-8 rounded-xl bg-gradient-to-br ${app.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white font-bold shadow-lg overflow-hidden group-hover:shadow-xl transition-shadow`}
-              style={{ fontSize: '12px' }}
-            >
-              {app.image
-                ? <img src={app.image} alt={app.name} className="w-full h-full object-cover" />
-                : app.icon}
-            </div>
-            {/* Name */}
-            <span className="relative text-[8px] font-rajdhani font-bold text-white/55 group-hover:text-white/85 transition-colors uppercase tracking-wide truncate w-full text-center leading-tight">
-              {app.name}
-            </span>
+            {app.image ? <img src={app.image} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
           </motion.button>
         ))}
       </div>
