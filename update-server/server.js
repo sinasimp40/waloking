@@ -562,6 +562,7 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
   // any client that can guess the URL shape. The registry stays clean.
   if (!dbApi.getCustomer(channel)) return res.status(404).end()
   const version = typeof req.query.v === 'string' && req.query.v.length <= 32 ? req.query.v : null
+  const installPath = typeof req.query.p === 'string' && req.query.p.length <= 512 ? req.query.p : null
   const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
   const userAgent = String(req.headers['user-agent'] || '').slice(0, 256)
 
@@ -597,15 +598,15 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
   live.addClient({ channel, role, instance, version, ip, userAgent, send, close })
   // Persist last-seen on first connect so the admin sees "just now" even
   // before the first heartbeat tick (which is HEARTBEAT_MS away).
-  try { dbApi.recordClientSeen(channel, role, ip) } catch (e) {}
+  try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
 
   const heartbeatTimer = setInterval(() => {
     try {
       res.write(': ping\n\n')
       live.touchClient(channel, role, instance)
-      // Refresh last-seen each heartbeat — IP is captured at connect time
-      // and reused since the same socket can't change source IP mid-stream.
-      try { dbApi.recordClientSeen(channel, role, ip) } catch (e) {}
+      // Refresh last-seen each heartbeat — IP + path are captured at connect
+      // time and reused since neither can change mid-stream.
+      try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
     } catch (e) {}
   }, live.HEARTBEAT_MS)
 
@@ -625,6 +626,7 @@ app.post('/api/live/:channel/:role/:instance/heartbeat', (req, res) => {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(instance)) return res.status(400).json({ error: 'invalid instance' })
   if (!dbApi.getCustomer(channel)) return res.status(404).json({ error: 'unknown channel' })
   const version = req.body && typeof req.body.version === 'string' ? req.body.version : null
+  const installPath = req.body && typeof req.body.path === 'string' && req.body.path.length <= 512 ? req.body.path : null
   const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
   const ok = live.touchClient(channel, role, instance, { version })
   if (!ok) {
@@ -636,9 +638,9 @@ app.post('/api/live/:channel/:role/:instance/heartbeat', (req, res) => {
       send: () => {}, close: () => {},
     })
   }
-  // Persist last-seen IP regardless of whether this was a touch or a ghost
-  // registration — both mean the client is reachable right now.
-  try { dbApi.recordClientSeen(channel, role, ip) } catch (e) {}
+  // Persist last-seen IP + install path regardless of whether this was a
+  // touch or a ghost registration — both mean the client is reachable now.
+  try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
   res.json({ ok: true, registered: !ok })
 })
 

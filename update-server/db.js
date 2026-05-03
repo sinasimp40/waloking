@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS meta (
     ['last_launcher_seen_at',  'INTEGER'],
     ['last_server_ip',         'TEXT'],
     ['last_server_seen_at',    'INTEGER'],
+    // Local install path of the running launcher / server.exe on the cafe's
+    // machine (e.g. "C:\\Walok\\flick-launcher"). Reported by the client on
+    // every heartbeat so the operator can see exactly where each binary
+    // lives without having to phone the customer.
+    ['last_launcher_path',     'TEXT'],
+    ['last_server_path',       'TEXT'],
   ]
   for (const [name, type] of adds) {
     if (!cols.has(name)) db.exec('ALTER TABLE customers ADD COLUMN ' + name + ' ' + type)
@@ -106,6 +112,8 @@ function rowToCustomer(r) {
     lastLauncherSeenAt: r.last_launcher_seen_at || null,
     lastServerIp: r.last_server_ip || null,
     lastServerSeenAt: r.last_server_seen_at || null,
+    lastLauncherPath: r.last_launcher_path || null,
+    lastServerPath: r.last_server_path || null,
   }
 }
 
@@ -138,8 +146,11 @@ const stmts = {
   // Last-seen tracking — written on every heartbeat from a connected client.
   // We DON'T touch updated_at here because heartbeats are high-frequency and
   // would defeat the "last admin edit" semantics of that column.
-  setLastLauncherSeen: db.prepare(`UPDATE customers SET last_launcher_ip=?, last_launcher_seen_at=? WHERE channel=?`),
-  setLastServerSeen:   db.prepare(`UPDATE customers SET last_server_ip=?,   last_server_seen_at=?   WHERE channel=?`),
+  // Path is COALESCE'd: a heartbeat without a path (older clients, or the
+  // SSE connect that doesn't include a `?p=` query) MUST NOT erase a path
+  // we've already learned from a previous heartbeat.
+  setLastLauncherSeen: db.prepare(`UPDATE customers SET last_launcher_ip=?, last_launcher_seen_at=?, last_launcher_path=COALESCE(?, last_launcher_path) WHERE channel=?`),
+  setLastServerSeen:   db.prepare(`UPDATE customers SET last_server_ip=?,   last_server_seen_at=?,   last_server_path=COALESCE(?,   last_server_path)   WHERE channel=?`),
   metaGet: db.prepare('SELECT v FROM meta WHERE k = ?'),
   metaSet: db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'),
 }
@@ -330,11 +341,16 @@ function recordBuild(channel, ts) {
 // server.js on every SSE connection-open + heartbeat tick + HTTP heartbeat
 // POST. Silently no-ops on unknown channels (the route already validates
 // the channel exists, so this is just defense-in-depth).
-function recordClientSeen(channel, role, ip, ts) {
+function recordClientSeen(channel, role, ip, installPath, ts) {
   if (!channel || (role !== 'launcher' && role !== 'server')) return
   const t = ts || Date.now()
-  if (role === 'launcher') stmts.setLastLauncherSeen.run(ip || null, t, channel)
-  else stmts.setLastServerSeen.run(ip || null, t, channel)
+  // Sanity-cap path length so a malicious / buggy client can't spam huge
+  // strings into our DB. 512 chars is well above any real Windows path.
+  const p = (typeof installPath === 'string' && installPath.length > 0)
+    ? installPath.slice(0, 512)
+    : null
+  if (role === 'launcher') stmts.setLastLauncherSeen.run(ip || null, t, p, channel)
+  else stmts.setLastServerSeen.run(ip || null, t, p, channel)
 }
 
 // Master switch for OTA delivery to a single customer. Stored as 0/1.

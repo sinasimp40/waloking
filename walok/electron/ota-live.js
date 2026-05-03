@@ -138,7 +138,13 @@ function startLive({
   const instanceId = loadOrCreateInstanceId(appRoot)
   const tag = logPrefix || role
   const base = baseUrl.replace(/\/$/, '')
-  const sseUrl = base + '/api/live/' + encodeURIComponent(channel) + '/' + role + '/' + instanceId + '?v=' + encodeURIComponent(currentVersion || '')
+  // Capped at 480 chars before URL-encoding to leave headroom under the
+  // server's 512-char ceiling once Windows backslashes inflate the encoded
+  // form. Real installs are nowhere near that long.
+  const installPath = (typeof appRoot === 'string' ? appRoot : '').slice(0, 480)
+  const sseUrl = base + '/api/live/' + encodeURIComponent(channel) + '/' + role + '/' + instanceId
+    + '?v=' + encodeURIComponent(currentVersion || '')
+    + '&p=' + encodeURIComponent(installPath)
   const hbUrl = base + '/api/live/' + encodeURIComponent(channel) + '/' + role + '/' + instanceId + '/heartbeat'
 
   let stream = null
@@ -190,7 +196,7 @@ function startLive({
   // HTTP heartbeat fallback in case SSE pings get coalesced/dropped.
   const heartbeatTimer = setInterval(() => {
     if (stopped) return
-    postJson(hbUrl, { version: currentVersion }).catch(() => {})
+    postJson(hbUrl, { version: currentVersion, path: installPath }).catch(() => {})
   }, 60_000)
 
   connect()

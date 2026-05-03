@@ -561,13 +561,18 @@ function escapeHtml(s) {
 // version block. Returns an empty string when the customer has never been
 // seen by this OTA server (last_*_seen_at is NULL) so brand-new entries
 // don't render a stub line.
-function renderLastSeen(ip, ts) {
+function renderLastSeen(ip, ts, installPath) {
   if (!ts) return ''
   const rel = fmtAge(ts)
   const ipPart = ip ? escapeHtml(ip) : '—'
   const fullDate = new Date(ts).toLocaleString()
-  const tip = (ip ? ip + ' · ' : '') + 'last contacted ' + fullDate
-  return `<div class="cc-lastseen" title="${escapeHtml(tip)}"><span class="cc-lastseen-arrow" aria-hidden="true">↳</span><span class="cc-lastseen-ip">${ipPart}</span><span class="cc-lastseen-age muted">${escapeHtml(rel)}</span></div>`
+  const tip = (ip ? ip + ' · ' : '') + 'last contacted ' + fullDate + (installPath ? '\nInstalled at: ' + installPath : '')
+  // Optional 2nd line: install path the client reported via heartbeat. Folder
+  // icon glyph + monospaced path so it reads as a filesystem location.
+  const pathLine = installPath
+    ? `<div class="cc-lastseen-path" title="${escapeHtml(installPath)}"><span class="cc-lastseen-arrow" aria-hidden="true">📁</span><span class="cc-lastseen-pathval">${escapeHtml(installPath)}</span></div>`
+    : ''
+  return `<div class="cc-lastseen" title="${escapeHtml(tip)}"><span class="cc-lastseen-arrow" aria-hidden="true">↳</span><span class="cc-lastseen-ip">${ipPart}</span><span class="cc-lastseen-age muted">${escapeHtml(rel)}</span></div>${pathLine}`
 }
 
 // Group an array of online instances by version: [{version, count}], newest first.
@@ -757,7 +762,7 @@ function renderCustomer(c) {
         </div>
         <div class="cc-vbox-version">${lv.versionLine}</div>
         ${lv.statusLine}
-        ${renderLastSeen(c.lastLauncherIp, c.lastLauncherSeenAt)}
+        ${renderLastSeen(c.lastLauncherIp, c.lastLauncherSeenAt, c.lastLauncherPath)}
       </div>
       <div class="cc-vbox cc-vbox-server">
         <div class="cc-vbox-head">
@@ -766,7 +771,7 @@ function renderCustomer(c) {
         </div>
         <div class="cc-vbox-version">${sv.versionLine}</div>
         ${sv.statusLine}
-        ${renderLastSeen(c.lastServerIp, c.lastServerSeenAt)}
+        ${renderLastSeen(c.lastServerIp, c.lastServerSeenAt, c.lastServerPath)}
       </div>
     </div>
     <div class="cc-meta">

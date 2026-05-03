@@ -1242,6 +1242,29 @@ button:disabled {
   color: var(--text-faint);
   font-family: var(--font-sans);
 }
+/* Second line below cc-lastseen showing the local install path the client
+ * reported via heartbeat. Same monospaced look as the IP, with a folder
+ * glyph so it reads as a filesystem location at a glance. */
+.cc-lastseen-path {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.cc-lastseen-path .cc-lastseen-arrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  opacity: 0.75;
+}
+.cc-lastseen-pathval {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+}
 
 /* ============ COMPACT LIST VIEW (.customer-grid.is-compact) ============
  * Switches the grid into a vertical flex column where each customer
