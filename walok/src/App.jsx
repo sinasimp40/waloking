@@ -8,7 +8,6 @@ import FeaturedBanner from './components/FeaturedBanner'
 import GameGrid from './components/GameGrid'
 import AdminPanel from './components/AdminPanel'
 import AdminLogin from './components/AdminLogin'
-import ParticleBackground from './components/ParticleBackground'
 import SaveLoadModal from './components/SaveLoadModal'
 import UpdateModal from './components/UpdateModal'
 
@@ -126,8 +125,6 @@ export default function App() {
       )}
 
       <div className="absolute inset-0 bg-dark-500/75" />
-
-      <ParticleBackground />
 
       <div className="absolute inset-0 grid-bg pointer-events-none" />
 
