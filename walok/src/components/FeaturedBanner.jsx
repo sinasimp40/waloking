@@ -91,104 +91,149 @@ function useScrambleText(text, { idle = false, restartGapMs = 7000 } = {}) {
   return display
 }
 
+// Cyberpunk panel background for the featured banner.
+// SVG-based angular dark slabs on the right half, diagonal accent-color
+// edge lines, scattered circuit dashes — all tinted by --accent-rgb so
+// every customer brand color carries through automatically.
 function BannerCanvas() {
-  const lines = Array.from({ length: 22 }, (_, i) => ({
-    top:      (i * 17 + 3) % 110 - 5,
-    width:    120 + (i * 53) % 260,
-    opacity:  0.06 + (i % 5) * 0.045,
-    duration: 3.5 + (i % 6) * 0.7,
-    delay:    -((i * 1.3) % 7),
-    thick:    i % 7 === 0 ? 2 : 1,
-  }))
-
-  const orbs = Array.from({ length: 5 }, (_, i) => ({
-    left:     8 + i * 18,
-    top:      20 + (i % 3) * 25,
-    size:     80 + i * 30,
-    duration: 6 + i * 2.2,
-    delay:    -(i * 1.8),
-    opacity:  0.07 + (i % 3) * 0.04,
-  }))
+  // Small circuit dashes scattered across the dark panels
+  const dashes = [
+    { x: 488, y: 14, w: 24, h: 2.5 }, { x: 545, y: 36, w: 14, h: 2 },
+    { x: 612, y: 18, w: 32, h: 2.5 }, { x: 638, y: 62, w: 18, h: 2 },
+    { x: 704, y: 12, w: 12, h: 2 },   { x: 722, y: 50, w: 26, h: 2.5 },
+    { x: 764, y: 76, w: 16, h: 2 },   { x: 816, y: 20, w: 20, h: 2.5 },
+    { x: 844, y: 54, w: 14, h: 2 },   { x: 886, y: 32, w: 30, h: 2.5 },
+    { x: 924, y: 70, w: 18, h: 2 },   { x: 964, y: 16, w: 22, h: 2.5 },
+    { x: 1026, y: 46, w: 16, h: 2 },  { x: 1068, y: 78, w: 20, h: 2.5 },
+    { x: 1106, y: 28, w: 14, h: 2 },  { x: 1148, y: 56, w: 24, h: 2.5 },
+    // square pads
+    { x: 594, y: 90, w: 7, h: 7 },    { x: 748, y: 98, w: 5, h: 5 },
+    { x: 876, y: 88, w: 7, h: 7 },    { x: 1004, y: 96, w: 5, h: 5 },
+    { x: 1112, y: 84, w: 6, h: 6 },
+    // tiny corner marks on panels
+    { x: 512, y: 4,  w: 6, h: 1.5 },  { x: 512, y: 7,  w: 3, h: 1.5 },
+    { x: 662, y: 4,  w: 6, h: 1.5 },  { x: 662, y: 7,  w: 3, h: 1.5 },
+    { x: 802, y: 4,  w: 6, h: 1.5 },  { x: 942, y: 4,  w: 6, h: 1.5 },
+  ]
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
 
-      {/* Radial bloom behind the text (left-side) */}
+      {/* Left-side accent tint — keeps text side branded */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(90deg, rgb(var(--accent-rgb) / 0.09) 0%, rgb(var(--accent-rgb) / 0.04) 28%, transparent 52%)',
+      }} />
+
+      {/* Pulsing radial bloom behind the cafe name */}
       <div style={{
         position: 'absolute',
-        left: '-5%', top: '-20%',
-        width: '55%', height: '140%',
-        background: 'radial-gradient(ellipse at 30% 50%, rgb(var(--accent-rgb) / 0.12) 0%, transparent 65%)',
-        animation: 'bannerBloom 6s ease-in-out infinite',
+        left: 0, top: '-30%', width: '38%', height: '160%',
+        background: 'radial-gradient(ellipse at 22% 50%, rgb(var(--accent-rgb) / 0.10) 0%, transparent 68%)',
+        animation: 'cpBloom 7s ease-in-out infinite',
         willChange: 'opacity',
       }} />
 
-      {/* Floating bokeh orbs */}
-      {orbs.map((o, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          left: `${o.left}%`,
-          top: `${o.top}%`,
-          width: o.size,
-          height: o.size,
-          borderRadius: '50%',
-          background: `radial-gradient(circle, rgb(var(--accent-rgb) / ${o.opacity}) 0%, transparent 70%)`,
-          filter: 'blur(18px)',
-          animation: `bannerOrb${i % 3} ${o.duration}s ease-in-out ${o.delay}s infinite`,
-          willChange: 'transform, opacity',
-        }} />
-      ))}
+      {/* SVG cyberpunk panels */}
+      <svg
+        viewBox="0 0 1200 130"
+        preserveAspectRatio="none"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+      >
+        <defs>
+          {/* Glow filter for primary accent lines */}
+          <filter id="cpGlowHard" x="-60%" y="-200%" width="220%" height="500%">
+            <feGaussianBlur stdDeviation="4" result="g" />
+            <feMerge><feMergeNode in="g" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <filter id="cpGlowSoft" x="-60%" y="-200%" width="220%" height="500%">
+            <feGaussianBlur stdDeviation="2.5" result="g" />
+            <feMerge><feMergeNode in="g" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
 
-      {/* Diagonal speed lines */}
-      {lines.map((l, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          top: `${l.top}%`,
-          left: '-10%',
-          width: `${l.width}px`,
-          height: `${l.thick}px`,
-          background: `linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / ${l.opacity * 2}), rgb(var(--accent-rgb) / ${l.opacity}), transparent)`,
-          transform: 'skewY(-8deg)',
-          animation: `bannerLine ${l.duration}s linear ${l.delay}s infinite`,
-          willChange: 'transform',
-          boxShadow: l.thick === 2 ? `0 0 6px rgb(var(--accent-rgb) / 0.2)` : 'none',
-        }} />
-      ))}
+        {/* ── Dark angular panel slabs ────────────────────────────── */}
+        {/* Base slab — widest, covers right 60%+ */}
+        <polygon points="395,0 1200,0 1200,130 345,130"
+          style={{ fill: 'rgba(5,5,9,0.92)' }} />
+        {/* Slab 2 */}
+        <polygon points="515,0 790,0 740,130 465,130"
+          style={{ fill: 'rgba(11,11,17,0.86)' }} />
+        {/* Slab 3 */}
+        <polygon points="655,0 915,0 865,130 605,130"
+          style={{ fill: 'rgba(8,8,14,0.82)' }} />
+        {/* Slab 4 */}
+        <polygon points="795,0 1040,0 990,130 745,130"
+          style={{ fill: 'rgba(13,13,19,0.78)' }} />
+        {/* Slab 5 — far right */}
+        <polygon points="940,0 1200,0 1200,130 890,130"
+          style={{ fill: 'rgba(6,6,12,0.74)' }} />
 
-      {/* Occasional bright flash sweep */}
+        {/* ── Diagonal accent edge lines ──────────────────────────── */}
+        {/* Primary — brightest, glowing */}
+        <line x1="395" y1="0" x2="345" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 1 }}
+          filter="url(#cpGlowHard)" />
+        <line x1="515" y1="0" x2="465" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.80 }}
+          filter="url(#cpGlowSoft)" />
+        <line x1="655" y1="0" x2="605" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.62 }}
+          filter="url(#cpGlowSoft)" />
+        <line x1="795" y1="0" x2="745" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.48 }} />
+        <line x1="940" y1="0" x2="890" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.36 }} />
+        {/* Secondary right-side edges (faint) */}
+        <line x1="790" y1="0" x2="740" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.22 }} />
+        <line x1="915" y1="0" x2="865" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.18 }} />
+        <line x1="1040" y1="0" x2="990" y2="130"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.15 }} />
+
+        {/* ── Horizontal circuit trace lines across panels ─────────── */}
+        <line x1="445" y1="42" x2="650" y2="42"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.16 }} />
+        <line x1="580" y1="88" x2="790" y2="88"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.14 }} />
+        <line x1="710" y1="64" x2="940" y2="64"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.12 }} />
+        <line x1="850" y1="32" x2="1080" y2="32"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.10 }} />
+
+        {/* ── Scanline stripes (ultra subtle depth) ───────────────── */}
+        {Array.from({ length: 9 }, (_, i) => (
+          <line key={i}
+            x1="390" y1={i * 14 + 7} x2="1200" y2={i * 14 + 7}
+            style={{ stroke: 'rgba(255,255,255,0.012)', strokeWidth: 1 }}
+          />
+        ))}
+
+        {/* ── Circuit dashes ──────────────────────────────────────── */}
+        {dashes.map((d, i) => (
+          <rect key={i} x={d.x} y={d.y} width={d.w} height={d.h}
+            style={{ fill: 'rgb(var(--accent-rgb))', opacity: 0.30 + (i % 5) * 0.09 }}
+          />
+        ))}
+      </svg>
+
+      {/* Slow flash sweep across the whole banner */}
       <div style={{
         position: 'absolute', inset: 0,
-        background: 'linear-gradient(105deg, transparent 30%, rgb(var(--accent-rgb) / 0.04) 50%, transparent 70%)',
-        animation: 'bannerFlash 8s ease-in-out -2s infinite',
+        background: 'linear-gradient(108deg, transparent 20%, rgb(var(--accent-rgb) / 0.035) 50%, transparent 80%)',
+        animation: 'cpFlash 10s ease-in-out -3s infinite',
         willChange: 'transform',
       }} />
 
       <style>{`
-        @keyframes bannerLine {
-          0%   { transform: skewY(-8deg) translateX(0);      opacity: 0; }
-          8%   { opacity: 1; }
-          85%  { opacity: 1; }
-          100% { transform: skewY(-8deg) translateX(115vw);  opacity: 0; }
+        @keyframes cpBloom {
+          0%, 100% { opacity: 0.65; }
+          50%      { opacity: 1; }
         }
-        @keyframes bannerBloom {
-          0%, 100% { opacity: 0.7; }
-          50%      { opacity: 1;   }
-        }
-        @keyframes bannerOrb0 {
-          0%, 100% { transform: translate(0px,   0px);  }
-          50%      { transform: translate(20px, -12px); }
-        }
-        @keyframes bannerOrb1 {
-          0%, 100% { transform: translate(0px,  0px);  }
-          50%      { transform: translate(-15px, 18px); }
-        }
-        @keyframes bannerOrb2 {
-          0%, 100% { transform: translate(0px,   0px);  }
-          50%      { transform: translate(10px,  -8px); }
-        }
-        @keyframes bannerFlash {
-          0%, 100% { transform: translateX(-120%); }
-          50%      { transform: translateX(120%);  }
+        @keyframes cpFlash {
+          0%, 100% { transform: translateX(-130%); }
+          50%      { transform: translateX(130%); }
         }
       `}</style>
     </div>
