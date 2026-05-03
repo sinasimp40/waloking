@@ -1165,6 +1165,197 @@ button:disabled {
   border-color: var(--accent);
 }
 
+/* ============ VIEW TOGGLE (Cards / Compact) ============
+ * Lives at the right end of .customer-toolbar. Two segmented-button-style
+ * pills; the active pill picks up the accent. Click flips localStorage +
+ * adds .is-compact to #customer-list.
+ */
+.view-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px;
+  gap: 0;
+}
+.vt-btn {
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--r-sm) - 2px);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color .12s, background .12s;
+}
+.vt-btn:hover { color: var(--text); }
+.vt-btn.is-active {
+  color: var(--accent);
+  background: var(--accent-soft, rgba(255,107,0,0.10));
+}
+.vt-btn .vt-label { letter-spacing: 0.02em; }
+@media (max-width: 720px) {
+  .vt-btn .vt-label { display: none; }
+  .vt-btn { padding: 5px 8px; }
+}
+
+/* ============ LAST-SEEN LINE (under each cc-vbox) ============
+ * Tiny "↳ 192.168.1.42 · 3m ago" line that surfaces the persistent
+ * last-known IP/timestamp captured from heartbeats. Kept minimal so it
+ * fits inside the existing version mini-card without throwing off layout.
+ */
+.cc-lastseen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-lastseen-arrow {
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+}
+.cc-lastseen-ip {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.cc-lastseen-age {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* ============ COMPACT LIST VIEW (.customer-grid.is-compact) ============
+ * Switches the grid into a vertical flex column where each customer
+ * renders as a single dense row. Same markup as card view — these rules
+ * just override layout-affecting properties so the operator can fit
+ * 30+ customers on one screen for fast scanning.
+ *
+ * Visible per row:
+ *   [accent rail] avatar  name + channel  online pills  L:vX  S:vX  ↳IP   [On/Off]  [Edit][⚡][L][S][🗑]
+ *
+ * Hidden in compact: cc-meta (subtitle/server URL/logo/last release),
+ * placeholder warnings (still flagged via the amber rail), and the
+ * version download statusLine (the version number itself stays visible).
+ */
+.customer-grid.is-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.customer-grid.is-compact .customer-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 18px;
+  min-height: 56px;
+}
+.customer-grid.is-compact .customer-card::before {
+  /* Accent moves from a top strip to a left rail in compact mode. */
+  top: 0;
+  bottom: 0;
+  right: auto;
+  width: 3px;
+  height: auto;
+}
+.customer-grid.is-compact .customer-card:hover {
+  transform: none;
+}
+.customer-grid.is-compact .cc-header {
+  flex: 0 1 260px;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 10px;
+}
+.customer-grid.is-compact .cc-id-block {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.customer-grid.is-compact .cc-toggle {
+  /* Move the On/Off toggle out of the header so it sits next to the
+   * action bar at the far right. */
+  order: 5;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.customer-grid.is-compact .live-slot {
+  flex: 0 1 220px;
+  min-width: 0;
+  order: 2;
+}
+.customer-grid.is-compact .live-block { padding: 0; }
+.customer-grid.is-compact .live-detail { display: none; }
+.customer-grid.is-compact .cc-versions {
+  flex: 0 1 320px;
+  display: flex;
+  gap: 6px;
+  order: 3;
+  min-width: 0;
+}
+.customer-grid.is-compact .cc-vbox {
+  flex: 1 1 0;
+  padding: 4px 8px;
+  min-width: 0;
+}
+.customer-grid.is-compact .cc-vbox-head { gap: 4px; }
+.customer-grid.is-compact .cc-vbox-version { font-size: 12px; }
+.customer-grid.is-compact .cc-vbox .src-pill,
+.customer-grid.is-compact .cc-vbox-status,
+.customer-grid.is-compact .cc-vbox-download,
+.customer-grid.is-compact .cc-vbox a {
+  /* Hide the verbose "↓ download zip · published Nm ago" mini block —
+   * it returns when the operator switches back to Cards view. */
+  display: none !important;
+}
+.customer-grid.is-compact .cc-lastseen {
+  margin-top: 4px;
+  padding-top: 4px;
+  font-size: 10.5px;
+}
+.customer-grid.is-compact .cc-meta { display: none; }
+.customer-grid.is-compact .placeholder-warn {
+  /* Hide the verbose warning text — the amber rail still signals the
+   * problem and the operator can flip back to Cards view to read it. */
+  display: none;
+}
+.customer-grid.is-compact .cc-action-bar {
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  order: 6;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.customer-grid.is-compact .cc-action-bar .btn-primary,
+.customer-grid.is-compact .cc-action-bar .btn-secondary,
+.customer-grid.is-compact .cc-action-bar .btn-danger {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+@media (max-width: 1100px) {
+  /* Below 1100px the row gets too crowded; drop versions + last-seen so
+   * the essentials (name + status + actions) still fit on one line. */
+  .customer-grid.is-compact .cc-versions { display: none; }
+}
+
 .customer-pagination {
   display: flex;
   align-items: center;

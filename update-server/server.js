@@ -595,11 +595,17 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
   })
 
   live.addClient({ channel, role, instance, version, ip, userAgent, send, close })
+  // Persist last-seen on first connect so the admin sees "just now" even
+  // before the first heartbeat tick (which is HEARTBEAT_MS away).
+  try { dbApi.recordClientSeen(channel, role, ip) } catch (e) {}
 
   const heartbeatTimer = setInterval(() => {
     try {
       res.write(': ping\n\n')
       live.touchClient(channel, role, instance)
+      // Refresh last-seen each heartbeat — IP is captured at connect time
+      // and reused since the same socket can't change source IP mid-stream.
+      try { dbApi.recordClientSeen(channel, role, ip) } catch (e) {}
     } catch (e) {}
   }, live.HEARTBEAT_MS)
 
@@ -619,17 +625,20 @@ app.post('/api/live/:channel/:role/:instance/heartbeat', (req, res) => {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(instance)) return res.status(400).json({ error: 'invalid instance' })
   if (!dbApi.getCustomer(channel)) return res.status(404).json({ error: 'unknown channel' })
   const version = req.body && typeof req.body.version === 'string' ? req.body.version : null
+  const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
   const ok = live.touchClient(channel, role, instance, { version })
   if (!ok) {
     // Client wasn't in registry — auto-register a "ghost" entry that has no
     // SSE socket so the admin still sees them as online.
-    const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
     live.addClient({
       channel, role, instance, version, ip,
       userAgent: String(req.headers['user-agent'] || '').slice(0, 256),
       send: () => {}, close: () => {},
     })
   }
+  // Persist last-seen IP regardless of whether this was a touch or a ghost
+  // registration — both mean the client is reachable right now.
+  try { dbApi.recordClientSeen(channel, role, ip) } catch (e) {}
   res.json({ ok: true, registered: !ok })
 })
 

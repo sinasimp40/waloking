@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS meta (
     // admin UI; when 0 the server returns 404 for /updates/<channel>/latest.json
     // so launchers see "no update available" without any client-side change.
     ['updates_enabled',        'INTEGER'],
+    // Last-seen IP + timestamp per role. Updated on every SSE/HTTP heartbeat
+    // from a connected launcher / server.exe so the admin UI can show
+    // "Last seen: 192.168.1.42 — 3m ago" even after the client goes
+    // offline. Independent from live.snapshot() which only reflects
+    // currently-connected clients.
+    ['last_launcher_ip',       'TEXT'],
+    ['last_launcher_seen_at',  'INTEGER'],
+    ['last_server_ip',         'TEXT'],
+    ['last_server_seen_at',    'INTEGER'],
   ]
   for (const [name, type] of adds) {
     if (!cols.has(name)) db.exec('ALTER TABLE customers ADD COLUMN ' + name + ' ' + type)
@@ -93,6 +102,10 @@ function rowToCustomer(r) {
     updatesEnabled: (r.updates_enabled === null || r.updates_enabled === undefined)
       ? true
       : !!r.updates_enabled,
+    lastLauncherIp: r.last_launcher_ip || null,
+    lastLauncherSeenAt: r.last_launcher_seen_at || null,
+    lastServerIp: r.last_server_ip || null,
+    lastServerSeenAt: r.last_server_seen_at || null,
   }
 }
 
@@ -122,6 +135,11 @@ const stmts = {
   // Cheap one-field toggle endpoint — avoids round-tripping the full upsert
   // payload from the admin UI just to flip a single boolean.
   setUpdatesEnabled: db.prepare(`UPDATE customers SET updates_enabled=?, updated_at=CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE channel=?`),
+  // Last-seen tracking — written on every heartbeat from a connected client.
+  // We DON'T touch updated_at here because heartbeats are high-frequency and
+  // would defeat the "last admin edit" semantics of that column.
+  setLastLauncherSeen: db.prepare(`UPDATE customers SET last_launcher_ip=?, last_launcher_seen_at=? WHERE channel=?`),
+  setLastServerSeen:   db.prepare(`UPDATE customers SET last_server_ip=?,   last_server_seen_at=?   WHERE channel=?`),
   metaGet: db.prepare('SELECT v FROM meta WHERE k = ?'),
   metaSet: db.prepare('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'),
 }
@@ -306,6 +324,17 @@ function recordServerPublished(channel, version, ts) {
 function recordBuild(channel, ts) {
   if (!channel) return
   stmts.setLastBuild.run(ts || Date.now(), channel)
+}
+
+// Persist last-seen IP + timestamp for a connected client. Called from
+// server.js on every SSE connection-open + heartbeat tick + HTTP heartbeat
+// POST. Silently no-ops on unknown channels (the route already validates
+// the channel exists, so this is just defense-in-depth).
+function recordClientSeen(channel, role, ip, ts) {
+  if (!channel || (role !== 'launcher' && role !== 'server')) return
+  const t = ts || Date.now()
+  if (role === 'launcher') stmts.setLastLauncherSeen.run(ip || null, t, channel)
+  else stmts.setLastServerSeen.run(ip || null, t, channel)
 }
 
 // Master switch for OTA delivery to a single customer. Stored as 0/1.
@@ -503,6 +532,7 @@ module.exports = {
   recordLauncherPublished,
   recordServerPublished,
   recordBuild,
+  recordClientSeen,
   setUpdatesEnabled,
   getBaselineRefreshedAt,
   setBaselineRefreshedAt,

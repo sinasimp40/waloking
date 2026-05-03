@@ -152,6 +152,14 @@
         <div class="customer-toolbar">
           <input type="search" id="customer-search" class="customer-search" placeholder="Search by name, channel, or subtitle…" autocomplete="off" />
           <span class="customer-count muted small" id="customer-count"></span>
+          <div class="view-toggle" id="view-toggle" role="group" aria-label="Customer list view">
+            <button type="button" class="vt-btn is-active" data-view="card" title="Card view (detailed grid)" aria-pressed="true">
+              <span aria-hidden="true">▦</span><span class="vt-label">Cards</span>
+            </button>
+            <button type="button" class="vt-btn" data-view="compact" title="Compact list view (one customer per row, fits 30+ on screen)" aria-pressed="false">
+              <span aria-hidden="true">≡</span><span class="vt-label">Compact</span>
+            </button>
+          </div>
         </div>
         <div class="customer-filters" id="customer-filters" role="tablist" aria-label="Filter customers">
           <button type="button" class="cf-chip is-active" data-filter="all" role="tab" aria-selected="true">All</button>

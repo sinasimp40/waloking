@@ -30,8 +30,13 @@ const state = {
   // Filter chip — one of: 'all' | 'with-updates' | 'no-updates' | 'disabled'.
   // Combined with customerSearch (search runs first, then filter narrows).
   customerFilter: 'all',
+  // List view mode — 'card' (default detailed grid) or 'compact' (single
+  // row per customer so 30+ fit on screen). Persisted to localStorage so
+  // operator preference survives reloads.
+  customerView: (typeof localStorage !== 'undefined' && localStorage.getItem('nx_customer_view') === 'compact') ? 'compact' : 'card',
 }
 const CUSTOMER_PAGE_SIZE = 12
+const CUSTOMER_VIEW_KEY = 'nx_customer_view'
 
 async function api(method, path, body, isForm) {
   const opts = { method, credentials: 'include', headers: {} }
@@ -517,6 +522,11 @@ function renderCustomerList() {
     list.innerHTML = slice.map(renderCustomer).join('')
     bindCustomerActions()
   }
+  // Apply the current view mode (card vs compact) by toggling a class on
+  // the list container. Compact view is implemented purely via CSS overrides
+  // — the rendered card markup is identical, so toggling the class is enough
+  // to switch between layouts without a re-render.
+  if (list) list.classList.toggle('is-compact', state.customerView === 'compact')
 
   // Count badge: "12 customers" or "3 of 24 customers" when filtering.
   if (countEl) {
@@ -545,6 +555,19 @@ function renderCustomerList() {
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]))
+}
+
+// Render the "↳ <ip> · <relative time>" line shown under each Launcher/Server
+// version block. Returns an empty string when the customer has never been
+// seen by this OTA server (last_*_seen_at is NULL) so brand-new entries
+// don't render a stub line.
+function renderLastSeen(ip, ts) {
+  if (!ts) return ''
+  const rel = fmtAge(ts)
+  const ipPart = ip ? escapeHtml(ip) : '—'
+  const fullDate = new Date(ts).toLocaleString()
+  const tip = (ip ? ip + ' · ' : '') + 'last contacted ' + fullDate
+  return `<div class="cc-lastseen" title="${escapeHtml(tip)}"><span class="cc-lastseen-arrow" aria-hidden="true">↳</span><span class="cc-lastseen-ip">${ipPart}</span><span class="cc-lastseen-age muted">${escapeHtml(rel)}</span></div>`
 }
 
 // Group an array of online instances by version: [{version, count}], newest first.
@@ -734,6 +757,7 @@ function renderCustomer(c) {
         </div>
         <div class="cc-vbox-version">${lv.versionLine}</div>
         ${lv.statusLine}
+        ${renderLastSeen(c.lastLauncherIp, c.lastLauncherSeenAt)}
       </div>
       <div class="cc-vbox cc-vbox-server">
         <div class="cc-vbox-head">
@@ -742,6 +766,7 @@ function renderCustomer(c) {
         </div>
         <div class="cc-vbox-version">${sv.versionLine}</div>
         ${sv.statusLine}
+        ${renderLastSeen(c.lastServerIp, c.lastServerSeenAt)}
       </div>
     </div>
     <div class="cc-meta">
@@ -1775,6 +1800,30 @@ $('#add-customer-btn').addEventListener('click', () => openCustomerModal(null))
     })
   })
   _syncFilterChipsUI()
+
+  // View toggle — Cards vs Compact. Persists the operator's choice to
+  // localStorage so reloads remember it. Toggling does NOT re-render the
+  // markup; renderCustomerList just adds/removes .is-compact on the list
+  // container and CSS handles the rest.
+  const vtButtons = document.querySelectorAll('#view-toggle .vt-btn')
+  function _syncViewToggleUI() {
+    vtButtons.forEach(btn => {
+      const active = btn.dataset.view === state.customerView
+      btn.classList.toggle('is-active', active)
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false')
+    })
+  }
+  vtButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.view === 'compact' ? 'compact' : 'card'
+      if (state.customerView === v) return
+      state.customerView = v
+      try { localStorage.setItem(CUSTOMER_VIEW_KEY, v) } catch (e) {}
+      _syncViewToggleUI()
+      renderCustomerList()
+    })
+  })
+  _syncViewToggleUI()
 }
 
 $('#cm-cancel').addEventListener('click', closeCustomerModal)
