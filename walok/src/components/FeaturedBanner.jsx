@@ -213,37 +213,6 @@ function BannerCanvas() {
           />
         ))}
 
-        {/* ── Horizontal circuit trace lines — static base ─────────── */}
-        <line x1="445" y1="42" x2="650" y2="42"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.08 }} />
-        <line x1="580" y1="88" x2="790" y2="88"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.07 }} />
-        <line x1="710" y1="64" x2="940" y2="64"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.06 }} />
-        <line x1="850" y1="32" x2="1080" y2="32"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.05 }} />
-
-        {/* ── Horizontal glitch lines — segment sparks along each trace */}
-        {/* dasharray 45+165=210 ≈ trace length; offset jumps left/mid/right */}
-        {[
-          { x1: 445, y1: 42,  x2: 650, y2: 42,  dur: '2.9s', delay: '-0.3s', anim: 'cpHGlitch0' },
-          { x1: 580, y1: 88,  x2: 790, y2: 88,  dur: '3.4s', delay: '-1.7s', anim: 'cpHGlitch1' },
-          { x1: 710, y1: 64,  x2: 940, y2: 64,  dur: '2.6s', delay: '-0.9s', anim: 'cpHGlitch0' },
-          { x1: 850, y1: 32,  x2: 1080, y2: 32, dur: '3.1s', delay: '-2.4s', anim: 'cpHGlitch1' },
-        ].map((l, i) => (
-          <line key={`hglitch-${i}`}
-            x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-            filter="url(#cpGlowSoft)"
-            style={{
-              stroke: 'rgb(var(--accent-rgb))',
-              strokeWidth: 1.5,
-              strokeDasharray: '45 165',
-              strokeDashoffset: 0,
-              opacity: 0,
-              animation: `${l.anim} ${l.dur} step-start ${l.delay} infinite`,
-            }}
-          />
-        ))}
 
         {/* ── Scanline stripes (ultra subtle depth) ───────────────── */}
         {Array.from({ length: 9 }, (_, i) => (
@@ -353,53 +322,6 @@ function BannerCanvas() {
           100% { opacity:0; stroke-dashoffset:-104; }
         }
 
-        /* Horizontal glitch A — left→mid→right triple burst */
-        @keyframes cpHGlitch0 {
-          0%   { opacity:0;   stroke-dashoffset:0; }
-          2%   { opacity:1;   stroke-dashoffset:0; }
-          3%   { opacity:0;   stroke-dashoffset:0; }
-          5%   { opacity:.75; stroke-dashoffset:-82; }
-          6%   { opacity:0;   stroke-dashoffset:-82; }
-          7%   { opacity:1;   stroke-dashoffset:-165; }
-          9%   { opacity:1;   stroke-dashoffset:-165; }
-          10%  { opacity:0;   stroke-dashoffset:-165; }
-          30%  { opacity:0;   stroke-dashoffset:-82; }
-          31%  { opacity:.9;  stroke-dashoffset:-82; }
-          32%  { opacity:0;   stroke-dashoffset:-82; }
-          50%  { opacity:0;   stroke-dashoffset:0; }
-          52%  { opacity:.8;  stroke-dashoffset:0; }
-          53%  { opacity:0;   stroke-dashoffset:0; }
-          70%  { opacity:0;   stroke-dashoffset:-120; }
-          71%  { opacity:1;   stroke-dashoffset:-120; }
-          73%  { opacity:1;   stroke-dashoffset:-120; }
-          74%  { opacity:0;   stroke-dashoffset:-120; }
-          75%  { opacity:.5;  stroke-dashoffset:-40; }
-          76%  { opacity:0;   stroke-dashoffset:-40; }
-          100% { opacity:0;   stroke-dashoffset:0; }
-        }
-
-        /* Horizontal glitch B — snappier, mid-biased */
-        @keyframes cpHGlitch1 {
-          0%   { opacity:0;   stroke-dashoffset:-82; }
-          3%   { opacity:1;   stroke-dashoffset:-82; }
-          5%   { opacity:0;   stroke-dashoffset:-82; }
-          20%  { opacity:0;   stroke-dashoffset:-165; }
-          22%  { opacity:.9;  stroke-dashoffset:-165; }
-          23%  { opacity:0;   stroke-dashoffset:-165; }
-          24%  { opacity:.6;  stroke-dashoffset:-50; }
-          25%  { opacity:0;   stroke-dashoffset:-50; }
-          45%  { opacity:0;   stroke-dashoffset:0; }
-          46%  { opacity:1;   stroke-dashoffset:0; }
-          47%  { opacity:0;   stroke-dashoffset:0; }
-          60%  { opacity:0;   stroke-dashoffset:-120; }
-          62%  { opacity:.8;  stroke-dashoffset:-120; }
-          63%  { opacity:0;   stroke-dashoffset:-120; }
-          80%  { opacity:0;   stroke-dashoffset:-82; }
-          81%  { opacity:1;   stroke-dashoffset:-82; }
-          83%  { opacity:1;   stroke-dashoffset:-82; }
-          84%  { opacity:0;   stroke-dashoffset:-82; }
-          100% { opacity:0;   stroke-dashoffset:-82; }
-        }
       `}</style>
     </div>
   )
