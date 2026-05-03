@@ -47,6 +47,13 @@ function main() {
   // repeated batch runs. build-customer.js also runs its own cleanup, but we
   // do an explicit pass here so a failure inside one customer build still
   // leaves the OTHER customers' folders pruned.
+  //
+  // IMPORTANT: keepNewest:true here. Each customer's per-channel pre-build
+  // wipe (keepNewest:false) runs inside build-customer.js right before that
+  // customer rebuilds — so the still-good previous payload is only removed
+  // at the moment its own rebuild starts. If we wiped every channel up
+  // front, cancelling/aborting the batch midway would leave EVERY
+  // not-yet-rebuilt customer with no downloadable payload (the bug).
   const channels = customers.map(f => path.basename(f, '.json'))
   try {
     if (!cleanupAfterBuild) {
@@ -58,7 +65,7 @@ function main() {
       updatesPublicDir: UPDATES_PUBLIC_DIR,
       channels,
       version: null,
-      keepNewest: false,
+      keepNewest: true,
     })
     for (const s of summary) {
       const removed = [
