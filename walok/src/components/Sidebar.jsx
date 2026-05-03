@@ -204,11 +204,13 @@ function ComputerRates() {
 
   if (rates.length === 0) return null
 
-  const tierColors = [
-    { bg: 'from-neon-orange/15 to-neon-orange/8', border: 'border-neon-orange/40', label: 'text-white/80', price: 'text-neon-orange' },
-    { bg: 'from-amber-500/15 to-amber-500/8', border: 'border-amber-500/40', label: 'text-amber-200/80', price: 'text-amber-400' },
-    { bg: 'from-yellow-400/15 to-yellow-400/8', border: 'border-yellow-400/40', label: 'text-yellow-200/80', price: 'text-yellow-400' },
+  const tierStyles = [
+    { barColor: 'rgb(var(--accent-rgb))', glow: 'rgb(var(--accent-rgb) / 0.35)', borderColor: 'rgb(var(--accent-rgb) / 0.45)', bg: 'rgb(var(--accent-rgb) / 0.08)', label: 'rgb(var(--accent-rgb))', shimmer: 'rgb(var(--accent-rgb) / 0.12)' },
+    { barColor: '#f59e0b',                glow: 'rgba(245,158,11,0.3)',           borderColor: 'rgba(245,158,11,0.4)',         bg: 'rgba(245,158,11,0.07)',  label: '#fbbf24',              shimmer: 'rgba(245,158,11,0.1)' },
+    { barColor: '#facc15',                glow: 'rgba(250,204,21,0.25)',          borderColor: 'rgba(250,204,21,0.35)',        bg: 'rgba(250,204,21,0.06)',  label: '#fde68a',              shimmer: 'rgba(250,204,21,0.08)' },
   ]
+
+  const maxPrice = Math.max(...rates.map(r => parseFloat(r.price) || 0), 1)
 
   return (
     <div className="px-3 py-2 border-b border-neon-orange/10">
@@ -216,29 +218,83 @@ function ComputerRates() {
         <BarChart3 size={10} className="text-neon-orange/80" />
         <span className="font-orbitron text-[8px] text-neon-orange/80 uppercase tracking-[0.12em] font-bold">Rates</span>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {rates.map((rate, i) => {
-          const color = tierColors[i] || tierColors[0]
+          const s = tierStyles[i] || tierStyles[0]
+          const pct = Math.round(((parseFloat(rate.price) || 0) / maxPrice) * 100)
+          const isTop = i === rates.length - 1
           return (
             <motion.div
               key={i}
-              whileHover={{ scale: 1.02, x: 3 }}
-              className={`relative flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-gradient-to-r ${color.bg} border ${color.border} backdrop-blur-sm overflow-hidden cursor-default`}
+              whileHover={{ scale: 1.02, x: 2 }}
+              className="relative rounded-lg overflow-hidden cursor-default"
+              style={{
+                background: s.bg,
+                border: `1px solid ${s.borderColor}`,
+                boxShadow: isTop ? `0 0 10px ${s.glow}, inset 0 0 10px ${s.shimmer}` : `inset 0 0 8px ${s.shimmer}`,
+              }}
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-white/[0.02] to-transparent" />
-              <div className="relative flex items-center gap-1.5">
-                <div className={`w-0.5 h-4 rounded-full bg-gradient-to-b ${i === 0 ? 'from-neon-orange to-neon-orange/30' : i === 1 ? 'from-amber-400 to-amber-400/30' : 'from-yellow-400 to-yellow-400/30'}`} />
-                <span className={`text-[9px] font-orbitron ${color.label} font-bold uppercase tracking-wider`}>{rate.name}</span>
+              {/* Animated shimmer sweep */}
+              <div className="absolute inset-0 pointer-events-none" style={{ animation: `rateShimmer ${4 + i}s ease-in-out infinite` }}>
+                <div style={{
+                  position: 'absolute', top: 0, bottom: 0, width: '40%',
+                  background: `linear-gradient(90deg, transparent, ${s.shimmer}, transparent)`,
+                  animation: `rateShimmerSlide ${4 + i * 1.5}s ease-in-out ${i * 0.8}s infinite`,
+                }} />
               </div>
-              <div className="relative flex items-baseline gap-0.5">
-                <span className={`text-[9px] ${color.price} opacity-60`}>₱</span>
-                <span className={`text-sm font-orbitron ${color.price} font-black`}>{rate.price}</span>
-                <span className="text-[7px] text-white/50 font-rajdhani ml-0.5">{rate.unit}</span>
+
+              {/* Top row: name + price */}
+              <div className="relative flex items-center justify-between px-2.5 pt-2 pb-1">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-0.5 h-3.5 rounded-full" style={{ background: `linear-gradient(to bottom, ${s.barColor}, transparent)` }} />
+                  <span className="text-[9px] font-orbitron font-bold uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.8)' }}>{rate.name}</span>
+                </div>
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-[9px] font-rajdhani opacity-60" style={{ color: s.label }}>₱</span>
+                  <span className="text-sm font-orbitron font-black leading-none" style={{ color: s.label, textShadow: `0 0 8px ${s.glow}` }}>{rate.price}</span>
+                  <span className="text-[7px] text-white/45 font-rajdhani ml-0.5">{rate.unit}</span>
+                </div>
               </div>
+
+              {/* Range bar */}
+              <div className="px-2.5 pb-2">
+                <div className="h-0.5 w-full rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 1.2, delay: i * 0.15, ease: 'easeOut' }}
+                    className="h-full rounded-full"
+                    style={{
+                      background: `linear-gradient(90deg, ${s.barColor}99, ${s.barColor})`,
+                      boxShadow: `0 0 4px ${s.glow}`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Top tier crown indicator */}
+              {isTop && (
+                <div className="absolute top-1.5 right-8 pointer-events-none">
+                  <motion.div
+                    animate={{ opacity: [0.4, 0.9, 0.4] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                    className="text-[7px]"
+                    style={{ color: s.label }}
+                  >★</motion.div>
+                </div>
+              )}
             </motion.div>
           )
         })}
       </div>
+
+      <style>{`
+        @keyframes rateShimmerSlide {
+          0%   { left: -40%; }
+          50%  { left: 140%; }
+          100% { left: 140%; }
+        }
+      `}</style>
     </div>
   )
 }
