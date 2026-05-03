@@ -30,13 +30,8 @@ const state = {
   // Filter chip — one of: 'all' | 'with-updates' | 'no-updates' | 'disabled'.
   // Combined with customerSearch (search runs first, then filter narrows).
   customerFilter: 'all',
-  // List view mode — 'card' (default detailed grid) or 'compact' (single
-  // row per customer so 30+ fit on screen). Persisted to localStorage so
-  // operator preference survives reloads.
-  customerView: (typeof localStorage !== 'undefined' && localStorage.getItem('nx_customer_view') === 'compact') ? 'compact' : 'card',
 }
 const CUSTOMER_PAGE_SIZE = 12
-const CUSTOMER_VIEW_KEY = 'nx_customer_view'
 
 async function api(method, path, body, isForm) {
   const opts = { method, credentials: 'include', headers: {} }
@@ -522,11 +517,11 @@ function renderCustomerList() {
     list.innerHTML = slice.map(renderCustomer).join('')
     bindCustomerActions()
   }
-  // Apply the current view mode (card vs compact) by toggling a class on
-  // the list container. Compact view is implemented purely via CSS overrides
-  // — the rendered card markup is identical, so toggling the class is enough
-  // to switch between layouts without a re-render.
-  if (list) list.classList.toggle('is-compact', state.customerView === 'compact')
+  // Compact list view is the only view — always apply .is-compact so the
+  // CSS overrides drive the dense single-row-per-customer layout. Below
+  // 1100px the same class falls back to a vertical card layout (handled
+  // entirely in admin.css) so narrow screens still show every detail.
+  if (list) list.classList.add('is-compact')
 
   // Count badge: "12 customers" or "3 of 24 customers" when filtering.
   if (countEl) {
@@ -1806,29 +1801,6 @@ $('#add-customer-btn').addEventListener('click', () => openCustomerModal(null))
   })
   _syncFilterChipsUI()
 
-  // View toggle — Cards vs Compact. Persists the operator's choice to
-  // localStorage so reloads remember it. Toggling does NOT re-render the
-  // markup; renderCustomerList just adds/removes .is-compact on the list
-  // container and CSS handles the rest.
-  const vtButtons = document.querySelectorAll('#view-toggle .vt-btn')
-  function _syncViewToggleUI() {
-    vtButtons.forEach(btn => {
-      const active = btn.dataset.view === state.customerView
-      btn.classList.toggle('is-active', active)
-      btn.setAttribute('aria-pressed', active ? 'true' : 'false')
-    })
-  }
-  vtButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const v = btn.dataset.view === 'compact' ? 'compact' : 'card'
-      if (state.customerView === v) return
-      state.customerView = v
-      try { localStorage.setItem(CUSTOMER_VIEW_KEY, v) } catch (e) {}
-      _syncViewToggleUI()
-      renderCustomerList()
-    })
-  })
-  _syncViewToggleUI()
 }
 
 $('#cm-cancel').addEventListener('click', closeCustomerModal)
