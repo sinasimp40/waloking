@@ -91,32 +91,106 @@ function useScrambleText(text, { idle = false, restartGapMs = 7000 } = {}) {
   return display
 }
 
-// Animated background for the hero banner — the "Starfield Warp" effect.
-// A ring of light streaks shoots outward from the banner center, tinted
-// by `--accent-rgb` so each customer's brand color carries through.
-// Pure CSS animations; paused via the global `html.app-idle *` rule in
-// index.css when the cafe goes idle.
 function BannerCanvas() {
-  const streaks = Array.from({ length: 18 }, (_, i) => ({
-    angle: (i * 20) % 360,
-    delay: -((i * 0.22) % 2.5).toFixed(2) + 's',
-    duration: (1.8 + (i % 4) * 0.35).toFixed(2) + 's',
+  const lines = Array.from({ length: 22 }, (_, i) => ({
+    top:      (i * 17 + 3) % 110 - 5,
+    width:    120 + (i * 53) % 260,
+    opacity:  0.06 + (i % 5) * 0.045,
+    duration: 3.5 + (i % 6) * 0.7,
+    delay:    -((i * 1.3) % 7),
+    thick:    i % 7 === 0 ? 2 : 1,
   }))
+
+  const orbs = Array.from({ length: 5 }, (_, i) => ({
+    left:     8 + i * 18,
+    top:      20 + (i % 3) * 25,
+    size:     80 + i * 30,
+    duration: 6 + i * 2.2,
+    delay:    -(i * 1.8),
+    opacity:  0.07 + (i % 3) * 0.04,
+  }))
+
   return (
-    <div className="absolute inset-0 overflow-hidden">
-      <div className="banner-warp-stage">
-        {streaks.map((s, i) => (
-          <div
-            key={i}
-            className="banner-warp-streak"
-            style={{
-              '--angle': `${s.angle}deg`,
-              animationDelay: s.delay,
-              animationDuration: s.duration,
-            }}
-          />
-        ))}
-      </div>
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+
+      {/* Radial bloom behind the text (left-side) */}
+      <div style={{
+        position: 'absolute',
+        left: '-5%', top: '-20%',
+        width: '55%', height: '140%',
+        background: 'radial-gradient(ellipse at 30% 50%, rgb(var(--accent-rgb) / 0.12) 0%, transparent 65%)',
+        animation: 'bannerBloom 6s ease-in-out infinite',
+        willChange: 'opacity',
+      }} />
+
+      {/* Floating bokeh orbs */}
+      {orbs.map((o, i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          left: `${o.left}%`,
+          top: `${o.top}%`,
+          width: o.size,
+          height: o.size,
+          borderRadius: '50%',
+          background: `radial-gradient(circle, rgb(var(--accent-rgb) / ${o.opacity}) 0%, transparent 70%)`,
+          filter: 'blur(18px)',
+          animation: `bannerOrb${i % 3} ${o.duration}s ease-in-out ${o.delay}s infinite`,
+          willChange: 'transform, opacity',
+        }} />
+      ))}
+
+      {/* Diagonal speed lines */}
+      {lines.map((l, i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          top: `${l.top}%`,
+          left: '-10%',
+          width: `${l.width}px`,
+          height: `${l.thick}px`,
+          background: `linear-gradient(90deg, transparent, rgb(var(--accent-rgb) / ${l.opacity * 2}), rgb(var(--accent-rgb) / ${l.opacity}), transparent)`,
+          transform: 'skewY(-8deg)',
+          animation: `bannerLine ${l.duration}s linear ${l.delay}s infinite`,
+          willChange: 'transform',
+          boxShadow: l.thick === 2 ? `0 0 6px rgb(var(--accent-rgb) / 0.2)` : 'none',
+        }} />
+      ))}
+
+      {/* Occasional bright flash sweep */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(105deg, transparent 30%, rgb(var(--accent-rgb) / 0.04) 50%, transparent 70%)',
+        animation: 'bannerFlash 8s ease-in-out -2s infinite',
+        willChange: 'transform',
+      }} />
+
+      <style>{`
+        @keyframes bannerLine {
+          0%   { transform: skewY(-8deg) translateX(0);      opacity: 0; }
+          8%   { opacity: 1; }
+          85%  { opacity: 1; }
+          100% { transform: skewY(-8deg) translateX(115vw);  opacity: 0; }
+        }
+        @keyframes bannerBloom {
+          0%, 100% { opacity: 0.7; }
+          50%      { opacity: 1;   }
+        }
+        @keyframes bannerOrb0 {
+          0%, 100% { transform: translate(0px,   0px);  }
+          50%      { transform: translate(20px, -12px); }
+        }
+        @keyframes bannerOrb1 {
+          0%, 100% { transform: translate(0px,  0px);  }
+          50%      { transform: translate(-15px, 18px); }
+        }
+        @keyframes bannerOrb2 {
+          0%, 100% { transform: translate(0px,   0px);  }
+          50%      { transform: translate(10px,  -8px); }
+        }
+        @keyframes bannerFlash {
+          0%, 100% { transform: translateX(-120%); }
+          50%      { transform: translateX(120%);  }
+        }
+      `}</style>
     </div>
   )
 }
