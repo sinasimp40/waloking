@@ -668,7 +668,7 @@ function createWindow(splash) {
       const urlModule = require('url')
 
       const boundary = '----Example-CafeBoundary' + Date.now()
-      const sanitizedGameName = gameName.replace(/[^a-zA-Z0-9_\-. ]/g, '').trim()
+      const sanitizedGameName = (gameName || '').trim().slice(0, 200)
 
       const preamble = Buffer.from(
         `--${boundary}\r\nContent-Disposition: form-data; name="gameName"\r\n\r\n${sanitizedGameName}\r\n` +

@@ -203,10 +203,11 @@ function createApi(appRoot) {
         return res.status(400).json({ error: 'No file uploaded' })
       }
 
-      const gameName = sanitizeName(req.body.gameName)
+      const rawGameName = (req.body.gameName || '').trim().slice(0, 200)
+      const fileGameName = sanitizeName(rawGameName) || 'save'
       const saveName = sanitizeName(req.body.saveName) || 'default'
 
-      if (!gameName) {
+      if (!rawGameName) {
         fs.unlinkSync(req.file.path)
         return res.status(400).json({ error: 'Game name is required' })
       }
@@ -216,7 +217,11 @@ function createApi(appRoot) {
 
       const userDir = getUserDir(appRoot, username)
 
-      const existing = getOne('SELECT id, archive_filename FROM saves WHERE user_id = ? AND game_name = ? AND save_name = ?', [userId, gameName, saveName])
+      const normalizedGameName = sanitizeName(rawGameName)
+      const existing = getOne(
+        'SELECT id, archive_filename FROM saves WHERE user_id = ? AND save_name = ? AND (game_name = ? OR game_name = ?)',
+        [userId, saveName, rawGameName, normalizedGameName]
+      )
 
       if (existing) {
         const oldFile = path.join(userDir, existing.archive_filename)
@@ -224,20 +229,20 @@ function createApi(appRoot) {
           try { fs.unlinkSync(oldFile) } catch {}
         }
 
-        const archiveFilename = `${sanitizeName(gameName)}-${Date.now()}.zip`
+        const archiveFilename = `${fileGameName}-${Date.now()}.zip`
         const destPath = path.join(userDir, archiveFilename)
         fs.renameSync(req.file.path, destPath)
 
-        runQuery("UPDATE saves SET archive_filename = ?, archive_size = ?, updated_at = datetime('now') WHERE id = ?", [archiveFilename, req.file.size, existing.id])
+        runQuery("UPDATE saves SET game_name = ?, archive_filename = ?, archive_size = ?, updated_at = datetime('now') WHERE id = ?", [rawGameName, archiveFilename, req.file.size, existing.id])
 
         res.json({ success: true, saveId: existing.id, message: 'Save updated (replaced old save)' })
       } else {
-        const archiveFilename = `${sanitizeName(gameName)}-${Date.now()}.zip`
+        const archiveFilename = `${fileGameName}-${Date.now()}.zip`
         const destPath = path.join(userDir, archiveFilename)
 
         fs.renameSync(req.file.path, destPath)
 
-        const result = runQuery('INSERT INTO saves (user_id, game_name, save_name, archive_filename, archive_size) VALUES (?, ?, ?, ?, ?)', [userId, gameName, saveName, archiveFilename, req.file.size])
+        const result = runQuery('INSERT INTO saves (user_id, game_name, save_name, archive_filename, archive_size) VALUES (?, ?, ?, ?, ?)', [userId, rawGameName, saveName, archiveFilename, req.file.size])
 
         res.json({ success: true, saveId: result.lastInsertRowid, message: 'Save created' })
       }

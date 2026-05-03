@@ -4,6 +4,14 @@ import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 
+function normalizeName(name) {
+  return (name || '').replace(/[^a-zA-Z0-9_\-. ]/g, '').trim().toLowerCase()
+}
+function namesMatch(a, b) {
+  if (!a || !b) return false
+  return a === b || normalizeName(a) === normalizeName(b)
+}
+
 export default function SaveLoadModal({ onClose }) {
   const settings = useStore(s => s.settings)
   const games = useStore(s => s.games)
@@ -132,7 +140,7 @@ export default function SaveLoadModal({ onClose }) {
     if (!game.savePath) {
       return toast.error(`No save path set for ${game.name}`)
     }
-    const existingSave = saves.find(s => s.game_name === game.name)
+    const existingSave = saves.find(s => namesMatch(s.game_name, game.name))
     if (existingSave) {
       const confirmed = window.confirm(`Replace existing save for "${game.name}"?`)
       if (!confirmed) return
@@ -158,7 +166,7 @@ export default function SaveLoadModal({ onClose }) {
   }
 
   const handleLoad = async (save) => {
-    const game = games.find(g => g.name === save.game_name)
+    const game = games.find(g => namesMatch(g.name, save.game_name))
     if (!game?.savePath) {
       return toast.error(`No save path configured for ${save.game_name}`)
     }
@@ -532,7 +540,7 @@ export default function SaveLoadModal({ onClose }) {
                   ) : (
                     <div className="space-y-1.5 max-h-[52vh] overflow-y-auto pr-1 scrollbar-thin">
                       {filteredGames.map(game => {
-                        const hasSave = saves.some(s => s.game_name === game.name)
+                        const hasSave = saves.some(s => namesMatch(s.game_name, game.name))
                         const isUploading = uploadingGame === game.id
                         return (
                           <button
@@ -618,7 +626,7 @@ export default function SaveLoadModal({ onClose }) {
                   ) : (
                     <div className="space-y-1.5 max-h-[52vh] overflow-y-auto pr-1 scrollbar-thin">
                       {filteredSaves.map(save => {
-                        const matchingGame = games.find(g => g.name === save.game_name)
+                        const matchingGame = games.find(g => namesMatch(g.name, save.game_name))
                         const isDownloading = downloadingId === save.id
                         return (
                           <div
