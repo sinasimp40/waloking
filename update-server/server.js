@@ -963,7 +963,7 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
   }
 
   const reqIp = req.ip || req.connection?.remoteAddress || ''
-  const targetChannels = all ? dbApi.listCustomers().map(c => c.channel) : [channel]
+  const targetChannels = all ? dbApi.listCustomers().filter(c => c.updatesEnabled !== false).map(c => c.channel) : [channel]
   if (targetChannels.length === 0) {
     return res.status(400).json({ error: 'no customers configured — add one before building' })
   }
