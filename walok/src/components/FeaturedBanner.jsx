@@ -169,42 +169,45 @@ function BannerCanvas() {
         <polygon points="940,0 1200,0 1200,130 890,130"
           style={{ fill: 'rgba(6,6,12,0.74)' }} />
 
-        {/* ── Diagonal accent edge lines — static base ────────────── */}
+        {/* ── Diagonal accent edge lines — static ─────────────────── */}
         <line x1="395" y1="0" x2="345" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 0.35 }}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 1 }}
           filter="url(#cpGlowHard)" />
         <line x1="515" y1="0" x2="465" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.28 }}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.80 }}
           filter="url(#cpGlowSoft)" />
         <line x1="655" y1="0" x2="605" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.22 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.62 }} />
         <line x1="795" y1="0" x2="745" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.18 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.48 }} />
         <line x1="940" y1="0" x2="890" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.14 }} />
-        {/* Secondary right-side edges (faint) */}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.36 }} />
         <line x1="790" y1="0" x2="740" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.12 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.22 }} />
         <line x1="915" y1="0" x2="865" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.10 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.18 }} />
         <line x1="1040" y1="0" x2="990" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.08 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.15 }} />
 
-        {/* ── Glitch lines — segments spark at random positions on each edge */}
-        {/* dasharray 35+104=139 ≈ line length; dashoffset jumps expose top/mid/bottom */}
+        {/* ── Horizontal lines — static dim base ───────────────────── */}
+        <line x1="445" y1="42"  x2="650"  y2="42"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.08 }} />
+        <line x1="580" y1="88"  x2="790"  y2="88"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.07 }} />
+        <line x1="710" y1="64"  x2="940"  y2="64"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.06 }} />
+        <line x1="850" y1="32"  x2="1080" y2="32"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.05 }} />
+
+        {/* ── Horizontal lines — glitch flash overlay ──────────────── */}
         {[
-          { x1: 395, y1: 0, x2: 345, y2: 130, sw: 4,   dur: '3.2s', delay: '0s',    anim: 'cpGlitch0', filter: 'url(#cpGlowHard)' },
-          { x1: 515, y1: 0, x2: 465, y2: 130, sw: 3.5, dur: '2.8s', delay: '-1.1s', anim: 'cpGlitch1', filter: 'url(#cpGlowHard)' },
-          { x1: 655, y1: 0, x2: 605, y2: 130, sw: 3,   dur: '3.5s', delay: '-0.7s', anim: 'cpGlitch2', filter: 'url(#cpGlowSoft)' },
-          { x1: 795, y1: 0, x2: 745, y2: 130, sw: 3,   dur: '2.6s', delay: '-2.2s', anim: 'cpGlitch0', filter: 'url(#cpGlowSoft)' },
-          { x1: 940, y1: 0, x2: 890, y2: 130, sw: 2.5, dur: '3.8s', delay: '-1.5s', anim: 'cpGlitch1', filter: undefined },
+          { x1: 445, y1: 42,  x2: 650,  y2: 42,  dur: '2.9s', delay: '-0.3s', anim: 'cpGlitch0' },
+          { x1: 580, y1: 88,  x2: 790,  y2: 88,  dur: '3.4s', delay: '-1.7s', anim: 'cpGlitch1' },
+          { x1: 710, y1: 64,  x2: 940,  y2: 64,  dur: '2.6s', delay: '-0.9s', anim: 'cpGlitch2' },
+          { x1: 850, y1: 32,  x2: 1080, y2: 32,  dur: '3.1s', delay: '-2.4s', anim: 'cpGlitch1' },
         ].map((l, i) => (
-          <line key={`glitch-${i}`}
+          <line key={`hglitch-${i}`}
             x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-            filter={l.filter}
+            filter="url(#cpGlowSoft)"
             style={{
               stroke: 'rgb(var(--accent-rgb))',
-              strokeWidth: l.sw,
+              strokeWidth: 2,
               opacity: 0,
               animation: `${l.anim} ${l.dur} step-start ${l.delay} infinite`,
             }}
