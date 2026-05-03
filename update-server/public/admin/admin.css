@@ -1352,52 +1352,58 @@ button:disabled {
   padding: 4px 10px;
   font-size: 11.5px;
 }
-/* ----- Responsive: narrow screens in compact mode -----
- * On screens narrower than 1100px the single-row layout no longer fits, so
- * we stack each section vertically inside the card. Every section gets
- * width: 100% !important so nothing overflows and nothing goes missing.
- * !important is used because the base compact rules above set flex/order
- * with normal specificity and we want to guarantee the override wins. */
+/* ----- Responsive: disable compact mode below 1100px -----
+ * Compact mode is a wide-screen-only layout — its single-row design fights
+ * narrow viewports no matter how we wrap things, because too many sections
+ * (header, pills, versions, IPs, actions) need horizontal room. Below
+ * 1100px we revert .is-compact to behave exactly like card view: a vertical
+ * grid of full cards where nothing is hidden, clipped, or overlapped.
+ * The view-toggle stays visible so the user can still switch back when
+ * widening the window. */
 @media (max-width: 1100px) {
+  .customer-grid.is-compact {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
   .customer-grid.is-compact .customer-card {
     flex-direction: column !important;
     align-items: stretch !important;
-    flex-wrap: nowrap !important;
-    row-gap: 8px;
-    overflow: visible !important;
-    padding: 12px 14px 12px 18px;
+    gap: 0 !important;
+    padding: 16px 14px 14px !important;
+    padding-top: 18px !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
   }
+  /* Restore the elements the wide-compact layout had hidden. */
+  .customer-grid.is-compact .cc-vbox .src-pill,
+  .customer-grid.is-compact .cc-vbox-status,
+  .customer-grid.is-compact .cc-vbox-download,
+  .customer-grid.is-compact .cc-vbox a {
+    display: revert !important;
+  }
+  .customer-grid.is-compact .cc-meta { display: block !important; }
+  .customer-grid.is-compact .placeholder-warn { display: block !important; }
+  .customer-grid.is-compact .live-detail { display: revert !important; }
+  /* Restore the top accent strip (compact uses a left rail instead). */
+  .customer-grid.is-compact .customer-card::before {
+    top: 0; left: 0; right: 0;
+    bottom: auto;
+    height: 3px;
+    width: auto;
+  }
+  /* Reset every section's flex/order so layout flows naturally top-to-bottom. */
   .customer-grid.is-compact .cc-header,
   .customer-grid.is-compact .live-slot,
   .customer-grid.is-compact .cc-versions,
   .customer-grid.is-compact .cc-action-bar {
-    flex: 0 0 auto !important;
-    width: 100% !important;
-    min-width: 0;
+    flex: initial !important;
+    order: initial !important;
+    width: auto !important;
   }
-  .customer-grid.is-compact .cc-header {
-    order: 1 !important;
-    justify-content: space-between !important;
-  }
-  .customer-grid.is-compact .live-slot {
-    order: 2 !important;
-  }
-  .customer-grid.is-compact .cc-versions {
-    order: 3 !important;
-    display: flex !important;
-  }
-  /* The On/Off switch was pushed to the right end of the row in wide compact
-   * mode. On narrow screens we want it back inside cc-header so it sits next
-   * to the brand name. */
   .customer-grid.is-compact .cc-toggle {
-    order: 0 !important;
     margin-left: 0 !important;
-  }
-  .customer-grid.is-compact .cc-action-bar {
-    order: 4 !important;
-    display: grid !important;
-    margin-top: 4px;
-    padding-top: 8px;
+    order: initial !important;
   }
 }
 
