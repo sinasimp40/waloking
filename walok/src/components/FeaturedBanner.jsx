@@ -169,28 +169,49 @@ function BannerCanvas() {
         <polygon points="940,0 1200,0 1200,130 890,130"
           style={{ fill: 'rgba(6,6,12,0.74)' }} />
 
-        {/* ── Diagonal accent edge lines ──────────────────────────── */}
-        {/* Primary — brightest, glowing */}
+        {/* ── Diagonal accent edge lines — static base ────────────── */}
         <line x1="395" y1="0" x2="345" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 1 }}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 0.35 }}
           filter="url(#cpGlowHard)" />
         <line x1="515" y1="0" x2="465" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.80 }}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.28 }}
           filter="url(#cpGlowSoft)" />
         <line x1="655" y1="0" x2="605" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.62 }}
-          filter="url(#cpGlowSoft)" />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.22 }} />
         <line x1="795" y1="0" x2="745" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.48 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.18 }} />
         <line x1="940" y1="0" x2="890" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.36 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.14 }} />
         {/* Secondary right-side edges (faint) */}
         <line x1="790" y1="0" x2="740" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.22 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.12 }} />
         <line x1="915" y1="0" x2="865" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.18 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.10 }} />
         <line x1="1040" y1="0" x2="990" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.15 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.08 }} />
+
+        {/* ── Traveling pulse lines — bright segment runs top→bottom ── */}
+        {/* Line length ≈139 SVG units; dasharray 22+155=177 covers full travel */}
+        {[
+          { x1: 395, y1: 0, x2: 345, y2: 130, sw: 3,   delay: '0s',    filter: 'url(#cpGlowHard)' },
+          { x1: 515, y1: 0, x2: 465, y2: 130, sw: 2.5, delay: '-0.5s', filter: 'url(#cpGlowHard)' },
+          { x1: 655, y1: 0, x2: 605, y2: 130, sw: 2,   delay: '-1.0s', filter: 'url(#cpGlowSoft)' },
+          { x1: 795, y1: 0, x2: 745, y2: 130, sw: 2,   delay: '-1.5s', filter: 'url(#cpGlowSoft)' },
+          { x1: 940, y1: 0, x2: 890, y2: 130, sw: 1.5, delay: '-2.0s', filter: undefined },
+        ].map((l, i) => (
+          <line key={`pulse-${i}`}
+            x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+            filter={l.filter}
+            style={{
+              stroke: 'rgb(var(--accent-rgb))',
+              strokeWidth: l.sw,
+              opacity: 1,
+              strokeDasharray: '22 155',
+              strokeDashoffset: 22,
+              animation: `cpLinePulse 2.5s linear ${l.delay} infinite`,
+            }}
+          />
+        ))}
 
         {/* ── Horizontal circuit trace lines across panels ─────────── */}
         <line x1="445" y1="42" x2="650" y2="42"
