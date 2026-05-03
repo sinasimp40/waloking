@@ -1352,55 +1352,52 @@ button:disabled {
   padding: 4px 10px;
   font-size: 11.5px;
 }
-/* ----- Responsive: narrow screens in compact mode ----- */
-/* On screens narrower than 1100px, the single-row layout runs out of space
- * and the action bar visually overlaps the pills. Allow wrapping so the
- * row gracefully splits into two lines: identity/pills on top, actions on
- * the bottom. The accent rail still spans the whole height. */
+/* ----- Responsive: narrow screens in compact mode -----
+ * On screens narrower than 1100px the single-row layout no longer fits, so
+ * we stack each section vertically inside the card. Every section gets
+ * width: 100% !important so nothing overflows and nothing goes missing.
+ * !important is used because the base compact rules above set flex/order
+ * with normal specificity and we want to guarantee the override wins. */
 @media (max-width: 1100px) {
   .customer-grid.is-compact .customer-card {
-    flex-wrap: wrap;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    flex-wrap: nowrap !important;
     row-gap: 8px;
-  }
-  .customer-grid.is-compact .cc-header {
-    flex: 1 1 220px;
-  }
-  .customer-grid.is-compact .live-slot {
-    flex: 1 1 200px;
-  }
-  .customer-grid.is-compact .cc-versions {
-    flex: 1 1 100%;
-    order: 4;
-  }
-  .customer-grid.is-compact .cc-toggle {
-    order: 3;
-  }
-  .customer-grid.is-compact .cc-action-bar {
-    flex: 1 1 100%;
-    order: 7;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-  }
-}
-/* Very narrow (mobile-ish, < 720px): stack everything vertically so each
- * piece gets its own row and nothing overlaps. */
-@media (max-width: 720px) {
-  .customer-grid.is-compact .customer-card {
-    flex-direction: column;
-    align-items: stretch;
+    overflow: visible !important;
+    padding: 12px 14px 12px 18px;
   }
   .customer-grid.is-compact .cc-header,
   .customer-grid.is-compact .live-slot,
   .customer-grid.is-compact .cc-versions,
   .customer-grid.is-compact .cc-action-bar {
-    flex: 1 1 auto;
-    width: 100%;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 0;
   }
+  .customer-grid.is-compact .cc-header {
+    order: 1 !important;
+    justify-content: space-between !important;
+  }
+  .customer-grid.is-compact .live-slot {
+    order: 2 !important;
+  }
+  .customer-grid.is-compact .cc-versions {
+    order: 3 !important;
+    display: flex !important;
+  }
+  /* The On/Off switch was pushed to the right end of the row in wide compact
+   * mode. On narrow screens we want it back inside cc-header so it sits next
+   * to the brand name. */
   .customer-grid.is-compact .cc-toggle {
-    margin-left: auto;
+    order: 0 !important;
+    margin-left: 0 !important;
   }
   .customer-grid.is-compact .cc-action-bar {
-    justify-content: flex-start;
+    order: 4 !important;
+    display: grid !important;
+    margin-top: 4px;
+    padding-top: 8px;
   }
 }
 
