@@ -465,7 +465,25 @@ function _filteredCustomers() {
     default:
       break
   }
-  return out
+  // Stable sort by channel so the list always renders in a predictable order.
+  // Channels are often pure numbers ("1", "2", "10") for cafe operators who
+  // assign rig numbers — naive string sort would put "10" before "2" and
+  // would also leave the back-end's insertion order untouched (which is what
+  // the user noticed: channel 3 sitting at the end). Numeric channels sort
+  // numerically and come first; non-numeric channels (e.g. "example-cafe")
+  // sort alphabetically after them. Brand name is the tie-breaker.
+  return [...out].sort((a, b) => {
+    const ac = String(a.channel || '')
+    const bc = String(b.channel || '')
+    const an = /^\d+$/.test(ac) ? parseInt(ac, 10) : null
+    const bn = /^\d+$/.test(bc) ? parseInt(bc, 10) : null
+    if (an !== null && bn !== null) return an - bn
+    if (an !== null) return -1
+    if (bn !== null) return 1
+    const cmp = ac.localeCompare(bc)
+    if (cmp !== 0) return cmp
+    return String(a.brandName || '').localeCompare(String(b.brandName || ''))
+  })
 }
 
 // Render the customer list with search + pagination applied. Three states:
