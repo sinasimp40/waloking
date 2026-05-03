@@ -169,51 +169,59 @@ function BannerCanvas() {
         <polygon points="940,0 1200,0 1200,130 890,130"
           style={{ fill: 'rgba(6,6,12,0.74)' }} />
 
-        {/* ── Diagonal accent edge lines — static ─────────────────── */}
+        {/* ── Diagonal accent edge lines — static base ────────────── */}
         <line x1="395" y1="0" x2="345" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 1 }}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2.5, opacity: 0.35 }}
           filter="url(#cpGlowHard)" />
         <line x1="515" y1="0" x2="465" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.80 }}
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 2, opacity: 0.28 }}
           filter="url(#cpGlowSoft)" />
         <line x1="655" y1="0" x2="605" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.62 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.22 }} />
         <line x1="795" y1="0" x2="745" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.48 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1.5, opacity: 0.18 }} />
         <line x1="940" y1="0" x2="890" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.36 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 1, opacity: 0.14 }} />
+        {/* Secondary right-side edges (faint) */}
         <line x1="790" y1="0" x2="740" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.22 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.12 }} />
         <line x1="915" y1="0" x2="865" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.18 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.10 }} />
         <line x1="1040" y1="0" x2="990" y2="130"
-          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.15 }} />
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.75, opacity: 0.08 }} />
 
-        {/* ── Horizontal lines — static dim base ───────────────────── */}
-        <line x1="445" y1="42"  x2="650"  y2="42"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.08 }} />
-        <line x1="580" y1="88"  x2="790"  y2="88"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.07 }} />
-        <line x1="710" y1="64"  x2="940"  y2="64"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.06 }} />
-        <line x1="850" y1="32"  x2="1080" y2="32"  style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.05 }} />
-
-        {/* ── Horizontal lines — glitch flash overlay ──────────────── */}
+        {/* ── Glitch lines — segments spark at random positions on each edge */}
+        {/* dasharray 35+104=139 ≈ line length; dashoffset jumps expose top/mid/bottom */}
         {[
-          { x1: 445, y1: 42,  x2: 650,  y2: 42,  dur: '2.9s', delay: '-0.3s', anim: 'cpGlitch0' },
-          { x1: 580, y1: 88,  x2: 790,  y2: 88,  dur: '3.4s', delay: '-1.7s', anim: 'cpGlitch1' },
-          { x1: 710, y1: 64,  x2: 940,  y2: 64,  dur: '2.6s', delay: '-0.9s', anim: 'cpGlitch2' },
-          { x1: 850, y1: 32,  x2: 1080, y2: 32,  dur: '3.1s', delay: '-2.4s', anim: 'cpGlitch1' },
+          { x1: 395, y1: 0, x2: 345, y2: 130, sw: 3.5, dur: '3.2s', delay: '0s',    anim: 'cpGlitch0', filter: 'url(#cpGlowHard)' },
+          { x1: 515, y1: 0, x2: 465, y2: 130, sw: 3,   dur: '2.8s', delay: '-1.1s', anim: 'cpGlitch1', filter: 'url(#cpGlowHard)' },
+          { x1: 655, y1: 0, x2: 605, y2: 130, sw: 2.5, dur: '3.5s', delay: '-0.7s', anim: 'cpGlitch2', filter: 'url(#cpGlowSoft)' },
+          { x1: 795, y1: 0, x2: 745, y2: 130, sw: 2.5, dur: '2.6s', delay: '-2.2s', anim: 'cpGlitch0', filter: 'url(#cpGlowSoft)' },
+          { x1: 940, y1: 0, x2: 890, y2: 130, sw: 2,   dur: '3.8s', delay: '-1.5s', anim: 'cpGlitch1', filter: undefined },
         ].map((l, i) => (
-          <line key={`hglitch-${i}`}
+          <line key={`glitch-${i}`}
             x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-            filter="url(#cpGlowSoft)"
+            filter={l.filter}
             style={{
               stroke: 'rgb(var(--accent-rgb))',
-              strokeWidth: 2,
+              strokeWidth: l.sw,
+              strokeDasharray: '35 104',
+              strokeDashoffset: 0,
               opacity: 0,
               animation: `${l.anim} ${l.dur} step-start ${l.delay} infinite`,
             }}
           />
         ))}
 
+        {/* ── Horizontal circuit trace lines across panels ─────────── */}
+        <line x1="445" y1="42" x2="650" y2="42"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.16 }} />
+        <line x1="580" y1="88" x2="790" y2="88"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.14 }} />
+        <line x1="710" y1="64" x2="940" y2="64"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.12 }} />
+        <line x1="850" y1="32" x2="1080" y2="32"
+          style={{ stroke: 'rgb(var(--accent-rgb))', strokeWidth: 0.6, opacity: 0.10 }} />
 
         {/* ── Scanline stripes (ultra subtle depth) ───────────────── */}
         {Array.from({ length: 9 }, (_, i) => (
@@ -249,80 +257,79 @@ function BannerCanvas() {
           50%      { transform: translateX(130%); }
         }
 
-        /* Glitch A — rapid triple-burst then long dark gap */
+        /* Glitch variant A — rapid triple-burst, mostly dark */
         @keyframes cpGlitch0 {
-          0%   { opacity:0; }
-          3%   { opacity:1; }
-          4%   { opacity:0; }
-          6%   { opacity:1; }
-          7%   { opacity:0; }
-          9%   { opacity:1; }
-          11%  { opacity:1; }
-          12%  { opacity:0; }
-          36%  { opacity:0; }
-          37%  { opacity:1; }
-          38%  { opacity:0; }
-          56%  { opacity:0; }
-          57%  { opacity:1; }
-          58%  { opacity:0; }
-          76%  { opacity:0; }
-          77%  { opacity:1; }
-          79%  { opacity:1; }
-          80%  { opacity:0; }
-          81%  { opacity:1; }
-          82%  { opacity:0; }
-          100% { opacity:0; }
+          0%   { opacity:0; stroke-dashoffset:0; }
+          3%   { opacity:1; stroke-dashoffset:0; }
+          4%   { opacity:0; stroke-dashoffset:0; }
+          6%   { opacity:.8; stroke-dashoffset:-52; }
+          7%   { opacity:0; stroke-dashoffset:-52; }
+          8%   { opacity:1; stroke-dashoffset:-104; }
+          10%  { opacity:1; stroke-dashoffset:-104; }
+          11%  { opacity:0; stroke-dashoffset:-104; }
+          35%  { opacity:0; stroke-dashoffset:-52; }
+          36%  { opacity:.9; stroke-dashoffset:-52; }
+          37%  { opacity:0; stroke-dashoffset:-52; }
+          55%  { opacity:0; stroke-dashoffset:0; }
+          56%  { opacity:1; stroke-dashoffset:0; }
+          57%  { opacity:.4; stroke-dashoffset:-70; }
+          58%  { opacity:0; stroke-dashoffset:-70; }
+          75%  { opacity:0; stroke-dashoffset:-104; }
+          76%  { opacity:.8; stroke-dashoffset:-104; }
+          78%  { opacity:.8; stroke-dashoffset:-104; }
+          79%  { opacity:0; stroke-dashoffset:-104; }
+          80%  { opacity:.6; stroke-dashoffset:-25; }
+          81%  { opacity:0; stroke-dashoffset:-25; }
+          100% { opacity:0; stroke-dashoffset:0; }
         }
 
-        /* Glitch B — single snappy flashes with varied gaps */
+        /* Glitch variant B — longer gaps, snappier flashes */
         @keyframes cpGlitch1 {
-          0%   { opacity:0; }
-          2%   { opacity:1; }
-          3%   { opacity:0; }
-          21%  { opacity:0; }
-          22%  { opacity:1; }
-          24%  { opacity:1; }
-          25%  { opacity:0; }
-          46%  { opacity:0; }
-          47%  { opacity:1; }
-          48%  { opacity:0; }
-          49%  { opacity:1; }
-          50%  { opacity:0; }
-          67%  { opacity:0; }
-          68%  { opacity:1; }
-          69%  { opacity:0; }
-          86%  { opacity:0; }
-          87%  { opacity:1; }
-          89%  { opacity:1; }
-          90%  { opacity:0; }
-          100% { opacity:0; }
+          0%   { opacity:0; stroke-dashoffset:-52; }
+          2%   { opacity:.9; stroke-dashoffset:-52; }
+          4%   { opacity:0; stroke-dashoffset:-52; }
+          20%  { opacity:0; stroke-dashoffset:-104; }
+          21%  { opacity:1; stroke-dashoffset:-104; }
+          22%  { opacity:.5; stroke-dashoffset:-80; }
+          23%  { opacity:0; stroke-dashoffset:-80; }
+          45%  { opacity:0; stroke-dashoffset:0; }
+          46%  { opacity:1; stroke-dashoffset:0; }
+          47%  { opacity:0; stroke-dashoffset:0; }
+          48%  { opacity:.7; stroke-dashoffset:-30; }
+          49%  { opacity:0; stroke-dashoffset:-30; }
+          65%  { opacity:0; stroke-dashoffset:-70; }
+          67%  { opacity:.8; stroke-dashoffset:-70; }
+          68%  { opacity:0; stroke-dashoffset:-70; }
+          85%  { opacity:0; stroke-dashoffset:-104; }
+          86%  { opacity:1; stroke-dashoffset:-104; }
+          88%  { opacity:1; stroke-dashoffset:-104; }
+          89%  { opacity:0; stroke-dashoffset:-104; }
+          100% { opacity:0; stroke-dashoffset:-52; }
         }
 
-        /* Glitch C — double-tap bursts */
+        /* Glitch variant C — double-tap bursts, bottom-biased */
         @keyframes cpGlitch2 {
-          0%   { opacity:0; }
-          5%   { opacity:1; }
-          6%   { opacity:0; }
-          7%   { opacity:1; }
-          8%   { opacity:0; }
-          26%  { opacity:0; }
-          27%  { opacity:1; }
-          28%  { opacity:0; }
-          41%  { opacity:0; }
-          42%  { opacity:1; }
-          44%  { opacity:1; }
-          45%  { opacity:0; }
-          61%  { opacity:0; }
-          62%  { opacity:1; }
-          63%  { opacity:0; }
-          64%  { opacity:1; }
-          65%  { opacity:0; }
-          82%  { opacity:0; }
-          83%  { opacity:1; }
-          84%  { opacity:0; }
-          100% { opacity:0; }
+          0%   { opacity:0; stroke-dashoffset:-104; }
+          5%   { opacity:1; stroke-dashoffset:-104; }
+          6%   { opacity:.3; stroke-dashoffset:0; }
+          7%   { opacity:0; stroke-dashoffset:0; }
+          25%  { opacity:0; stroke-dashoffset:-25; }
+          26%  { opacity:.8; stroke-dashoffset:-25; }
+          27%  { opacity:0; stroke-dashoffset:-25; }
+          40%  { opacity:0; stroke-dashoffset:-80; }
+          41%  { opacity:1; stroke-dashoffset:-80; }
+          43%  { opacity:1; stroke-dashoffset:-80; }
+          44%  { opacity:0; stroke-dashoffset:-80; }
+          60%  { opacity:0; stroke-dashoffset:-52; }
+          61%  { opacity:.9; stroke-dashoffset:-52; }
+          62%  { opacity:0; stroke-dashoffset:-52; }
+          63%  { opacity:.6; stroke-dashoffset:-15; }
+          64%  { opacity:0; stroke-dashoffset:-15; }
+          80%  { opacity:0; stroke-dashoffset:-104; }
+          82%  { opacity:1; stroke-dashoffset:-104; }
+          83%  { opacity:0; stroke-dashoffset:-104; }
+          100% { opacity:0; stroke-dashoffset:-104; }
         }
-
       `}</style>
     </div>
   )
