@@ -24,7 +24,7 @@ const fileBackedStorage = {
 
 const defaultGames = []
 
-const ADMIN_SECRET_KEY = 'EXAMPLE CAFE2024'
+const ADMIN_SECRET_KEY = 'DENFI2024'
 
 const useStore = create(
   persist(

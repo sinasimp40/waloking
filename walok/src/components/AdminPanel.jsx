@@ -1002,20 +1002,6 @@ function AppearanceSection() {
         </div>
       </CardBox>
 
-      <CardBox>
-        <h4 className="font-orbitron text-xs uppercase tracking-[0.15em]" style={{ color: `${accentColor}60` }}>Preloading Screen</h4>
-        <p className="font-rajdhani text-white/35 text-xs">Image shown when the .exe is launched, before the main app loads.</p>
-        <div className="flex items-center gap-4">
-          <div className="w-32 h-20 rounded-lg overflow-hidden border border-white/[0.06] bg-black/30 flex items-center justify-center">
-            {settings.splashImage ? <img src={settings.splashImage} alt="Splash" className="w-full h-full object-contain" /> : <div className="text-white/10 text-center"><Image size={18} className="mx-auto mb-1" /><p className="text-[9px] font-rajdhani">No splash</p></div>}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={async () => { if (window.electronAPI) { const p = await window.electronAPI.selectImage(); if (p) { const normalized = p.replace(/\\/g, '/'); updateSettings({ splashImage: `file:///${normalized}` }); toast.success('Splash image updated!') } } else { const url = prompt('Enter splash image URL:'); if (url) { updateSettings({ splashImage: url }); toast.success('Splash image updated!') } } }}
-              className="flex items-center gap-2 py-2 px-3 rounded-lg text-[11px] font-rajdhani font-bold transition-all uppercase tracking-wider" style={{ background: `${accentColor}10`, border: `1px solid ${accentColor}15`, color: accentColor }}><Upload size={11} />Change</button>
-            {settings.splashImage && <button onClick={() => updateSettings({ splashImage: null })} className="px-3 py-2 border border-red-500/10 rounded-lg text-red-400/70 text-[11px] hover:bg-red-500/5 transition-all">Clear</button>}
-          </div>
-        </div>
-      </CardBox>
 
       <CardBox>
         <h4 className="font-orbitron text-xs uppercase tracking-[0.15em]" style={{ color: `${accentColor}60` }}>Launcher Info</h4>
