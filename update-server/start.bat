@@ -2,6 +2,13 @@
 setlocal
 set OTA_PORT=4231
 
+REM ---- Load .env file if it exists (one-time password config) ----
+if exist "%~dp0.env" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%~dp0.env") do (
+        if not "%%A"=="" if not "%%A:~0,1%"=="#" set "%%A=%%B"
+    )
+)
+
 echo ============================================
 echo  OTA UPDATE SERVER - STARTUP
 echo ============================================
