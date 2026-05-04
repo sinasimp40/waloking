@@ -1340,12 +1340,7 @@ button:disabled {
 }
 .customer-grid.is-compact .cc-vbox-head { gap: 4px; }
 .customer-grid.is-compact .cc-vbox-version { font-size: 12px; }
-.customer-grid.is-compact .cc-vbox .src-pill,
-.customer-grid.is-compact .cc-vbox-status,
-.customer-grid.is-compact .cc-vbox-download,
-.customer-grid.is-compact .cc-vbox a {
-  /* Hide the verbose "↓ download zip · published Nm ago" mini block —
-   * it returns when the operator switches back to Cards view. */
+.customer-grid.is-compact .cc-vbox .src-pill {
   display: none !important;
 }
 .customer-grid.is-compact .cc-lastseen {
@@ -1398,11 +1393,8 @@ button:disabled {
     min-height: 0 !important;
     overflow: hidden !important;
   }
-  /* Restore the elements the wide-compact layout had hidden. */
-  .customer-grid.is-compact .cc-vbox .src-pill,
-  .customer-grid.is-compact .cc-vbox-status,
-  .customer-grid.is-compact .cc-vbox-download,
-  .customer-grid.is-compact .cc-vbox a {
+  /* Restore source pill in card fallback layout. */
+  .customer-grid.is-compact .cc-vbox .src-pill {
     display: revert !important;
   }
   .customer-grid.is-compact .cc-meta { display: block !important; }
