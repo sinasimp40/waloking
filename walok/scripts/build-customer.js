@@ -394,7 +394,8 @@ async function main() {
     console.log('[SUBSTEP_BEGIN] electron-builder (launcher + server parallel)')
     const launcherP = spawnAsync('npx', ['electron-builder', '-c.directories.output=' + launcherOutDir], ROOT)
       .then(() => { log('electron-builder (launcher) finished') })
-    const serverP = spawnAsync('npx', ['electron-builder', '--config', 'server/package.json', '-c.directories.output=' + serverOutDir], ROOT)
+    const serverCwd = path.join(ROOT, 'server')
+    const serverP = spawnAsync('npx', ['electron-builder', '-c.directories.output=' + serverOutDir], serverCwd)
       .then(() => { log('electron-builder (server) finished') })
     const results = await Promise.allSettled([launcherP, serverP])
     const launcherFail = results[0].status === 'rejected'
