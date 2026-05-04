@@ -80,7 +80,7 @@ try {
 
 function getConfig() {
   const configPath = path.join(appRoot, SERVER_CONFIG_FILE)
-  const defaults = { host: '0.0.0.0', port: 3000 }
+  const defaults = { host: '0.0.0.0', port: 3123 }
   try {
     if (fs.existsSync(configPath)) {
       return { ...defaults, ...JSON.parse(fs.readFileSync(configPath, 'utf-8')) }
