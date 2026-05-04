@@ -1625,12 +1625,22 @@ async function cancelJob(jobId) {
     if (row) row.classList.add('queue-row-cancelling')
   }
   try {
-    await api('POST', '/api/admin/jobs/' + encodeURIComponent(jobId) + '/cancel')
-    // If we have a console card for this job, write a confirmation line so
-    // the operator sees the cancel-request immediately rather than waiting
-    // for the server's [cancel] log line to arrive over SSE.
+    const cancelResult = await api('POST', '/api/admin/jobs/' + encodeURIComponent(jobId) + '/cancel')
     const rec = consoleCards.get(jobId)
     if (rec) appendConsoleLine(rec, '[cancel] requested cancellation of job ' + jobId, 'cmd')
+    if (cancelResult && cancelResult.status === 'cancelled') {
+      api('GET', '/api/admin/jobs').then(d => { if (d) renderQueue(d) }).catch(() => {})
+      if (rec) {
+        setCardStatus(rec, 'CANCELLED', 'failed')
+        rec.cancelBtn.classList.add('hidden')
+        appendConsoleLine(rec, '=== CANCELLED ===', 'error')
+        rec.card.classList.add('cancelled')
+        rec.phaseEl.textContent = 'Cancelled'
+        stopElapsedTicker(rec)
+      }
+    } else {
+      api('GET', '/api/admin/jobs').then(d => { if (d) renderQueue(d) }).catch(() => {})
+    }
   } catch (e) {
     // Revert the optimistic grey-out so the operator can retry.
     for (const btn of rowBtns) {
