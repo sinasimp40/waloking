@@ -1269,12 +1269,7 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     }
     if (baseline && typeof baseline === 'object') {
       baseline.version = String(manifest.version)
-      // Propagate manifest.buildId into the merged overlay — see launcher
-      // updater.js for the full rationale. Without this, the OLD buildId
-      // survives the apply, STATE.config.buildId never converges, and the
-      // server's checkForUpdate detects the same rebump mismatch on every
-      // poll, pulling the same payload in a loop. Drop a stale local
-      // buildId when the manifest doesn't carry one (legacy publish).
+      if (manifest.updateServer) baseline.updateServer = String(manifest.updateServer)
       if (manifest.buildId) baseline.buildId = String(manifest.buildId)
       else delete baseline.buildId
       fs.writeFileSync(

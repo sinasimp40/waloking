@@ -1322,19 +1322,7 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
     }
     if (baseline && typeof baseline === 'object') {
       baseline.version = String(manifest.version)
-      // Propagate the manifest's buildId into the merged overlay so that
-      // after the .bat applier copies merged-ota-config.json over the
-      // freshly-extracted resources/ota-config.json, the running launcher
-      // sees the NEW buildId on the very next boot. Without this, the OLD
-      // buildId from the prior install survives, STATE.config.buildId
-      // never converges to manifest.buildId, and checkForUpdate would
-      // detect the same "rebump" mismatch on every poll — pulling the
-      // exact same payload over and over in a loop.
-      // For legacy publishes that don't carry buildId, we DELETE any
-      // local buildId field so the launcher cleanly degrades to the
-      // version-only compare path (avoids a stale local id lingering
-      // forever and falsely triggering rebumps once the operator later
-      // adds a buildId-carrying manifest).
+      if (manifest.updateServer) baseline.updateServer = String(manifest.updateServer)
       if (manifest.buildId) baseline.buildId = String(manifest.buildId)
       else delete baseline.buildId
       fs.writeFileSync(

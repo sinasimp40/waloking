@@ -185,6 +185,17 @@ function readBakedBuildId(unpackedDir) {
   return null
 }
 
+function readBakedUpdateServer(unpackedDir) {
+  if (!unpackedDir) return null
+  const cfgPath = path.join(unpackedDir, 'resources', 'ota-config.json')
+  try {
+    if (!fs.existsSync(cfgPath)) return null
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'))
+    if (cfg && typeof cfg.updateServer === 'string' && cfg.updateServer) return cfg.updateServer
+  } catch (_) {}
+  return null
+}
+
 function publishChannel(channel, version, multi) {
   const channelDir = path.join(RELEASES_DIR, channel, version)
   if (!fs.existsSync(channelDir)) {
@@ -240,6 +251,7 @@ function publishChannel(channel, version, multi) {
     // != manifest.buildId, the launcher pulls even though `version` is
     // unchanged. Omitted gracefully for legacy builds without a buildId.
     const launcherBuildId = readBakedBuildId(launcherUnpacked)
+    const launcherUpdateServer = readBakedUpdateServer(launcherUnpacked)
     const launcherManifest = {
       version: version,
       channel: channel,
@@ -247,6 +259,7 @@ function publishChannel(channel, version, multi) {
       launcher: launcherInfo,
       ...(exeName ? { exeName } : {}),
       ...(launcherBuildId ? { buildId: launcherBuildId } : {}),
+      ...(launcherUpdateServer ? { updateServer: launcherUpdateServer } : {}),
       notes: 'Update v' + version
     }
     const manifestPath = path.join(UPDATE_SERVER_PUBLIC, channel, 'latest.json')
@@ -291,6 +304,7 @@ function publishChannel(channel, version, multi) {
     // build-customer.js wrote, so a rebump rebuilds both roles with a fresh
     // buildId and both companion installs pull the new payload.
     const serverBuildId = readBakedBuildId(serverUnpacked)
+    const serverUpdateServer = readBakedUpdateServer(serverUnpacked)
     const serverManifest = {
       version: version,
       channel: channel + '-server',
@@ -302,6 +316,7 @@ function publishChannel(channel, version, multi) {
       },
       ...(serverExeName ? { exeName: serverExeName } : {}),
       ...(serverBuildId ? { buildId: serverBuildId } : {}),
+      ...(serverUpdateServer ? { updateServer: serverUpdateServer } : {}),
       notes: 'Server update v' + version
     }
     const serverManifestPath = path.join(UPDATE_SERVER_PUBLIC, channel + '-server', 'latest.json')
