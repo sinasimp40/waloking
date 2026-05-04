@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { execSync, execFileSync } = require('child_process')
+const { execSync, execFileSync, spawn } = require('child_process')
 
 // As of May 2026 update-server/ lives at the REPO ROOT (sibling of walok/),
 // not inside walok/. We try the new path first, then fall back to the old
@@ -189,6 +189,25 @@ function run(cmd, cwd) {
   execSync(cmd, { cwd: cwd || ROOT, stdio: 'inherit' })
 }
 
+function spawnAsync(cmd, args, cwd) {
+  return new Promise((resolve, reject) => {
+    const label = cmd + ' ' + args.join(' ')
+    log('$ ' + label + (cwd ? '  (in ' + path.relative(ROOT, cwd) + ')' : ''))
+    const isWin = process.platform === 'win32'
+    const child = spawn(cmd, args, {
+      cwd: cwd || ROOT,
+      stdio: 'inherit',
+      shell: isWin,
+      windowsHide: true,
+    })
+    child.on('error', (e) => reject(new Error(label + ': ' + e.message)))
+    child.on('close', (code) => {
+      if (code !== 0) reject(new Error(label + ' exited with code ' + code))
+      else resolve()
+    })
+  })
+}
+
 // Safer variant: argv-array form, no shell. Use this when args contain user-controlled
 // strings (e.g. brandName / subtitle from customer config) so quotes / spaces / shell
 // metacharacters can never break command parsing.
@@ -365,24 +384,40 @@ async function main() {
       log('Step 2/5: Vite build (launcher)...')
       run('npm run build')
     })
-    substep('electron-builder (launcher)', () => {
-      log('Step 3/5: electron-builder (launcher) -> ' + path.relative(ROOT, launcherOutDir))
-      run('npx electron-builder -c.directories.output=' + JSON.stringify(launcherOutDir))
-    })
   } else {
     log('Skipping launcher build (BUILD_ROLE=server)')
   }
 
-  if (buildServer) {
+  if (buildLauncher && buildServer) {
+    rmrfWithRetrySync(serverOutDir)
+    log('Step 3-4/5: electron-builder (launcher + server) IN PARALLEL')
+    console.log('[SUBSTEP_BEGIN] electron-builder (launcher + server parallel)')
+    const launcherP = spawnAsync('npx', ['electron-builder', '-c.directories.output=' + launcherOutDir], ROOT)
+      .then(() => { log('electron-builder (launcher) finished') })
+    const serverP = spawnAsync('npx', ['electron-builder', '--config', 'server/package.json', '-c.directories.output=' + serverOutDir], ROOT)
+      .then(() => { log('electron-builder (server) finished') })
+    const results = await Promise.allSettled([launcherP, serverP])
+    const launcherFail = results[0].status === 'rejected'
+    const serverFail = results[1].status === 'rejected'
+    if (launcherFail || serverFail) {
+      const msgs = []
+      if (launcherFail) msgs.push('launcher: ' + results[0].reason.message)
+      if (serverFail) msgs.push('server: ' + results[1].reason.message)
+      console.log('[SUBSTEP_END_FAIL] electron-builder (launcher + server parallel)')
+      throw new Error('Parallel electron-builder failed — ' + msgs.join('; '))
+    }
+    console.log('[SUBSTEP_END_OK] electron-builder (launcher + server parallel)')
+  } else if (buildLauncher) {
+    substep('electron-builder (launcher)', () => {
+      log('Step 3/5: electron-builder (launcher) -> ' + path.relative(ROOT, launcherOutDir))
+      run('npx electron-builder -c.directories.output=' + JSON.stringify(launcherOutDir))
+    })
+  } else if (buildServer) {
     rmrfWithRetrySync(serverOutDir)
     substep('electron-builder (server)', () => {
       log('Step 4/5: electron-builder (server) -> ' + path.relative(ROOT, serverOutDir))
-      // dist:server is `electron-builder --config server/package.json` per the
-      // launcher package.json; override its output dir the same way.
       run('npm run dist:server -- -c.directories.output=' + JSON.stringify(serverOutDir))
     })
-  } else {
-    log('Skipping server build (BUILD_ROLE=launcher)')
   }
 
   substep('collect artifacts', () => {

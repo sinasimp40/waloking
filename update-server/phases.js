@@ -47,6 +47,7 @@ const SUBSTEP_TO_PHASE = {
   'vite build (launcher)':        'vite',
   'electron-builder (launcher)':  'pack-launcher',
   'electron-builder (server)':    'pack-server',
+  'electron-builder (launcher + server parallel)': 'pack-launcher',
   'collect artifacts':            'collect',
 }
 
