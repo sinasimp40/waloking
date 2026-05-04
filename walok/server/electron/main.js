@@ -80,7 +80,7 @@ try {
 
 function getConfig() {
   const configPath = path.join(appRoot, SERVER_CONFIG_FILE)
-  const defaults = { host: '0.0.0.0', port: 3456 }
+  const defaults = { host: '0.0.0.0', port: 3000 }
   try {
     if (fs.existsSync(configPath)) {
       return { ...defaults, ...JSON.parse(fs.readFileSync(configPath, 'utf-8')) }
@@ -223,6 +223,11 @@ function createWindow() {
     } catch (err) {
       return { success: false, error: err.message }
     }
+  })
+
+  ipcMain.handle('get-local-ip', () => {
+    const { getLocalIp } = require('./discovery')
+    return getLocalIp()
   })
 
   ipcMain.handle('get-admin-stats', async () => {

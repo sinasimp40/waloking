@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('serverAPI', {
   getUserSaves: (userId) => ipcRenderer.invoke('get-user-saves', userId),
   deleteUser: (userId) => ipcRenderer.invoke('delete-user', userId),
   deleteSave: (saveId) => ipcRenderer.invoke('delete-save', saveId),
+  getLocalIp: () => ipcRenderer.invoke('get-local-ip'),
 
   ota: {
     getStatus: () => ipcRenderer.invoke('ota:get-status'),

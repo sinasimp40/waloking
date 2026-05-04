@@ -652,11 +652,11 @@
       <div class="config-body">
         <div class="config-field">
           <label>Host</label>
-          <input type="text" id="hostInput" value="0.0.0.0" placeholder="0.0.0.0">
+          <input type="text" id="hostInput" value="0.0.0.0" placeholder="0.0.0.0" readonly style="opacity:0.5;cursor:not-allowed;">
         </div>
         <div class="config-field">
           <label>Port</label>
-          <input type="number" id="portInput" value="3456" placeholder="3456" class="port">
+          <input type="number" id="portInput" value="3000" placeholder="3000" class="port">
         </div>
         <div class="config-actions">
           <button class="btn btn-ghost" id="saveConfigBtn">Save</button>
@@ -714,7 +714,15 @@
     async function loadConfig() {
       const config = await window.serverAPI.getConfig()
       document.getElementById('hostInput').value = config.host || '0.0.0.0'
-      document.getElementById('portInput').value = config.port || 3456
+      document.getElementById('portInput').value = config.port || 3000
+      if (window.serverAPI.getLocalIp) {
+        try {
+          const ip = await window.serverAPI.getLocalIp()
+          if (ip && ip !== '127.0.0.1') {
+            document.getElementById('hostInput').value = ip
+          }
+        } catch (e) {}
+      }
     }
 
     async function updateStatus() {
@@ -728,7 +736,11 @@
         label.className = 'status-label online'
         label.textContent = 'ONLINE'
         addr.style.display = 'block'
-        addr.textContent = (status.config.host === '0.0.0.0' ? 'All interfaces' : status.config.host) + ':' + status.config.port
+        let displayHost = status.config.host
+        if (displayHost === '0.0.0.0' && window.serverAPI.getLocalIp) {
+          try { const ip = await window.serverAPI.getLocalIp(); if (ip && ip !== '127.0.0.1') displayHost = ip } catch (e) {}
+        }
+        addr.textContent = displayHost + ':' + status.config.port
       } else {
         dot.classList.remove('online')
         label.className = 'status-label offline'
@@ -821,9 +833,8 @@
     }
 
     document.getElementById('saveConfigBtn').addEventListener('click', async () => {
-      const host = document.getElementById('hostInput').value
       const port = parseInt(document.getElementById('portInput').value)
-      await window.serverAPI.saveConfig({ host, port })
+      await window.serverAPI.saveConfig({ host: '0.0.0.0', port })
       alert('Configuration saved. Restart the server to apply changes.')
     })
 
