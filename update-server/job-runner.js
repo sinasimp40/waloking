@@ -31,7 +31,7 @@ const { spawn } = require('child_process')
 const { phaseById, weightSoFar, SUBSTEP_TO_PHASE } = require('./phases')
 
 const IS_WIN = process.platform === 'win32'
-const MAX_CONCURRENT_BUILDS = Math.max(1, parseInt(process.env.OTA_MAX_BUILDS || '2', 10))
+const MAX_CONCURRENT_BUILDS = Math.max(1, parseInt(process.env.OTA_MAX_BUILDS || '10', 10))
 
 // OTA_BUILD_PRIORITY: 'belowNormal' (default) | 'normal' | 'idle'.
 // Lowering child-process scheduling priority is the single biggest win for
