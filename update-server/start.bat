@@ -2,6 +2,7 @@
 setlocal
 set OTA_PORT=4231
 set OTA_ADMIN_PASSWORD=admin
+set OTA_MAX_BUILDS=4
 
 echo ============================================
 echo  OTA UPDATE SERVER - STARTUP
