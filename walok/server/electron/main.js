@@ -68,6 +68,52 @@ function migrateLegacyPaths() {
       } catch (e) {}
     }
   }
+  migrateJsonContents()
+}
+
+function migrateJsonContents() {
+  const configPath = path.join(appRoot, SERVER_CONFIG_FILE)
+  if (!fs.existsSync(configPath)) return
+  try {
+    const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    let changed = false
+    const rewriteValue = (v) => {
+      if (typeof v !== 'string') return v
+      if (!/[/\\]/.test(v) && !v.startsWith('file:')) return v
+      let out = v
+      for (const oldSlug of LEGACY_BRAND_SLUGS) {
+        if (oldSlug === BRAND_SLUG) continue
+        for (const sfx of BRAND_SUFFIXES) {
+          const oldToken = oldSlug + sfx
+          const newToken = BRAND_SLUG + sfx
+          if (oldToken !== newToken && out.includes(oldToken)) {
+            out = out.split(oldToken).join(newToken)
+          }
+        }
+      }
+      if (out !== v) changed = true
+      return out
+    }
+    const walk = (obj) => {
+      if (Array.isArray(obj)) {
+        for (let i = 0; i < obj.length; i++) {
+          if (typeof obj[i] === 'string') obj[i] = rewriteValue(obj[i])
+          else if (obj[i] && typeof obj[i] === 'object') walk(obj[i])
+        }
+      } else if (obj && typeof obj === 'object') {
+        for (const k of Object.keys(obj)) {
+          if (typeof obj[k] === 'string') obj[k] = rewriteValue(obj[k])
+          else if (obj[k] && typeof obj[k] === 'object') walk(obj[k])
+        }
+      }
+    }
+    walk(data)
+    if (changed) {
+      const tmp = configPath + '.mig.tmp'
+      fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8')
+      fs.renameSync(tmp, configPath)
+    }
+  } catch (e) {}
 }
 
 migrateLegacyPaths()

@@ -25,6 +25,7 @@ Preferred communication style: Simple, everyday language.
 - **Rebranding Process:** A script automates find-and-replace operations across source files for custom branding.
 - **Build Orchestration:** A script manages the entire build pipeline, from logo synchronization to packaging and publishing.
 - **Brand Management:** Uses `brand.js` as a single source of truth for consistent branding and data naming.
+- **Path Migration:** On startup, `migrateLegacyPaths()` renames old-brand folders/files to the current brand. `migrateJsonContents()` then walks the settings/config JSON and rewrites any path-like string values that reference old brand slugs (e.g., `denfi-assets` → `denfi2-assets`). Only strings containing path separators or `file:` prefixes are touched — non-path data like game names/descriptions is left untouched.
 
 ### OTA Update Flow
 - **Update Mechanism:** Launchers poll the update server and utilize Server-Sent Events (SSE) for real-time notifications.
