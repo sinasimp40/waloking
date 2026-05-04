@@ -422,6 +422,20 @@ function createWindow(splash) {
     }
   })
 
+  ipcMain.handle('discover-server', async (event, timeoutMs) => {
+    try {
+      const { discoverServer } = require('./discovery')
+      const { BRAND_SLUG } = require('./brand')
+      const result = await discoverServer(BRAND_SLUG, timeoutMs || 8000)
+      if (result) {
+        return { success: true, ...result }
+      }
+      return { success: false, error: 'No server found on this network' }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle('get-local-ip', () => {
     try {
       const interfaces = os.networkInterfaces()

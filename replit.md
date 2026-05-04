@@ -49,6 +49,7 @@ Preferred communication style: Simple, everyday language.
 - **Authentication:** bcryptjs for password hashing and JWT for token-based authentication.
 - **Features:** User registration, login, save file upload/download, and user-isolated folder management.
 - **Electron Integration:** Runs as an Electron app with a system tray icon and a dashboard that mirrors OTA update progress.
+- **UDP Auto-Discovery:** On startup the server broadcasts a UDP beacon every 3s on port 19777 containing `{service, ip, port, hostname}`. The launcher listens on the same port and auto-fills the Save & Load Server URL when a matching beacon is received. Uses `rinfo.address` (real sender IP) instead of trusting payload IP to prevent spoofing. Beacon is skipped if the server is bound to loopback only. Discovery files: `walok/server/electron/discovery.js` (beacon), `walok/electron/discovery.js` (listener).
 
 ### Build Scripts
 - **Rebranding Script:** Handles comprehensive source tree rebranding.

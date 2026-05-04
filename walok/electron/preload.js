@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadImage: (url, filename) => ipcRenderer.invoke('download-image', url, filename),
   deleteAsset: (filePath) => ipcRenderer.invoke('delete-asset', filePath),
   getLocalIP: () => ipcRenderer.invoke('get-local-ip'),
+  discoverServer: (timeoutMs) => ipcRenderer.invoke('discover-server', timeoutMs),
   zipAndUploadSave: (savePath, gameName, serverUrl, token) => ipcRenderer.invoke('zip-and-upload-save', savePath, gameName, serverUrl, token),
   downloadAndExtractSave: (saveId, savePath, serverUrl, token) => ipcRenderer.invoke('download-and-extract-save', saveId, savePath, serverUrl, token),
 

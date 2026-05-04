@@ -1201,6 +1201,25 @@ function SettingsSection() {
   const accentColor = settings.accentColor || getDefaultAccent()
   const [newKey, setNewKey] = useState('')
   const [confirmKey, setConfirmKey] = useState('')
+  const [discoveryStatus, setDiscoveryStatus] = useState('idle')
+
+  React.useEffect(() => {
+    if (settings.saveLoadServerUrl || !window.electronAPI?.discoverServer) return
+    let cancelled = false
+    let tid = null
+    setDiscoveryStatus('searching')
+    window.electronAPI.discoverServer(8000).then(result => {
+      if (cancelled) return
+      if (result.success) {
+        updateSettings({ saveLoadServerUrl: result.url })
+        setDiscoveryStatus('found')
+        tid = setTimeout(() => { if (!cancelled) setDiscoveryStatus('idle') }, 4000)
+      } else {
+        setDiscoveryStatus('idle')
+      }
+    }).catch(() => { if (!cancelled) setDiscoveryStatus('idle') })
+    return () => { cancelled = true; if (tid) clearTimeout(tid) }
+  }, [])
 
   const handleUpdateKey = () => { if (!newKey.trim()) return toast.error('Key cannot be empty'); if (newKey !== confirmKey) return toast.error('Keys do not match'); if (newKey.length < 6) return toast.error('Key must be at least 6 characters'); updateSettings({ secretKey: newKey }); setNewKey(''); setConfirmKey(''); toast.success('Secret key updated!') }
 
@@ -1238,7 +1257,41 @@ function SettingsSection() {
         <div className="flex items-center gap-2"><Monitor size={13} style={{ color: accentColor }} /><h4 className="font-orbitron text-xs uppercase tracking-[0.15em]" style={{ color: `${accentColor}60` }}>Save & Load Server</h4></div>
         <p className="font-rajdhani text-white/30 text-xs tracking-wider">Connect to a EXAMPLE CAFE Save & Load Server.</p>
         <div className="space-y-2">
-          <InputField type="text" value={settings.saveLoadServerUrl} onChange={e => updateSettings({ saveLoadServerUrl: e.target.value })} placeholder="http://192.168.1.100:3456" />
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <InputField type="text" value={settings.saveLoadServerUrl} onChange={e => updateSettings({ saveLoadServerUrl: e.target.value })} placeholder="http://192.168.1.100:3456" />
+            </div>
+            {window.electronAPI?.discoverServer && (
+              <button
+                onClick={async () => {
+                  setDiscoveryStatus('searching')
+                  try {
+                    const result = await window.electronAPI.discoverServer(8000)
+                    if (result.success) {
+                      updateSettings({ saveLoadServerUrl: result.url })
+                      setDiscoveryStatus('found')
+                    } else {
+                      setDiscoveryStatus('not-found')
+                    }
+                  } catch {
+                    setDiscoveryStatus('not-found')
+                  }
+                  setTimeout(() => setDiscoveryStatus('idle'), 4000)
+                }}
+                disabled={discoveryStatus === 'searching'}
+                className="px-3 h-[34px] rounded text-[10px] font-orbitron uppercase tracking-wider border transition-all duration-200 whitespace-nowrap"
+                style={{
+                  borderColor: discoveryStatus === 'found' ? '#34d399' : discoveryStatus === 'not-found' ? '#f87171' : `${accentColor}40`,
+                  color: discoveryStatus === 'found' ? '#34d399' : discoveryStatus === 'not-found' ? '#f87171' : accentColor,
+                  background: discoveryStatus === 'searching' ? `${accentColor}10` : 'transparent',
+                  opacity: discoveryStatus === 'searching' ? 0.6 : 1,
+                  cursor: discoveryStatus === 'searching' ? 'wait' : 'pointer',
+                }}
+              >
+                {discoveryStatus === 'searching' ? 'Scanning...' : discoveryStatus === 'found' ? '✓ Found' : discoveryStatus === 'not-found' ? '✗ Not found' : 'Auto-detect'}
+              </button>
+            )}
+          </div>
           {settings.saveLoadServerUrl ? <p className="text-emerald-400/60 text-[10px] font-rajdhani">Server URL configured</p> : <p className="text-white/25 text-[10px] font-rajdhani">Not configured — Save & Load will show setup instructions</p>}
         </div>
       </CardBox>

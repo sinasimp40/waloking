@@ -21,6 +21,7 @@ const { verifyIntegrity } = require('./integrity-check')
 verifyIntegrity({ app, dialog })
 
 const otaUpdater = require('./updater')
+const { startBeacon, stopBeacon } = require('./discovery')
 
 const { initDatabase } = require('./db')
 const { createApi } = require('./api')
@@ -109,6 +110,7 @@ async function startServer() {
     const apiApp = createApi(appRoot)
     serverInstance = apiApp.listen(config.port, config.host, () => {
       console.log(`${SERVER_DISPLAY_NAME} running on ${config.host}:${config.port}`)
+      startBeacon(config.port, config.host)
     })
     return { success: true, message: `Server started on ${config.host}:${config.port}` }
   } catch (err) {
@@ -214,6 +216,7 @@ function createWindow() {
   ipcMain.handle('stop-server', () => {
     if (!serverInstance) return { success: true, message: 'Server not running' }
     try {
+      stopBeacon()
       serverInstance.close()
       serverInstance = null
       return { success: true, message: 'Server stopped' }
@@ -331,6 +334,7 @@ app.on('window-all-closed', (e) => {
 
 app.on('before-quit', () => {
   app.isQuitting = true
+  stopBeacon()
   if (serverInstance) {
     serverInstance.close()
     serverInstance = null
