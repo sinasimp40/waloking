@@ -636,13 +636,11 @@ button:disabled {
   align-self: flex-start;
   min-width: 200px;
 }
-.source-card-error:empty,
-.source-card-busy.hidden { display: none; }
+.source-card-error:empty { display: none; }
 
-/* Real-time upload progress bar — shown during the actual byte-streaming
- * phase of an upload (driven by xhr.upload.onprogress). Once the upload
- * hits 100% the bar hides and the existing .source-card-busy "Extracting +
- * swapping..." message takes over for the server-side processing phase. */
+/* Unified upload + extract progress bar — upload phase fills 0–60% with real
+ * byte progress, then the extract phase smoothly animates 60–99% until the
+ * server responds with the final result. */
 .upload-progress {
   margin-top: 10px;
   display: flex;
@@ -674,6 +672,7 @@ button:disabled {
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
+.upload-progress-phase { font-weight: 500; color: var(--text-primary); }
 .upload-progress-pct { font-weight: 600; color: var(--accent); min-width: 42px; }
 .upload-progress-bytes { font-family: var(--font-mono); }
 

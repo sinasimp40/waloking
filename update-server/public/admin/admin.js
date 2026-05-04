@@ -343,30 +343,65 @@ function uploadWithProgress(url, formData, onProgress, onUploadDone) {
   })
 }
 
-// Helper: drive a progress UI block (bar fill + "42% · 12.4 MB / 30.0 MB")
-// during the byte-streaming phase, then hide it so the existing busy text
-// can take over for the server-side extract/swap phase.
+// Helper: drive a unified progress bar across upload (0–60%) and server-side
+// extract/swap (60–99%) phases.  The extract phase uses a smooth time-based
+// estimate since the server doesn't stream extraction progress.
 function makeProgressUpdater(prefix) {
   const wrap = $('#' + prefix + '-progress')
   const fill = wrap && wrap.querySelector('.upload-progress-fill')
   const pct  = wrap && wrap.querySelector('.upload-progress-pct')
   const bytes = wrap && wrap.querySelector('.upload-progress-bytes')
+  const phase = wrap && wrap.querySelector('.upload-progress-phase')
+  let extractTimer = null
+  let hideTimer = null
+  const UPLOAD_WEIGHT = 60
+  function setBar(p, label, detail) {
+    if (fill) fill.style.width = Math.min(p, 100) + '%'
+    if (pct) pct.textContent = Math.min(p, 100) + '%'
+    if (phase) phase.textContent = label || ''
+    if (bytes) bytes.textContent = detail || ''
+  }
   return {
     show() {
       if (!wrap) return
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
       wrap.classList.remove('hidden')
-      if (fill) fill.style.width = '0%'
-      if (pct) pct.textContent = '0%'
-      if (bytes) bytes.textContent = ''
+      setBar(0, 'Uploading…', '')
     },
     update(loaded, total) {
       if (!wrap) return
-      const p = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0
-      if (fill) fill.style.width = p + '%'
-      if (pct) pct.textContent = p + '%'
-      if (bytes) bytes.textContent = formatBytes(loaded) + ' / ' + formatBytes(total)
+      const raw = total > 0 ? loaded / total : 0
+      const p = Math.round(raw * UPLOAD_WEIGHT)
+      setBar(p, 'Uploading…', formatBytes(loaded) + ' / ' + formatBytes(total))
+    },
+    startExtractPhase() {
+      if (!wrap) return
+      this.stopExtractPhase()
+      const start = Date.now()
+      const etaMs = 45000
+      setBar(UPLOAD_WEIGHT, 'Extracting…', '')
+      extractTimer = setInterval(() => {
+        const elapsed = Date.now() - start
+        const frac = 1 - Math.exp(-elapsed / etaMs)
+        const p = Math.round(UPLOAD_WEIGHT + (100 - UPLOAD_WEIGHT) * frac)
+        setBar(Math.min(p, 99), 'Extracting…', '')
+      }, 200)
+    },
+    stopExtractPhase() {
+      if (extractTimer) { clearInterval(extractTimer); extractTimer = null }
+    },
+    complete() {
+      this.stopExtractPhase()
+      setBar(100, 'Done', '')
+    },
+    hideSoon() {
+      this.stopExtractPhase()
+      if (hideTimer) clearTimeout(hideTimer)
+      hideTimer = setTimeout(() => { hideTimer = null; if (wrap) wrap.classList.add('hidden') }, 600)
     },
     hide() {
+      this.stopExtractPhase()
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
       if (wrap) wrap.classList.add('hidden')
     },
   }
@@ -378,7 +413,6 @@ async function submitUpdateSource(form) {
   const fileInput = form.querySelector('input[type="file"]')
   const file = fileInput && fileInput.files[0]
   const errEl = $('#src-' + kind + '-error')
-  const busyEl = $('#src-' + kind + '-busy')
   const submitBtn = form.querySelector('button[type="submit"]')
   const origLabel = submitBtn ? submitBtn.textContent : null
   const progress = makeProgressUpdater('src-' + kind)
@@ -388,27 +422,22 @@ async function submitUpdateSource(form) {
   fd.append('kind', kind)
   fd.append('file', file)
   progress.show()
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Uploading…' }
-  // The busy "Extracting…" text only makes sense AFTER the bytes have all
-  // been uploaded — we flip from progress bar → busy text inside the
-  // onUploadDone callback (see uploadWithProgress).
-  if (busyEl) busyEl.classList.add('hidden')
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing…' }
   const onProgress = (loaded, total) => progress.update(loaded, total)
   const onUploadDone = () => {
-    progress.hide()
-    if (submitBtn) submitBtn.textContent = 'Replacing…'
-    if (busyEl) busyEl.classList.remove('hidden')
+    progress.startExtractPhase()
+    if (submitBtn) submitBtn.textContent = 'Processing…'
   }
   try {
     const { ok, status, data } = await uploadWithProgress('/api/admin/update-source', fd, onProgress, onUploadDone)
-    if (!ok) throw new Error((data && data.error) || ('http ' + status))
+    if (!ok) { progress.stopExtractPhase(); throw new Error((data && data.error) || ('http ' + status)) }
+    progress.complete()
     form.reset()
     refreshSourceStatus()
   } catch (e) {
     if (errEl) { errEl.style.color = ''; errEl.textContent = e.message }
   } finally {
-    progress.hide()
-    if (busyEl) busyEl.classList.add('hidden')
+    progress.hideSoon()
     if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
   }
 }
@@ -1875,7 +1904,6 @@ if (_projectForm) {
     const fileInput = form.querySelector('input[type="file"]')
     const file = fileInput && fileInput.files[0]
     const errEl = $('#src-project-error')
-    const busyEl = $('#src-project-busy')
     const submitBtn = form.querySelector('button[type="submit"]')
     const origLabel = submitBtn ? submitBtn.textContent : null
     if (errEl) { errEl.textContent = ''; errEl.style.color = '' }
@@ -1884,25 +1912,17 @@ if (_projectForm) {
     fd.append('file', file)
     const progress = makeProgressUpdater('src-project')
     progress.show()
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Uploading…' }
-    // Hide busy text until the bytes have actually finished uploading —
-    // we flip from progress-bar → busy text inside the onUploadDone
-    // callback (see uploadWithProgress). That way "Extracting + swapping…"
-    // only ever appears once the server is actually doing the extract.
-    if (busyEl) { busyEl.classList.add('hidden'); busyEl.textContent = 'Extracting + swapping subdirs (this can take 30–60s on Windows)…' }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing…' }
     const onProgress = (loaded, total) => progress.update(loaded, total)
     const onUploadDone = () => {
-      progress.hide()
-      if (submitBtn) submitBtn.textContent = 'Replacing…'
-      if (busyEl) busyEl.classList.remove('hidden')
+      progress.startExtractPhase()
+      if (submitBtn) submitBtn.textContent = 'Processing…'
     }
     try {
       const { ok, status, data } = await uploadWithProgress('/api/admin/update-source-project', fd, onProgress, onUploadDone)
-      if (!ok) throw new Error((data && data.error) || ('http ' + status))
+      if (!ok) { progress.stopExtractPhase(); throw new Error((data && data.error) || ('http ' + status)) }
+      progress.complete()
       form.reset()
-      // Surface a brief success summary so the operator sees what got
-      // replaced (handy when debugging "did my electron/main.js fix
-      // actually land?").
       if (errEl) {
         const parts = []
         if (Array.isArray(data.replacedDirs) && data.replacedDirs.length) parts.push('replaced: ' + data.replacedDirs.join(', '))
@@ -1919,8 +1939,7 @@ if (_projectForm) {
     } catch (e) {
       if (errEl) { errEl.style.color = ''; errEl.textContent = e.message }
     } finally {
-      progress.hide()
-      if (busyEl) { busyEl.classList.add('hidden'); busyEl.textContent = 'Extracting…' }
+      progress.hideSoon()
       if (submitBtn) { submitBtn.disabled = false; if (origLabel) submitBtn.textContent = origLabel }
     }
   })
