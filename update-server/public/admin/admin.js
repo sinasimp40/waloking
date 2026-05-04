@@ -129,6 +129,7 @@ function showLogin() {
   $('#login-screen').classList.remove('hidden')
   $('#app-screen').classList.add('hidden')
   closeOnlineStream()
+  clearBusyRestoreTimers()
 }
 
 async function showApp() {
@@ -155,6 +156,7 @@ async function showApp() {
   await loadCustomers()
   openOnlineStream()
   openQueueStream()
+  restoreBusyState()
 }
 
 function bumpPatch(v) {
@@ -2000,6 +2002,77 @@ if (_installBtn) {
       _installBtn.textContent = origLabel || 'Install Now'
     }
   })
+}
+
+const _busyTimers = { depsTick: null, depsPoll: null, srcPoll: null }
+
+function clearBusyRestoreTimers() {
+  if (_busyTimers.depsTick) { clearInterval(_busyTimers.depsTick); _busyTimers.depsTick = null }
+  if (_busyTimers.depsPoll) { clearInterval(_busyTimers.depsPoll); _busyTimers.depsPoll = null }
+  if (_busyTimers.srcPoll) { clearInterval(_busyTimers.srcPoll); _busyTimers.srcPoll = null }
+}
+
+async function restoreBusyState() {
+  clearBusyRestoreTimers()
+  try {
+    const bs = await api('GET', '/api/admin/busy-state')
+    if (bs.depsInstalling) restoreDepsInstall(bs.depsStartedAt)
+    if (bs.sourceReplacing) restoreSourceReplace(bs.sourceKind, bs.sourceStartedAt)
+  } catch (_) {}
+}
+
+function restoreDepsInstall(startedAt) {
+  clearInterval(_busyTimers.depsTick)
+  clearInterval(_busyTimers.depsPoll)
+  const statusEl = $('#install-deps-status')
+  if (_installBtn) { _installBtn.disabled = true; _installBtn.textContent = 'Installing…' }
+  if (statusEl) {
+    const tick = () => {
+      const s = Math.floor((Date.now() - startedAt) / 1000)
+      statusEl.textContent = ' running npm install (' + s + 's elapsed, can take 1-3 min on first run)…'
+    }
+    tick()
+    _busyTimers.depsTick = setInterval(tick, 1000)
+  }
+  _busyTimers.depsPoll = setInterval(async () => {
+    try {
+      const bs = await api('GET', '/api/admin/busy-state')
+      if (!bs.depsInstalling) {
+        clearBusyRestoreTimers()
+        if (_installBtn) { _installBtn.disabled = false; _installBtn.textContent = 'Install Now' }
+        if (statusEl) { statusEl.textContent = ' ✓ done'; statusEl.style.color = '#1a7f37' }
+        try {
+          const r = await api('GET', '/api/admin/status')
+          if (r && r.deps) { state.deps = r.deps; renderDepsStatus(state.deps) }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }, 2000)
+}
+
+function restoreSourceReplace(kind, startedAt) {
+  clearInterval(_busyTimers.srcPoll)
+  const prefix = kind === 'project' ? 'src-project' : ('src-' + kind)
+  const progress = makeProgressUpdater(prefix)
+  const form = kind === 'project' ? $('#src-project-form') : document.querySelector('[data-source-kind="' + kind + '"]')
+  const submitBtn = form && form.querySelector('button[type="submit"]')
+  progress.show()
+  progress.startExtractPhase()
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing…' }
+  _busyTimers.srcPoll = setInterval(async () => {
+    try {
+      const bs = await api('GET', '/api/admin/busy-state')
+      if (!bs.sourceReplacing) {
+        clearInterval(_busyTimers.srcPoll)
+        _busyTimers.srcPoll = null
+        progress.complete()
+        progress.hideSoon()
+        const labels = { project: 'Replace Project Source', launcher: 'Replace Launcher Source', server: 'Replace Server Source' }
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = labels[kind] || 'Replace' }
+        refreshSourceStatus()
+      }
+    } catch (_) {}
+  }, 2000)
 }
 
 init()

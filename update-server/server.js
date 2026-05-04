@@ -1363,6 +1363,8 @@ function _hasActiveBuildJob() {
 // half-swapped source tree. Set/cleared synchronously to avoid races
 // between concurrent /api/admin/update-source requests too.
 let _sourceUpdateInFlight = false
+let _sourceUpdateStartedAt = 0
+let _sourceUpdateKind = ''
 
 function _validateExtractedSourceShape(rootDir, kind) {
   // The launcher zip = the CONTENTS of walok/src/ (App.jsx, main.jsx,
@@ -1610,6 +1612,8 @@ app.post('/api/admin/update-source',
       })
     }
     _sourceUpdateInFlight = true
+    _sourceUpdateStartedAt = Date.now()
+    _sourceUpdateKind = kind
     // Pause job-runner dispatch so a queued job can't autonomously start
     // mid-swap (drainQueue is fired from job cleanup tails). Resumed in
     // finally below.
@@ -1879,6 +1883,8 @@ app.post('/api/admin/update-source-project',
       })
     }
     _sourceUpdateInFlight = true
+    _sourceUpdateStartedAt = Date.now()
+    _sourceUpdateKind = 'project'
     // Pause the job-runner dispatcher BEFORE we touch the queue check, so
     // any queued job is frozen in 'queued' until we resume in finally.
     // Without this, a queued job could autonomously dequeue between
@@ -2063,6 +2069,7 @@ app.post('/api/admin/update-source-project',
 // spinner the whole time. Total wall time is ~1-3 min on first install,
 // ~10s on a re-run (npm sees node_modules already present and short-circuits).
 let _installDepsInFlight = false
+let _installDepsStartedAt = 0
 app.post('/api/admin/install-deps', requireAdmin, async (req, res) => {
   if (!PROJECT_ROOT) return res.status(503).json({ error: 'project root not found' })
   if (_installDepsInFlight) {
@@ -2075,6 +2082,7 @@ app.post('/api/admin/install-deps', requireAdmin, async (req, res) => {
     return res.status(409).json({ error: 'a build is currently running — wait for it to finish, then try again' })
   }
   _installDepsInFlight = true
+  _installDepsStartedAt = Date.now()
   jobRunner.pauseDispatch()
   const startedAt = Date.now()
   const result = { root: null, server: null }
@@ -2140,6 +2148,16 @@ app.get('/api/admin/source-status', requireAdmin, (req, res) => {
     server: describe('server'),
     projectRoot: PROJECT_ROOT,
     activeBuild: _hasActiveBuildJob(),
+  })
+})
+
+app.get('/api/admin/busy-state', requireAdmin, (req, res) => {
+  res.json({
+    depsInstalling: _installDepsInFlight,
+    depsStartedAt: _installDepsInFlight ? _installDepsStartedAt : null,
+    sourceReplacing: _sourceUpdateInFlight,
+    sourceStartedAt: _sourceUpdateInFlight ? _sourceUpdateStartedAt : null,
+    sourceKind: _sourceUpdateInFlight ? _sourceUpdateKind : null,
   })
 })
 
