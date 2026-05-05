@@ -61,19 +61,54 @@ const appRoot = getAppRoot()
 // path exists AND the new path does not — so it's safe to run on every
 // startup and won't clobber an existing current-brand folder.
 function migrateLegacyPaths() {
-  for (const oldSlug of LEGACY_BRAND_SLUGS) {
-    if (oldSlug === BRAND_SLUG) continue
-    for (const sfx of BRAND_SUFFIXES) {
+  // Loop by SUFFIX (outer) so we only adopt ONE legacy per suffix —
+  // newest-first wins. Without this, if both `denfis-data` and
+  // `walok-data` exist we'd race them onto the same target.
+  for (const sfx of BRAND_SUFFIXES) {
+    const newPath = path.join(appRoot, BRAND_SLUG + sfx)
+    for (const oldSlug of LEGACY_BRAND_SLUGS) {
+      if (oldSlug === BRAND_SLUG) continue
       const oldPath = path.join(appRoot, oldSlug + sfx)
-      const newPath = path.join(appRoot, BRAND_SLUG + sfx)
       try {
-        if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+        if (!fs.existsSync(oldPath)) continue
+        if (!fs.existsSync(newPath)) {
           fs.renameSync(oldPath, newPath)
+          break
+        }
+        // Both exist — common when the user rebrands BACK to a previous
+        // brand (e.g. DENFI -> DENFIS -> DENFI). The new path may have
+        // been auto-created empty by Electron init or left over from the
+        // original install, while the user's real data is in the legacy
+        // path. Adopt the legacy one when the new is empty/default,
+        // backing up the displaced new path so nothing is ever lost.
+        if (newPathLooksEmpty(newPath, oldPath)) {
+          const backup = newPath + '.bak.' + Date.now()
+          fs.renameSync(newPath, backup)
+          fs.renameSync(oldPath, newPath)
+          break
         }
       } catch (e) {}
     }
   }
   migrateJsonContents()
+}
+
+function newPathLooksEmpty(newPath, oldPath) {
+  try {
+    const newStat = fs.statSync(newPath)
+    const oldStat = fs.statSync(oldPath)
+    if (newStat.isDirectory() && oldStat.isDirectory()) {
+      return fs.readdirSync(newPath).length === 0
+    }
+    if (newStat.isFile() && oldStat.isFile()) {
+      // Default settings.json is ~1-2 KB. If legacy is meaningfully
+      // larger, it almost certainly contains the user's games/configs.
+      // We only override when the legacy is BIGGER by a noticeable
+      // margin to avoid clobbering newer-but-smaller user edits.
+      return oldStat.size > newStat.size && (oldStat.size - newStat.size) > 100
+    }
+  } catch (e) {}
+  return false
 }
 
 function migrateJsonContents() {

@@ -56,19 +56,45 @@ const appRoot = getAppRoot()
 // current BRAND_SLUG. Skips current-slug self-rename and won't clobber
 // an existing target — safe on every startup.
 function migrateLegacyPaths() {
-  for (const oldSlug of LEGACY_BRAND_SLUGS) {
-    if (oldSlug === BRAND_SLUG) continue
-    for (const sfx of BRAND_SUFFIXES) {
+  // Loop by SUFFIX (outer) so we only adopt ONE legacy per suffix —
+  // newest-first wins.
+  for (const sfx of BRAND_SUFFIXES) {
+    const newPath = path.join(appRoot, BRAND_SLUG + sfx)
+    for (const oldSlug of LEGACY_BRAND_SLUGS) {
+      if (oldSlug === BRAND_SLUG) continue
       const oldPath = path.join(appRoot, oldSlug + sfx)
-      const newPath = path.join(appRoot, BRAND_SLUG + sfx)
       try {
-        if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+        if (!fs.existsSync(oldPath)) continue
+        if (!fs.existsSync(newPath)) {
           fs.renameSync(oldPath, newPath)
+          break
+        }
+        // Both exist (common when rebranding back to a previous brand).
+        // Adopt the legacy if the new is empty/default; back up displaced.
+        if (newPathLooksEmpty(newPath, oldPath)) {
+          const backup = newPath + '.bak.' + Date.now()
+          fs.renameSync(newPath, backup)
+          fs.renameSync(oldPath, newPath)
+          break
         }
       } catch (e) {}
     }
   }
   migrateJsonContents()
+}
+
+function newPathLooksEmpty(newPath, oldPath) {
+  try {
+    const newStat = fs.statSync(newPath)
+    const oldStat = fs.statSync(oldPath)
+    if (newStat.isDirectory() && oldStat.isDirectory()) {
+      return fs.readdirSync(newPath).length === 0
+    }
+    if (newStat.isFile() && oldStat.isFile()) {
+      return oldStat.size > newStat.size && (oldStat.size - newStat.size) > 100
+    }
+  } catch (e) {}
+  return false
 }
 
 function migrateJsonContents() {
