@@ -172,27 +172,16 @@
   <aside class="dock-sidebar" aria-label="Build operations">
     <section class="panel dock-panel">
       <div class="panel-head">
-        <h2>Build Queue</h2>
-        <span id="queue-slots" class="status-pill">Slots 0/2</span>
-      </div>
-      <div class="panel-body">
-        <p class="muted small">The OTA server runs up to 2 builds in parallel; additional builds wait here until a slot opens. Cancelling kills the running step within seconds and frees its slot.</p>
-        <div id="queue-list" class="queue-list">
-          <div class="muted small">No active or queued jobs.</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel dock-panel">
-      <div class="panel-head">
-        <h2>Build Consoles</h2>
+        <h2>Builds</h2>
         <div class="build-console-controls">
+          <span id="queue-slots" class="status-pill">Slots 0/2</span>
           <button id="clear-finished-consoles-btn" class="btn-secondary small hidden" type="button">Clear Finished</button>
         </div>
       </div>
       <div class="panel-body">
+        <p class="muted small">Up to 2 builds run in parallel; the rest wait their turn. Each build appears as its own card with live progress and log. Cancelling kills the running step and frees the slot.</p>
         <div id="consoles-area" class="consoles-area">
-          <div id="consoles-empty" class="muted small">Idle. Trigger a build to see live consoles here. Each running customer build gets its own console.</div>
+          <div id="consoles-empty" class="muted small">Idle. Trigger a build to see it appear here.</div>
         </div>
       </div>
     </section>

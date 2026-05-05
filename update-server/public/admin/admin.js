@@ -1269,6 +1269,16 @@ function streamJob(jobId, label) {
   const evt = new EventSource('/api/admin/jobs/' + jobId + '/stream')
   rec.evt = evt
   evt.onmessage = (m) => {
+    // Any successful message means the stream is healthy — clear any
+    // "Reconnecting…" state so the card returns to its real status.
+    if (rec._reconnectingShown) {
+      rec._reconnectingShown = false
+      if (!rec.finished) setCardStatus(rec, 'RUNNING', 'running')
+    }
+    if (rec._reconnectFallbackTimer) {
+      clearTimeout(rec._reconnectFallbackTimer)
+      rec._reconnectFallbackTimer = null
+    }
     try {
       const data = JSON.parse(m.data)
       if (data.end) {
@@ -1356,9 +1366,34 @@ function streamJob(jobId, label) {
   }
   evt.onerror = () => {
     if (rec.finished) return
-    setCardStatus(rec, 'Stream Error', 'failed')
-    try { evt.close() } catch (_) {}
-    rec.evt = null
+    // EventSource auto-reconnects on transient drops (proxy hiccups, brief
+    // server pauses, network blips). DO NOT close here — closing kills the
+    // built-in retry and leaves the card stuck on "Stream Error" forever
+    // even though the build is still happily running on the server.
+    // Instead, show a soft yellow "Reconnecting…" pill. The next successful
+    // message handler clears it back to RUNNING (or the appropriate state).
+    if (!rec._reconnectingShown) {
+      setCardStatus(rec, 'Reconnecting…', 'queued')
+      rec._reconnectingShown = true
+    }
+    // After 30s without recovery, double-check job state via REST so a
+    // truly-dead stream still resolves to a real terminal status instead of
+    // dangling forever in "Reconnecting…".
+    if (!rec._reconnectFallbackTimer) {
+      rec._reconnectFallbackTimer = setTimeout(() => {
+        rec._reconnectFallbackTimer = null
+        if (rec.finished) return
+        api('GET', '/api/admin/jobs/' + jobId).then(d => {
+          if (!d || rec.finished) return
+          if (d.status && d.status !== 'running' && d.status !== 'queued') {
+            // Server says the job is done — synthesize an end event so the
+            // card finalizes cleanly even though the SSE never delivered it.
+            const fakeEnd = { end: true, status: d.status, exitCode: d.exitCode == null ? 1 : d.exitCode, failedStep: d.failedStep || '' }
+            try { evt.onmessage({ data: JSON.stringify(fakeEnd) }) } catch (_) {}
+          }
+        }).catch(() => {})
+      }, 30000)
+    }
   }
 }
 
@@ -1499,46 +1534,11 @@ function renderQueue(snap) {
   const jobs = snap.jobs || []
   const byId = new Map(jobs.map(j => [j.id, j]))
   $('#queue-slots').textContent = 'SLOTS ' + queue.active.length + '/' + queue.maxConcurrent
-  const list = $('#queue-list')
-  list.innerHTML = ''
-  const rows = []
-  queue.active.forEach(id => {
-    const j = byId.get(id); if (j) rows.push({ j, kind: 'active', pos: null })
-  })
-  queue.queued.forEach((id, i) => {
-    const j = byId.get(id); if (j) rows.push({ j, kind: 'queued', pos: i + 1 })
-  })
-  if (rows.length === 0) {
-    list.innerHTML = '<div class="muted small">No active or queued jobs.</div>'
-    return
-  }
-  for (const { j, kind, pos } of rows) {
-    const row = document.createElement('div')
-    row.className = 'queue-row queue-row-' + kind
-    const status = kind === 'active' ? 'RUNNING' : ('QUEUED #' + pos)
-    // Prefer the more granular phase label when the job has reached one;
-    // fall back to the coarser step label for jobs still in the early
-    // workspace-allocation phase before the first SUBSTEP_BEGIN fires.
-    const phaseLabel = j.currentPhaseLabel
-      ? (' — ' + j.currentPhaseLabel)
-      : (j.currentStep ? (' — step: ' + j.currentStep) : '')
-    const stepNote = phaseLabel
-    const chans = (j.channels && j.channels.length) ? (' [' + j.channels.join(', ') + ']') : ''
-    row.innerHTML =
-      '<span class="queue-row-status">' + status + '</span>' +
-      '<span class="queue-row-label">' + escapeHtml(j.label) + chans + '</span>' +
-      '<span class="queue-row-step muted small">' + escapeHtml(stepNote) + '</span>' +
-      '<button class="btn-secondary small queue-row-cancel" data-job="' + j.id + '">Cancel</button>'
-    list.appendChild(row)
-  }
-  list.querySelectorAll('.queue-row-cancel').forEach(btn => {
-    btn.addEventListener('click', () => cancelJob(btn.getAttribute('data-job')))
-  })
-  // Rehydrate console cards on page reload: any active/queued job without a
-  // console card yet (operator hit refresh mid-build) gets a fresh stream
-  // attached so the multi-console UI reflects in-flight work instead of
-  // looking idle while jobs are actually running. streamJob is idempotent
-  // via the consoleCards Map so this is safe to call repeatedly.
+  // The separate Build Queue panel was removed — every job (active OR queued)
+  // is represented by its own console card. We just need to (a) ensure a card
+  // exists per in-flight job (rehydrate after a page refresh) and (b) seed
+  // each card's status / progress / elapsed from the snapshot so the UI is
+  // immediately accurate without waiting for the SSE replay to catch up.
   for (const id of [...queue.active, ...queue.queued]) {
     if (!consoleCards.has(id)) {
       const j = byId.get(id)
@@ -1612,18 +1612,6 @@ function escapeHtml(s) {
 async function cancelJob(jobId) {
   if (!jobId) return
   if (!confirm('Cancel job ' + jobId + '? If it is running this will kill the build process tree.')) return
-  // Optimistic UI: grey-out + disable any queue-row CANCEL button for this
-  // jobId immediately so the operator gets feedback without waiting for the
-  // next queue snapshot. The next renderQueue tick will rebuild rows from
-  // the authoritative snapshot — terminal rows naturally drop off at that
-  // point. If the API call itself fails, we re-enable in the catch below.
-  const rowBtns = Array.from(document.querySelectorAll('.queue-row-cancel[data-job="' + jobId + '"]'))
-  for (const btn of rowBtns) {
-    btn.disabled = true
-    btn.textContent = 'Cancelling…'
-    const row = btn.closest('.queue-row')
-    if (row) row.classList.add('queue-row-cancelling')
-  }
   try {
     const cancelResult = await api('POST', '/api/admin/jobs/' + encodeURIComponent(jobId) + '/cancel')
     const rec = consoleCards.get(jobId)
@@ -1642,13 +1630,6 @@ async function cancelJob(jobId) {
       api('GET', '/api/admin/jobs').then(d => { if (d) renderQueue(d) }).catch(() => {})
     }
   } catch (e) {
-    // Revert the optimistic grey-out so the operator can retry.
-    for (const btn of rowBtns) {
-      btn.disabled = false
-      btn.textContent = 'Cancel'
-      const row = btn.closest('.queue-row')
-      if (row) row.classList.remove('queue-row-cancelling')
-    }
     alert('Cancel failed: ' + e.message)
   }
 }
