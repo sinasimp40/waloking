@@ -25,6 +25,20 @@ const UPDATE_SERVER_PUBLIC = process.env.OTA_UPDATES_DIR
 function log(msg) { console.log('[publish-update] ' + msg) }
 function err(msg) { console.error('[publish-update] ERROR: ' + msg) }
 
+// Optional operator-supplied release notes for this publish. The OTA admin
+// passes RELEASE_NOTES through as an env var when the operator types a
+// message into the "Release notes" prompt before clicking BUILD. The string
+// is shown to launcher/server users in the in-app Update Modal and gates
+// the "Proceed Update" button. Trim + cap length so a runaway paste can't
+// blow up the manifest size.
+function readReleaseNotes() {
+  const raw = process.env.RELEASE_NOTES
+  if (!raw || typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  return trimmed.length > 4000 ? trimmed.slice(0, 4000) : trimmed
+}
+
 function readVersion() {
   // Honors the same per-customer BUILD_VERSION env that build-customer.js
   // does, so the OTA admin can publish each customer at its own auto-bumped
@@ -260,7 +274,7 @@ function publishChannel(channel, version, multi) {
       ...(exeName ? { exeName } : {}),
       ...(launcherBuildId ? { buildId: launcherBuildId } : {}),
       ...(launcherUpdateServer ? { updateServer: launcherUpdateServer } : {}),
-      notes: 'Update v' + version
+      notes: readReleaseNotes() || ('Update v' + version)
     }
     const manifestPath = path.join(UPDATE_SERVER_PUBLIC, channel, 'latest.json')
     fs.writeFileSync(manifestPath, JSON.stringify(launcherManifest, null, 2))
@@ -317,7 +331,7 @@ function publishChannel(channel, version, multi) {
       ...(serverExeName ? { exeName: serverExeName } : {}),
       ...(serverBuildId ? { buildId: serverBuildId } : {}),
       ...(serverUpdateServer ? { updateServer: serverUpdateServer } : {}),
-      notes: 'Server update v' + version
+      notes: readReleaseNotes() || ('Server update v' + version)
     }
     const serverManifestPath = path.join(UPDATE_SERVER_PUBLIC, channel + '-server', 'latest.json')
     fs.writeFileSync(serverManifestPath, JSON.stringify(serverManifest, null, 2))

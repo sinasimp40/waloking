@@ -905,14 +905,23 @@ async function checkForUpdate(opts = {}) {
     } else {
       log('Server update available: v' + remoteVer)
     }
-    const result = { hasUpdate: true, currentVersion: STATE.config.version, latestVersion: remoteVer, manifest }
-    broadcast('ota:update-available', result)
-    if (!opts.checkOnly) {
-      setImmediate(() => downloadAndApply(manifest).catch(e => {
-        log('Auto-apply failed: ' + e.message)
-        broadcast('ota:error', { stage: 'apply', error: e.message })
-      }))
+    const result = {
+      hasUpdate: true,
+      currentVersion: STATE.config.version,
+      latestVersion: remoteVer,
+      manifest,
+      // Operator-supplied release notes from the OTA admin's "Release notes"
+      // prompt. Renderer (server dashboard) shows them above the
+      // "Proceed Update" button so the operator knows what changed.
+      notes: typeof manifest.notes === 'string' ? manifest.notes : '',
     }
+    // Stash the manifest so the dashboard's "Proceed Update" click can
+    // resolve it via ota:proceed without re-fetching latest.json.
+    STATE.pendingManifest = manifest
+    broadcast('ota:update-available', result)
+    // No auto-apply: the user must explicitly click Proceed Update. Restarting
+    // the companion server unannounced would interrupt active save uploads
+    // and yank in-flight token validations out from under the launcher.
     return result
   } catch (e) {
     log('Check failed: ' + e.message)
@@ -926,6 +935,10 @@ async function checkForUpdate(opts = {}) {
 async function downloadAndApply(manifest) {
   if (STATE.isDownloading || STATE.isApplying) return
   STATE.isDownloading = true
+  // We've committed to this manifest — drop the pending pointer so a
+  // follow-up rebump (or a second proceed click) can't accidentally apply
+  // the previous payload, and stale state can't linger after success.
+  STATE.pendingManifest = null
   try {
     const payloadInfo = manifest.launcher
     if (!payloadInfo || !payloadInfo.url) throw new Error('Manifest missing payload URL')
@@ -1771,6 +1784,33 @@ function init({ appRoot, isDev, ipcMain }) {
     }))
     ipcMain.handle('ota:check-now', () => checkForUpdate({ checkOnly: false }))
     ipcMain.handle('ota:restart', () => { restartApp(); return { success: true } })
+    // Operator clicked "Proceed Update" on the server dashboard. Mirror the
+    // launcher updater's flow: take the manifest the most recent
+    // checkForUpdate() stashed and run download + apply. Falling back to a
+    // fresh check makes a stale-modal click still useful.
+    ipcMain.handle('ota:proceed', async () => {
+      const manifest = STATE.pendingManifest
+      if (!manifest) {
+        const r = await checkForUpdate({ checkOnly: true })
+        if (r && r.hasUpdate && STATE.pendingManifest) {
+          setImmediate(() => downloadAndApply(STATE.pendingManifest).catch(e => {
+            log('Proceed-apply failed: ' + e.message)
+            broadcast('ota:error', { stage: 'apply', error: e.message })
+          }))
+          return { success: true }
+        }
+        return { success: false, error: 'no update pending' }
+      }
+      setImmediate(() => downloadAndApply(manifest).catch(e => {
+        log('Proceed-apply failed: ' + e.message)
+        broadcast('ota:error', { stage: 'apply', error: e.message })
+      }))
+      return { success: true }
+    })
+    ipcMain.handle('ota:dismiss', () => {
+      STATE.pendingManifest = null
+      return { success: true }
+    })
   }
 
   if (STATE.config && STATE.config.enabled && !isDev) {

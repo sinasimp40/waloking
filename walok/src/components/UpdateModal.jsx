@@ -165,8 +165,8 @@ export default function UpdateModal() {
   switch (stage) {
     case 'available':
       title = 'Update available'
-      subtitle = 'A new version is ready to install'
-      statusText = 'Preparing download…'
+      subtitle = currentVersion ? `v${currentVersion} → v${versionLabel}` : `v${versionLabel}`
+      statusText = 'Review the release notes below, then click Proceed Update.'
       break
     case 'downloading':
       title = 'Downloading update'
@@ -344,6 +344,94 @@ export default function UpdateModal() {
             </div>
           </div>
         </div>
+
+        {stage === 'available' && (
+          <>
+            {/* Release notes panel — operator-supplied via the OTA admin's
+                "Release notes" prompt. preserveWhitespace via white-space:
+                pre-wrap so bullet lists / line breaks render verbatim. If the
+                operator skipped notes the publisher falls back to
+                "Update vX.Y.Z" so this block always has content. */}
+            <div style={{
+              marginTop: 22,
+              padding: '14px 16px',
+              background: 'rgba(255,255,255,0.03)',
+              border: `1px solid ${BORDER}`,
+              borderRadius: 10,
+              maxHeight: 220,
+              overflowY: 'auto',
+            }}>
+              <div style={{
+                fontSize: 10,
+                letterSpacing: '0.12em',
+                color: TEXT_FAINT,
+                textTransform: 'uppercase',
+                fontWeight: 600,
+                marginBottom: 8,
+              }}>
+                What's new
+              </div>
+              <div style={{
+                fontSize: 13,
+                color: '#e4e4e7',
+                lineHeight: 1.55,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}>
+                {(info && (info.notes || info.manifest?.notes)) || `Update v${versionLabel}`}
+              </div>
+            </div>
+            <div style={{
+              marginTop: 22,
+              display: 'flex',
+              gap: 10,
+              justifyContent: 'flex-end',
+            }}>
+              <button
+                onClick={() => {
+                  try { window.electronAPI?.ota?.dismiss() } catch (e) {}
+                  setVisible(false)
+                }}
+                style={{
+                  background: 'transparent',
+                  color: TEXT_SUB,
+                  border: `1px solid ${BORDER}`,
+                  padding: '9px 16px',
+                  borderRadius: 8,
+                  fontWeight: 500,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'background 0.15s ease, color 0.15s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#f5f5f6' }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = TEXT_SUB }}
+              >
+                Later
+              </button>
+              <button
+                onClick={() => { try { window.electronAPI?.ota?.proceed() } catch (e) {} }}
+                style={{
+                  background: ACCENT,
+                  color: '#fff',
+                  border: 'none',
+                  padding: '9px 18px',
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset',
+                  transition: 'background 0.15s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = ACCENT_HOVER }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = ACCENT }}
+              >
+                Proceed Update
+              </button>
+            </div>
+          </>
+        )}
 
         {stage === 'ready' && (
           <div style={{

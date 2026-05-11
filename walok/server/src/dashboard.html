@@ -568,6 +568,46 @@
       transition: background 0.15s ease;
     }
     .ota-restart-btn:hover { background: #ff7a1a; }
+    .ota-proceed-btn {
+      background: #ff6a00; color: #fff; border: none;
+      padding: 9px 18px; border-radius: 8px;
+      font-weight: 600; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+      transition: background 0.15s ease;
+    }
+    .ota-proceed-btn:hover { background: #ff7a1a; }
+    .ota-secondary-btn {
+      background: transparent; color: #a1a1aa;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 9px 16px; border-radius: 8px;
+      font-weight: 500; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .ota-secondary-btn:hover { color: #f5f5f6; border-color: rgba(255,255,255,0.18); }
+    /* Operator-supplied release notes panel — sits between status text and
+       action buttons during stage='available'. Scrolls if the operator
+       pasted a long changelog. */
+    .ota-notes {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+      clear: both;
+    }
+    .ota-notes-label {
+      font-size: 10px; letter-spacing: 0.12em;
+      color: #6b6b73; text-transform: uppercase;
+      font-weight: 600; margin-bottom: 8px;
+    }
+    .ota-notes-body {
+      font-size: 13px; color: #e4e4e7; line-height: 1.55;
+      white-space: pre-wrap; word-break: break-word;
+    }
     .ota-footer {
       margin-top: 22px; padding-top: 14px;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -594,7 +634,16 @@
         <div class="ota-percent-label" id="otaPercent">0%</div>
       </div>
       <div class="ota-status-text" id="otaStatusText"></div>
+      <!-- Release-notes panel — only visible while stage='available'.
+           Operator types these in the OTA admin's "Release notes" prompt
+           and they ride along on the manifest's `notes` field. -->
+      <div class="ota-notes" id="otaNotes" style="display:none;">
+        <div class="ota-notes-label">What's new</div>
+        <div class="ota-notes-body" id="otaNotesBody"></div>
+      </div>
       <div class="ota-actions" id="otaActions">
+        <button class="ota-secondary-btn" id="otaLaterBtn" style="display:none;">Later</button>
+        <button class="ota-proceed-btn" id="otaProceedBtn" style="display:none;">Proceed Update</button>
         <button class="ota-restart-btn" id="otaRestartBtn">Restart now</button>
       </div>
       <div class="ota-footer" id="otaFooter">Installation is required — please wait</div>
@@ -941,8 +990,8 @@
         switch (stage) {
           case 'available':
             title = 'Update available'
-            subtitle = 'A new version is ready to install'
-            statusText = 'Preparing download\u2026'
+            subtitle = currentVersion ? ('v' + currentVersion + ' \u2192 v' + versionLabel) : ('v' + versionLabel)
+            statusText = 'Review the release notes below, then click Proceed Update.'
             break
           case 'downloading':
             title = 'Downloading update'
@@ -985,12 +1034,35 @@
         percentEl.textContent = percent + '%'
         shimmerEl.classList.toggle('active', !isError && stage === 'downloading')
 
-        if (stage === 'ready') {
+        // Action-row visibility:
+        //   stage='available'  -> Later + Proceed Update (notes panel above)
+        //   stage='ready'      -> Restart now (with countdown)
+        //   everything else    -> no buttons
+        const notesEl = $('otaNotes')
+        const notesBody = $('otaNotesBody')
+        const proceedBtn = $('otaProceedBtn')
+        const laterBtn = $('otaLaterBtn')
+        if (stage === 'available') {
           actionsEl.classList.add('visible')
+          notesEl.style.display = ''
+          notesBody.textContent = (info && (info.notes || (info.manifest && info.manifest.notes))) || ('Update v' + versionLabel)
+          proceedBtn.style.display = ''
+          laterBtn.style.display = ''
+          restartBtn.style.display = 'none'
+        } else if (stage === 'ready') {
+          actionsEl.classList.add('visible')
+          notesEl.style.display = 'none'
+          proceedBtn.style.display = 'none'
+          laterBtn.style.display = 'none'
+          restartBtn.style.display = ''
           restartBtn.textContent = 'Restart now' +
             (countdown != null && countdown > 0 ? ' (' + countdown + ')' : '')
         } else {
           actionsEl.classList.remove('visible')
+          notesEl.style.display = 'none'
+          proceedBtn.style.display = 'none'
+          laterBtn.style.display = 'none'
+          restartBtn.style.display = 'none'
         }
 
         footerEl.textContent = isError
@@ -1026,6 +1098,22 @@
         // Guarded so a click during the final countdown second can't
         // race the auto-fire path and trigger app.relaunch() twice.
         requestRestartOnce()
+      })
+
+      // "Proceed Update" — operator confirms; main process pulls the
+      // stashed manifest and runs download + apply. The next ota:* event
+      // (download-start) re-renders this overlay through the existing
+      // subscriptions below.
+      $('otaProceedBtn').addEventListener('click', () => {
+        try { window.serverAPI.ota.proceed() } catch (e) {}
+      })
+      // "Later" — drop the pending manifest in main and hide the overlay.
+      // Next poll / SSE push re-broadcasts ota:update-available so the
+      // operator can decide again.
+      $('otaLaterBtn').addEventListener('click', () => {
+        try { window.serverAPI.ota.dismiss() } catch (e) {}
+        overlay.classList.remove('visible')
+        stage = 'idle'
       })
 
       const api = window.serverAPI.ota

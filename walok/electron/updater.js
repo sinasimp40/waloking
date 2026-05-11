@@ -895,14 +895,21 @@ async function checkForUpdate(opts = {}) {
       currentVersion: STATE.config.version,
       latestVersion: remoteVer,
       manifest: manifest,
+      // Surface the operator-supplied release notes (and version label) to
+      // the renderer so the Update Modal can render them above the
+      // "Proceed Update" button.
+      notes: typeof manifest.notes === 'string' ? manifest.notes : '',
     }
+    // Stash the manifest so the renderer's "Proceed Update" click can resolve
+    // it via the ota:proceed IPC handler without re-fetching latest.json
+    // (which could race against a fresh publish during the user-confirm gap).
+    STATE.pendingManifest = manifest
     broadcast('ota:update-available', result)
-    if (!opts.checkOnly) {
-      setImmediate(() => downloadAndApply(manifest).catch(e => {
-        log('Auto-apply failed: ' + e.message)
-        broadcast('ota:error', { stage: 'apply', error: e.message })
-      }))
-    }
+    // Always require explicit user confirmation before downloading +
+    // applying. Auto-apply is a footgun for cyber-cafe operators: it can
+    // restart a launcher mid-session and yank a customer out of their game.
+    // The renderer's UpdateModal now owns the "go / no-go" decision; this
+    // function only DETECTS + advertises the update.
     return result
   } catch (e) {
     log('Check failed: ' + e.message)
@@ -917,6 +924,10 @@ async function downloadAndApply(manifest) {
   if (STATE.isDownloading || STATE.isApplying) return
   STATE.isDownloading = true
   STATE.currentDownload = manifest
+  // We've committed to this manifest — drop the pending pointer so a
+  // follow-up rebump (or a second proceed click) can't accidentally apply
+  // the previous payload, and stale state can't linger after success.
+  STATE.pendingManifest = null
   try {
     const payloadInfo = manifest.launcher
     if (!payloadInfo || !payloadInfo.url) throw new Error('Manifest missing launcher payload URL')
@@ -1916,6 +1927,37 @@ function init({ appRoot, isDev, ipcMain }) {
     }))
     ipcMain.handle('ota:check-now', () => checkForUpdate({ checkOnly: false }))
     ipcMain.handle('ota:restart', () => { restartApp(); return { success: true } })
+    // User clicked "Proceed Update" in the modal. Pick up the manifest the
+    // most recent checkForUpdate() stashed and run the download + apply
+    // pipeline. If nothing is pending (e.g. SSE pushed after the modal was
+    // dismissed), fall through to a fresh check so the click never feels
+    // dead.
+    ipcMain.handle('ota:proceed', async () => {
+      const manifest = STATE.pendingManifest
+      if (!manifest) {
+        const r = await checkForUpdate({ checkOnly: true })
+        if (r && r.hasUpdate && STATE.pendingManifest) {
+          setImmediate(() => downloadAndApply(STATE.pendingManifest).catch(e => {
+            log('Proceed-apply failed: ' + e.message)
+            broadcast('ota:error', { stage: 'apply', error: e.message })
+          }))
+          return { success: true }
+        }
+        return { success: false, error: 'no update pending' }
+      }
+      setImmediate(() => downloadAndApply(manifest).catch(e => {
+        log('Proceed-apply failed: ' + e.message)
+        broadcast('ota:error', { stage: 'apply', error: e.message })
+      }))
+      return { success: true }
+    })
+    // User clicked "Later" — drop the pending manifest so the next poll /
+    // SSE push re-broadcasts ota:update-available and the modal can show
+    // again. Without this, the same manifest stays cached forever.
+    ipcMain.handle('ota:dismiss', () => {
+      STATE.pendingManifest = null
+      return { success: true }
+    })
   }
 
   if (STATE.config && STATE.config.enabled && !isDev) {

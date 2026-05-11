@@ -1774,6 +1774,24 @@ button:disabled {
   border-top: 1px solid var(--border);
 }
 
+/* Release-notes modal — small char-counter row sits between the textarea
+   and the actions. The 4000-char cap is enforced server-side; this just
+   gives the operator a live read so a 2k-line dump doesn't surprise them. */
+.rn-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  margin-bottom: 18px;
+  font-variant-numeric: tabular-nums;
+}
+#rn-textarea {
+  min-height: 160px;
+  font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
 /* ============ LIVE ONLINE PILLS ============ */
 .live-block { margin: 10px 0 12px; }
 .live-pill {

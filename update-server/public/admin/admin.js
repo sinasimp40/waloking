@@ -880,11 +880,11 @@ async function handleCustomerAction(channel, action, srcEl) {
   if (action === 'edit') {
     openCustomerModal(state.customers.find(c => c.channel === channel))
   } else if (action === 'build') {
-    triggerBuild({ channel })
+    promptReleaseNotes({ scope: channel, role: 'full' }, (notes) => triggerBuild({ channel, releaseNotes: notes }))
   } else if (action === 'build-launcher') {
-    triggerBuild({ channel, roles: ['launcher'] })
+    promptReleaseNotes({ scope: channel, role: 'launcher' }, (notes) => triggerBuild({ channel, roles: ['launcher'], releaseNotes: notes }))
   } else if (action === 'build-server') {
-    triggerBuild({ channel, roles: ['server'] })
+    promptReleaseNotes({ scope: channel, role: 'server' }, (notes) => triggerBuild({ channel, roles: ['server'], releaseNotes: notes }))
   } else if (action === 'delete') {
     if (!confirm('Delete customer "' + channel + '"?\n\nThis removes the customer config AND all of its published builds (launcher + server payloads under /updates/' + channel + ', plus any local releases/' + channel + ' folder). This cannot be undone.')) return
     try {
@@ -1782,7 +1782,68 @@ $('#logout-btn').addEventListener('click', async () => {
 })
 
 $('#bump-version-btn').addEventListener('click', () => bumpVersion(false))
-$('#build-all-btn').addEventListener('click', () => triggerBuild({ all: true }))
+$('#build-all-btn').addEventListener('click', () => {
+  promptReleaseNotes({ scope: 'all customers', role: 'full' }, (notes) => triggerBuild({ all: true, releaseNotes: notes }))
+})
+
+// Release-notes modal — operator types optional notes that will be embedded
+// in the OTA manifest's `notes` field, shown to launcher / server users
+// above the "Proceed Update" button. Uses callback flow so the existing
+// triggerBuild() async chain stays untouched.
+function promptReleaseNotes(ctx, onConfirm) {
+  const modal = document.getElementById('release-notes-modal')
+  const ta = document.getElementById('rn-textarea')
+  const counter = document.getElementById('rn-counter')
+  const subtitle = document.getElementById('rn-subtitle')
+  const title = document.getElementById('rn-title')
+  const cancelBtn = document.getElementById('rn-cancel')
+  const skipBtn = document.getElementById('rn-skip')
+  const confirmBtn = document.getElementById('rn-confirm')
+  if (!modal || !ta) {
+    // Defensive fallback: if the markup got stripped (e.g. cached old
+    // index.html), don't block the build — just ship without notes.
+    onConfirm('')
+    return
+  }
+  const scopeLabel = ctx.scope === 'all customers' ? 'all customers' : ('customer "' + ctx.scope + '"')
+  const roleLabel = ctx.role === 'launcher' ? ' (launcher only)' : ctx.role === 'server' ? ' (server only)' : ''
+  title.textContent = 'Release notes — ' + scopeLabel + roleLabel
+  ta.value = ''
+  counter.textContent = '0 / 4000'
+  modal.classList.remove('hidden')
+  setTimeout(() => ta.focus(), 50)
+
+  const updateCounter = () => { counter.textContent = (ta.value.length) + ' / 4000' }
+  ta.addEventListener('input', updateCounter)
+
+  let settled = false
+  const cleanup = () => {
+    if (settled) return
+    settled = true
+    modal.classList.add('hidden')
+    ta.removeEventListener('input', updateCounter)
+    cancelBtn.removeEventListener('click', onCancel)
+    skipBtn.removeEventListener('click', onSkip)
+    confirmBtn.removeEventListener('click', onOk)
+    ta.removeEventListener('keydown', onKey)
+  }
+  const onCancel = () => { cleanup() /* abort — do not build */ }
+  const onSkip   = () => { cleanup(); onConfirm('') }
+  const onOk     = () => {
+    const notes = ta.value.trim()
+    if (notes.length > 4000) { alert('Release notes must be 4000 characters or fewer.'); return }
+    cleanup(); onConfirm(notes)
+  }
+  // Esc cancels, Ctrl/Cmd+Enter confirms — standard textarea modal UX.
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+    else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); onOk() }
+  }
+  cancelBtn.addEventListener('click', onCancel)
+  skipBtn.addEventListener('click', onSkip)
+  confirmBtn.addEventListener('click', onOk)
+  ta.addEventListener('keydown', onKey)
+}
 $('#add-customer-btn').addEventListener('click', () => openCustomerModal(null))
 
 // ---- Customers: search (debounced) + pagination wiring -----------

@@ -951,9 +951,22 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
       partialKinds,
     })
   }
-  const { channel, all, version, dryRun, roles } = req.body || {}
+  const { channel, all, version, dryRun, roles, releaseNotes } = req.body || {}
   if (!all && !isValidChannel(channel)) return res.status(400).json({ error: 'channel required (or pass all:true)' })
   if (version && !isValidVersion(version)) return res.status(400).json({ error: 'invalid version (expected x.y.z)' })
+  // Optional operator-supplied release notes shown to launcher/server users
+  // in the in-app Update Modal. Trim + cap so a runaway paste can't bloat
+  // the manifest. Empty string == no notes (the publisher will fall back
+  // to the auto-generated "Update vX.Y.Z" placeholder).
+  let releaseNotesClean = ''
+  if (typeof releaseNotes === 'string') {
+    releaseNotesClean = releaseNotes.trim()
+    if (releaseNotesClean.length > 4000) {
+      return res.status(400).json({ error: 'release notes too long (max 4000 characters)' })
+    }
+  } else if (releaseNotes != null) {
+    return res.status(400).json({ error: 'releaseNotes must be a string' })
+  }
 
   // roles: optional ['launcher'] | ['server']. undefined / null / [] / both
   // present = full build (default). Plumbed to the build-customer.js child
@@ -1161,9 +1174,16 @@ app.post('/api/admin/build', requireAdmin, async (req, res) => {
       // BUILD_ROLE plumbed through for log-clarity only — publish-update.js
       // already auto-skips a role whose <role>-unpacked/ doesn't exist on
       // disk, so the actual filtering happens implicitly.
-      env: roleFilter
-        ? { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR, BUILD_ROLE: roleFilter }
-        : { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR },
+      env: Object.assign(
+        roleFilter
+          ? { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR, BUILD_ROLE: roleFilter }
+          : { BUILD_VERSION: v, OTA_UPDATES_DIR: UPDATES_DIR },
+        // Operator-supplied release notes flow into publish-update.js as
+        // RELEASE_NOTES; the script writes them into the manifest's `notes`
+        // field, which the launcher/server Update Modal renders + uses to
+        // gate the "Proceed Update" button.
+        releaseNotesClean ? { RELEASE_NOTES: releaseNotesClean } : {}
+      ),
       phase: 'publish', // single-process step — emit at step entry.
     })
 

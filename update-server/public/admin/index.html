@@ -222,6 +222,22 @@
   </div>
 </div>
 
+<div id="release-notes-modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="rn-title">Release notes</h3>
+    <p class="muted small" id="rn-subtitle">These notes appear in the launcher / server update prompt before the user clicks <strong>Proceed Update</strong>. Leave blank to ship without notes.</p>
+    <label>Notes <span class="hint">plain text, up to 4000 characters &mdash; line breaks preserved</span>
+      <textarea id="rn-textarea" rows="8" maxlength="4000" placeholder="What changed in this build? e.g.&#10;&#10;- Added Steam library auto-detect&#10;- Fixed crash when launching offline&#10;- New cyberpunk theme accent"></textarea>
+    </label>
+    <div class="rn-meta"><span id="rn-counter" class="muted small">0 / 4000</span></div>
+    <div class="modal-actions">
+      <button type="button" id="rn-cancel" class="btn-ghost">Cancel</button>
+      <button type="button" id="rn-skip" class="btn-ghost">Skip notes</button>
+      <button type="button" id="rn-confirm" class="btn-primary">Build &amp; ship</button>
+    </div>
+  </div>
+</div>
+
 <script src="admin.js"></script>
 </body>
 </html>

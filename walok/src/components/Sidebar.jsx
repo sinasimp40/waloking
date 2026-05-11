@@ -310,6 +310,11 @@ function SocialMedia() {
     } else {
       window.open(url, '_blank', 'noopener')
     }
+    // Mirror the auto-close behavior used by Top Picks / GameCard so the
+    // launcher gets out of the way after the user opens an external link.
+    if (settings.autoCloseOnLaunch && window.electronAPI?.closeWindow) {
+      setTimeout(() => window.electronAPI.closeWindow(), 1000)
+    }
   }
 
   if (socials.length === 0) return null
@@ -348,6 +353,11 @@ function OfficeApps() {
       const result = await window.electronAPI.launchGame(app.exePath)
       if (result.success) {
         toast.success(`Opening ${app.name}...`)
+        // Honor the same auto-close setting Top Picks / GameCard use so the
+        // launcher closes after launching a top-app shortcut.
+        if (settings.autoCloseOnLaunch && window.electronAPI.closeWindow) {
+          setTimeout(() => window.electronAPI.closeWindow(), 1000)
+        }
       } else {
         toast.error(result.error || `Could not open ${app.name}`)
       }

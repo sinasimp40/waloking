@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('serverAPI', {
     getStatus: () => ipcRenderer.invoke('ota:get-status'),
     checkNow: () => ipcRenderer.invoke('ota:check-now'),
     restart: () => ipcRenderer.invoke('ota:restart'),
+    proceed: () => ipcRenderer.invoke('ota:proceed'),
+    dismiss: () => ipcRenderer.invoke('ota:dismiss'),
     on: (event, handler) => {
       const valid = ['ota:update-available', 'ota:download-start', 'ota:download-progress', 'ota:verifying', 'ota:applying', 'ota:ready-to-restart', 'ota:error']
       if (!valid.includes(event)) return () => {}
