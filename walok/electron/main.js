@@ -8,7 +8,61 @@ let mainWindow = null
 // Module-scoped runtime kiosk state, mutated by applyKiosk() below.
 // Lives outside createWindow so window-recreate (macOS activate path)
 // can read the previous state if needed.
-const kioskState = { enabled: false, suppressRefocusUntil: 0 }
+const kioskState = { enabled: false, suppressRefocusUntil: 0, explorerKilled: false }
+
+// ---------------------------------------------------------------------
+// Explorer.exe lifecycle (Option C — Windows kiosk hardening)
+// ---------------------------------------------------------------------
+// Killing explorer.exe removes the Windows shell entirely: no taskbar,
+// no Start menu, no system tray, no Alt+Tab visual switcher. This is
+// what classic Windows kiosk apps (and the MSFT-built Assigned Access
+// itself) do under the hood. The launcher becomes the only visible
+// surface. Caveats:
+//   - System tray icons (volume, network, etc.) disappear while shell
+//     is dead — acceptable for a cafe lockdown.
+//   - If the launcher hard-crashes, the cashier needs Ctrl+Shift+Esc
+//     → File → Run → "explorer.exe" to get the shell back. We wire
+//     up uncaughtException + process.on('exit') as belt-and-suspenders
+//     so a graceful Node crash still respawns the shell.
+//   - We track `explorerKilled` so we never double-kill or accidentally
+//     respawn explorer if we never killed it (e.g. user toggled kiosk
+//     off without ever turning it on).
+// All operations are no-ops on non-Windows.
+function killExplorer() {
+  if (process.platform !== 'win32') return
+  if (kioskState.explorerKilled) return
+  try {
+    const r = require('child_process').spawnSync('taskkill', ['/F', '/IM', 'explorer.exe'], { windowsHide: true })
+    // taskkill returns 128 if the process wasn't running — that's fine,
+    // it just means the shell was already down. Anything else logs.
+    if (r.status !== 0 && r.status !== 128) {
+      console.warn('[kiosk] taskkill explorer.exe exited with code', r.status, r.stderr && r.stderr.toString())
+    }
+    kioskState.explorerKilled = true
+    console.log('[kiosk] explorer.exe killed — shell is down')
+  } catch (e) {
+    console.error('[kiosk] killExplorer failed:', e.message)
+  }
+}
+
+function restoreExplorer() {
+  if (process.platform !== 'win32') return
+  if (!kioskState.explorerKilled) return
+  try {
+    // Spawn detached so explorer.exe outlives this Node process. Using
+    // `start` via cmd avoids inheriting the launcher's handles, which
+    // would tie explorer's lifetime to ours and immediately kill it
+    // when the launcher exits.
+    const child = require('child_process').spawn('cmd.exe', ['/c', 'start', '', 'explorer.exe'], {
+      detached: true, stdio: 'ignore', windowsHide: true,
+    })
+    child.unref()
+    kioskState.explorerKilled = false
+    console.log('[kiosk] explorer.exe respawned — shell restored')
+  } catch (e) {
+    console.error('[kiosk] restoreExplorer failed:', e.message)
+  }
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -418,6 +472,10 @@ function createWindow(splash) {
         } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
+        // Kill the Windows shell so there's no taskbar, no Start menu,
+        // and Alt+Tab has nothing useful to switch to. Restored on
+        // applyKiosk(false) / will-quit / crash.
+        killExplorer()
         // Emergency exit chord — registered only while kiosk is ON so we
         // don't permanently steal it. Registration failure is logged
         // but non-fatal (the admin toggle still works).
@@ -439,6 +497,9 @@ function createWindow(splash) {
         try { win.removeListener('focus', onKioskFocus) } catch (_) {}
         // Release the emergency chord (and any stray registrations).
         try { globalShortcut.unregisterAll() } catch (_) {}
+        // Bring the Windows shell back so the user has a taskbar +
+        // Start menu again outside of kiosk.
+        restoreExplorer()
         // Restore the normal frameless-maximized state. setKiosk(false)
         // can leave the window in an in-between size on some Windows
         // builds, so explicitly maximize.
@@ -1111,4 +1172,18 @@ app.on('window-all-closed', () => {
 // Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll() } catch (_) {}
+  // CRITICAL: if kiosk killed explorer.exe, we MUST respawn it on every
+  // exit path. Without this the cafe's machine boots into a black
+  // wallpaper with no shell after the launcher closes.
+  try { restoreExplorer() } catch (_) {}
+})
+
+// Belt-and-suspenders: an uncaughtException can skip will-quit on some
+// Electron exit paths. Force-restore the shell then log.
+process.on('uncaughtException', (err) => {
+  try { restoreExplorer() } catch (_) {}
+  console.error('[uncaughtException]', err)
+})
+process.on('exit', () => {
+  try { restoreExplorer() } catch (_) {}
 })
