@@ -352,53 +352,25 @@ function createWindow(splash) {
   // an Alt+Tab away-and-back. On every focus regain we re-apply kiosk
   // window flags so the taskbar disappears again. On blur during kiosk,
   // we immediately call focus() to yank attention back to the launcher.
-  // Re-apply the full kiosk window state. Used by the focus, restore,
-  // minimize, and leave-full-screen handlers — Windows drops exclusive
-  // fullscreen whenever the kiosk window is minimized or another app
-  // takes the foreground (e.g. Alt+Tab away), and the only way to get
-  // the taskbar to disappear again is to re-enter fullscreen from
-  // scratch. We force a real geometry transition (unmaximize +
-  // setFullScreen(false) → setFullScreen(true)) so Windows doesn't
-  // silently no-op when it thinks we're already fullscreen but the
-  // taskbar strip has somehow re-appeared.
-  const reassertKiosk = () => {
+  const onKioskFocus = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     try {
-      if (win.isMinimized()) try { win.restore() } catch (_) {}
-      try { win.show() } catch (_) {}
-      try { win.focus() } catch (_) {}
-      try { win.moveTop() } catch (_) {}
-      // Drop and re-enter fullscreen to force a real transition. On
-      // Win11 alt-tab leaves the window in a "fullscreen flag set but
-      // not actually covering taskbar" half-state; toggling fullscreen
-      // off → on snaps it back to true exclusive fullscreen.
-      try { win.setFullScreen(false) } catch (_) {}
-      try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
-      try { win.setFullScreen(true) } catch (_) {}
-      try { win.setKiosk(true) } catch (_) {}
-      try { win.setAlwaysOnTop(true, 'screen-saver') } catch (_) {}
-      try { win.setSkipTaskbar(true) } catch (_) {}
+      if (!win.isFullScreen()) {
+        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
+        try { win.setFullScreen(true) } catch (_) {}
+      }
+      win.setKiosk(true)
+      win.setAlwaysOnTop(true, 'screen-saver')
+      win.setSkipTaskbar(true)
+      // Belt-and-suspenders: force window bounds to cover the entire
+      // display (including the taskbar strip) in case the fullscreen
+      // transition was rejected and we're still clipped to work area.
       try {
         const d = screen.getPrimaryDisplay()
         win.setBounds(d.bounds)
       } catch (_) {}
-      try { win.moveTop() } catch (_) {}
+      win.moveTop()
     } catch (_) {}
-  }
-  const onKioskFocus = () => reassertKiosk()
-  const onKioskRestore = () => reassertKiosk()
-  const onKioskLeaveFullscreen = () => {
-    // If the user is in the post-launch grace window, a game just took
-    // the foreground and Windows dropped us out of fullscreen — that's
-    // expected and we must NOT immediately re-enter fullscreen or we'd
-    // fight the game for the screen.
-    if (Date.now() < kioskState.suppressRefocusUntil) return
-    reassertKiosk()
-  }
-  const onKioskMinimize = () => {
-    // Same grace-window check — a launched game can briefly minimize us.
-    if (Date.now() < kioskState.suppressRefocusUntil) return
-    reassertKiosk()
   }
   const onKioskBlur = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
@@ -457,12 +429,6 @@ function createWindow(splash) {
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
         win.on('blur', onKioskBlur)
-        // Catch the OS-driven exits from fullscreen (alt-tab away,
-        // task-switcher invocation, another app stealing focus) and
-        // immediately snap back to true exclusive fullscreen.
-        win.on('restore', onKioskRestore)
-        win.on('leave-full-screen', onKioskLeaveFullscreen)
-        win.on('minimize', onKioskMinimize)
         // Global shortcut swallowing. globalShortcut.register fires our
         // (no-op) callback INSTEAD of the OS handling the chord, which
         // blocks Alt+Tab and most Win-key combos while the launcher is
@@ -498,9 +464,6 @@ function createWindow(splash) {
         try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
         try { win.removeListener('focus', onKioskFocus) } catch (_) {}
         try { win.removeListener('blur', onKioskBlur) } catch (_) {}
-        try { win.removeListener('restore', onKioskRestore) } catch (_) {}
-        try { win.removeListener('leave-full-screen', onKioskLeaveFullscreen) } catch (_) {}
-        try { win.removeListener('minimize', onKioskMinimize) } catch (_) {}
         // Release every chord we registered above (plus the emergency
         // chord). unregisterAll is the safest single call.
         try { globalShortcut.unregisterAll() } catch (_) {}
@@ -529,28 +492,16 @@ function createWindow(splash) {
 
   // Clean app restart — used by the kiosk-enable flow so the new window
   // boots directly into kiosk fullscreen with a fresh window state.
-  // CRITICAL: previous version called app.exit(0) synchronously after
-  // app.relaunch(), which raced the singleton lock — the relaunched
-  // instance would hit requestSingleInstanceLock() before the old
-  // process fully released it, fail the lock, and immediately quit.
-  // Result: the launcher disappeared and never came back. We now:
-  //   1. return the IPC reply first so the renderer's await resolves
-  //   2. defer the relaunch + quit a tick so the IPC round-trip
-  //      completes
-  //   3. use app.quit() instead of app.exit() so the normal quit
-  //      lifecycle runs (will-quit fires, globalShortcuts release,
-  //      single-instance lock is released cleanly) before the
-  //      relaunched instance tries to claim it
   ipcMain.handle('app:restart', () => {
-    setImmediate(() => {
-      try {
-        if (kioskState.enabled) applyKiosk(false)
-        app.relaunch()
-        app.quit()
-      } catch (e) {
-        console.error('[app:restart] failed:', e.message)
-      }
-    })
+    try {
+      // Tear kiosk down first so the relaunched process re-applies it
+      // fresh (and globalShortcut releases cleanly via will-quit).
+      if (kioskState.enabled) applyKiosk(false)
+      app.relaunch()
+      app.exit(0)
+    } catch (e) {
+      console.error('[app:restart] failed:', e.message)
+    }
     return { success: true }
   })
 
