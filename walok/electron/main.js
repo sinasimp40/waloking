@@ -4,6 +4,20 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 
+// Native low-level keyboard hook (Windows-only). When kiosk is ON we
+// install a WH_KEYBOARD_LL system hook that swallows Alt+Tab, Win key,
+// Ctrl+Esc, Alt+F4, Alt+Esc at the OS level so the user cannot leave
+// the launcher. If the addon failed to build (no MSVC build tools, or
+// non-Windows dev machine), the loader returns no-op stubs and kiosk
+// gracefully degrades — see walok/electron/native/keyblocker/index.js.
+const keyblocker = (() => {
+  try { return require('./native/keyblocker') }
+  catch (e) {
+    console.warn('[keyblocker] not available:', e.message)
+    return { available: false, enable: () => false, disable: () => false, isEnabled: () => false }
+  }
+})()
+
 let mainWindow = null
 // Module-scoped runtime kiosk state, mutated by applyKiosk() below.
 // Lives outside createWindow so window-recreate (macOS activate path)
@@ -372,34 +386,13 @@ function createWindow(splash) {
       win.moveTop()
     } catch (_) {}
   }
-  const onKioskBlur = () => {
-    if (!kioskState.enabled || !win || win.isDestroyed()) return
-    // Skip refocus during the post-launch grace window so a freshly
-    // launched game can take the foreground without the launcher
-    // stealing focus back.
-    if (Date.now() < kioskState.suppressRefocusUntil) return
-    setImmediate(() => {
-      try {
-        if (!kioskState.enabled || win.isDestroyed()) return
-        if (Date.now() < kioskState.suppressRefocusUntil) return
-        // Re-assert all kiosk window flags BEFORE focus snap so the
-        // launcher is still in fullscreen + alwaysOnTop state during
-        // the brief blur window — that way even if the user lingers
-        // on Alt+Tab the taskbar can't sneak in front of us.
-        try { win.setFullScreen(true) } catch (_) {}
-        win.setKiosk(true)
-        win.setAlwaysOnTop(true, 'screen-saver')
-        win.setSkipTaskbar(true)
-        try {
-          const d = screen.getPrimaryDisplay()
-          win.setBounds(d.bounds)
-        } catch (_) {}
-        win.show()
-        win.focus()
-        win.moveTop()
-      } catch (_) {}
-    })
-  }
+  // NOTE: Option A's focus-snap blur handler was removed — the native
+  // WH_KEYBOARD_LL hook in walok/electron/native/keyblocker now blocks
+  // Alt+Tab/Win/Ctrl+Esc at the OS level so blur from those chords
+  // never fires. If kiosk loses focus for any other reason (UAC prompt,
+  // a freshly-launched game), we let it happen naturally — the launcher
+  // closes on game launch anyway, so there's no scenario in which we
+  // need to fight focus back.
 
   function applyKiosk(enabled) {
     if (!win || win.isDestroyed()) return
@@ -440,22 +433,17 @@ function createWindow(splash) {
         } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
-        win.on('blur', onKioskBlur)
-        // Global shortcut swallowing. globalShortcut.register fires our
-        // (no-op) callback INSTEAD of the OS handling the chord, which
-        // blocks Alt+Tab and most Win-key combos while the launcher is
-        // focused. Each register is wrapped in try/catch because a
-        // failed registration on one chord must not skip the others.
-        const swallow = () => {} // no-op = chord absorbed
-        const chords = [
-          'Alt+Tab', 'Alt+Shift+Tab',
-          'Super+Tab', 'Super+D', 'Super+E', 'Super+R',
-          'Super+L', 'Super+M', 'Super+Shift+M',
-          'Alt+F4', 'Alt+Space',
-        ]
-        for (const c of chords) {
-          try { globalShortcut.register(c, swallow) } catch (_) {}
-        }
+        // Install the native low-level keyboard hook. This is the
+        // primary lockdown mechanism — it swallows Alt+Tab, Win key,
+        // Ctrl+Esc, Alt+F4, Alt+Esc system-wide while the launcher
+        // process owns the hook. If the addon isn't available (non-
+        // Windows dev / build tools missing), enable() returns false
+        // and we log a warning; the launcher still runs but kiosk
+        // can't truly block OS chords.
+        try {
+          const ok = keyblocker.enable()
+          if (!ok) console.warn('[kiosk] native key-blocker not active — Alt+Tab/Win key will not be blocked. Run "npm run rebuild:native" to enable.')
+        } catch (e) { console.error('[kiosk] keyblocker.enable failed:', e.message) }
         // Emergency exit chord — registered only while kiosk is ON so we
         // don't permanently steal it. Registration failure is logged
         // but non-fatal (the admin toggle still works).
@@ -475,9 +463,10 @@ function createWindow(splash) {
         win.setSkipTaskbar(false)
         try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
         try { win.removeListener('focus', onKioskFocus) } catch (_) {}
-        try { win.removeListener('blur', onKioskBlur) } catch (_) {}
-        // Release every chord we registered above (plus the emergency
-        // chord). unregisterAll is the safest single call.
+        // Tear down the native key-blocker hook so Alt+Tab/Win key
+        // work normally again outside kiosk.
+        try { keyblocker.disable() } catch (e) { console.error('[kiosk] keyblocker.disable failed:', e.message) }
+        // Release the emergency chord (and any stray registrations).
         try { globalShortcut.unregisterAll() } catch (_) {}
         // Restore the normal frameless-maximized state. setKiosk(false)
         // can leave the window in an in-between size on some Windows
@@ -1151,4 +1140,5 @@ app.on('window-all-closed', () => {
 // Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll() } catch (_) {}
+  try { keyblocker.disable() } catch (_) {}
 })

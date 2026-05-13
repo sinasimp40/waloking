@@ -20,6 +20,13 @@ Preferred communication style: Simple, everyday language.
 - **Distribution:** Portable ZIP format, no installation required.
 - **Integrity Protection:** Verifies application integrity at startup.
 
+### Kiosk Mode
+- **Construction-time fullscreen:** When `settings.kioskMode` is true at boot, the BrowserWindow is created with `fullscreen: true, kiosk: true, alwaysOnTop: true, skipTaskbar: true` directly in the constructor. Toggling fullscreen on a frameless window AFTER creation is unreliable on Windows 11 (taskbar stays visible until user clicks); creating the window already-fullscreen forces Windows to perform real exclusive-fullscreen at construction so the very first paint hides the taskbar.
+- **Auto-restart on enable:** Toggling kiosk OFF→ON in the admin panel awaits an explicit `saveSettings` ACK (real disk write) then calls `app:restart` IPC → `app.relaunch() + app.exit(0)`. The relaunched process reads `kioskMode=true` from disk and constructs the window in fullscreen state. A generation counter cancels the in-flight restart if the user toggles kiosk again before the save completes.
+- **Native key blocker (`walok/electron/native/keyblocker`):** A C++ N-API addon that installs a `WH_KEYBOARD_LL` low-level keyboard hook on Windows. Swallows Alt+Tab, Alt+Shift+Tab, Win key (L/R), Ctrl+Esc, Alt+Esc, Alt+F4 at the OS level so those chords never reach the OS shell. Ctrl+Alt+Del cannot be blocked from user space (Microsoft reserves it for the SAS handler). The addon is built via `node-gyp` + `@electron/rebuild` (run `npm run rebuild:native` after install or any Electron version change). Falls back to no-op stubs on non-Windows / when build tools are missing — kiosk window state still applies but OS chords are not blocked.
+- **Auto-close on launch:** Kiosk implies auto-close behavior — when the user launches a game while kiosk is on, the launcher closes after a 1s delay regardless of the separate `autoCloseOnLaunch` toggle. The OR check `(settings.autoCloseOnLaunch || settings.kioskMode)` lives in `Sidebar.jsx` (Top Picks / Social / Office) and `GameCard.jsx`.
+- **Emergency exit:** `Ctrl+Shift+Alt+K` registered via `globalShortcut` only while kiosk is active. Triggers `applyKiosk(false)` which tears down the keyblocker hook, drops fullscreen + alwaysOnTop + skipTaskbar, and restores the normal frameless-maximized window.
+
 ### Per-Customer Branding System
 - **Configuration:** Branding details are stored in JSON files, including channel, brand name, logo, and update server information.
 - **Rebranding Process:** A script automates find-and-replace operations across source files for custom branding.
