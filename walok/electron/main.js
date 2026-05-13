@@ -261,9 +261,14 @@ function createWindow(splash) {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#050510',
-    fullscreen: bootKiosk,
-    kiosk: bootKiosk,
-    simpleFullscreen: false,
+    // Kiosk on Win11 uses the BORDERLESS-TOPMOST pattern instead of
+    // exclusive fullscreen. Reason: setFullScreen / setKiosk put us
+    // into Windows' real fullscreen mode, which the OS forcibly drops
+    // out of on Alt+Tab — that's why the user kept seeing the taskbar
+    // re-appear after switching. A topmost frameless window sized to
+    // the full display bounds CANNOT be dropped out of fullscreen
+    // (because it isn't in fullscreen) and stays painted over the
+    // taskbar via alwaysOnTop('screen-saver').
     alwaysOnTop: bootKiosk,
     skipTaskbar: bootKiosk,
     webPreferences: {
@@ -280,11 +285,11 @@ function createWindow(splash) {
   win.on('closed', () => { if (mainWindow === win) mainWindow = null })
 
   win.once('ready-to-show', () => {
-    // The window was constructed with fullscreen/kiosk already baked in
-    // when bootKiosk is true, so all we do here is show it and (for the
-    // kiosk path) wire up the focus/blur handlers and global-shortcut
-    // swallowers via applyKiosk. applyKiosk's setFullScreen/setKiosk
-    // calls are idempotent on an already-fullscreen window.
+    // The window was constructed with alwaysOnTop+skipTaskbar already
+    // when bootKiosk is true. We show it and let applyKiosk(true)
+    // size it to full display bounds + register focus/blur/shortcut
+    // handlers. The set-bounds call inside applyKiosk is what actually
+    // covers the taskbar.
     if (!bootKiosk) win.maximize()
     win.show()
     if (splash && !splash.isDestroyed()) {
@@ -355,23 +360,27 @@ function createWindow(splash) {
   const onKioskFocus = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     try {
-      if (!win.isFullScreen()) {
-        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
-        try { win.setFullScreen(true) } catch (_) {}
-      }
-      win.setKiosk(true)
+      // Re-assert all kiosk window flags every time we regain focus.
+      // Windows can re-enable our taskbar entry / drop alwaysOnTop after
+      // an Alt+Tab cycle; re-applying here is cheap and idempotent.
       win.setAlwaysOnTop(true, 'screen-saver')
       win.setSkipTaskbar(true)
-      // Belt-and-suspenders: force window bounds to cover the entire
-      // display (including the taskbar strip) in case the fullscreen
-      // transition was rejected and we're still clipped to work area.
+      // The critical line: setBounds to the FULL display bounds (not
+      // workArea) physically covers the taskbar. This is what defeats
+      // the Alt+Tab-leaves-taskbar-visible bug — Windows can't drop us
+      // out of fullscreen because we aren't in fullscreen, we're just
+      // a topmost window painted over the taskbar strip.
       try {
-        const d = screen.getPrimaryDisplay()
+        const d = screen.getDisplayMatching(win.getBounds()) || screen.getPrimaryDisplay()
         win.setBounds(d.bounds)
       } catch (_) {}
       win.moveTop()
     } catch (_) {}
   }
+  // Re-assert kiosk bounds when the display configuration changes —
+  // taskbar relocation (e.g. left/right edge), DPI change, or monitor
+  // add/remove can shift the work area and leave our window misaligned.
+  const onDisplayChange = () => { if (kioskState.enabled) onKioskFocus() }
   const onKioskBlur = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     // Skip refocus during the post-launch grace window so a freshly
@@ -396,39 +405,36 @@ function createWindow(splash) {
     kioskState.enabled = next
     try {
       if (next) {
-        // Hiding the Windows taskbar from a frameless launcher requires
-        // ALL of the following — any single mechanism alone leaves the
-        // taskbar peeking out at the bottom on at least one Win10/11
-        // configuration the user has tested:
-        //   1. unmaximize()  — ensures setFullScreen sees a real
-        //      geometry change to transition into.
-        //   2. setFullScreen(true) — exclusive fullscreen on Win10/11
-        //      hides the taskbar.
-        //   3. setKiosk(true) — additional fullscreen flag.
-        //   4. alwaysOnTop('screen-saver') — keeps us above the taskbar
-        //      Z-order even if the taskbar tries to repaint over us.
-        //   5. setSkipTaskbar(true) — removes our own taskbar entry.
-        //   6. setBounds(primaryDisplay.bounds) — last-ditch guarantee:
-        //      forces the window to physically cover the taskbar strip
-        //      even if the fullscreen transition was rejected.
-        // Force focus FIRST — setFullScreen on an unfocused window is a
-        // silent no-op on Windows, which is why the user reported
-        // having to click the taskbar to "wake up" kiosk on first boot.
+        // BORDERLESS-TOPMOST kiosk strategy (no exclusive fullscreen):
+        //   1. unmaximize() — drop the maximized state so setBounds takes
+        //      effect (a maximized window ignores setBounds on Windows).
+        //   2. alwaysOnTop('screen-saver') — Z-order us above the taskbar.
+        //   3. setSkipTaskbar(true) — remove our own taskbar entry.
+        //   4. setBounds(display.bounds) — physically cover the taskbar
+        //      strip. We use FULL bounds, not workArea. This is the
+        //      mechanism that hides the taskbar.
+        // Critically we do NOT call setFullScreen / setKiosk — those
+        // put us in Windows' exclusive-fullscreen mode which the OS
+        // drops on Alt+Tab, which was the exact bug the user reported.
         try { win.show() } catch (_) {}
         try { win.focus() } catch (_) {}
         try { win.moveTop() } catch (_) {}
         try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
-        try { win.setFullScreen(true) } catch (_) {}
-        win.setKiosk(true)
+        try { if (win.isFullScreen()) win.setFullScreen(false) } catch (_) {}
         win.setAlwaysOnTop(true, 'screen-saver')
         win.setSkipTaskbar(true)
         try {
-          const d = screen.getPrimaryDisplay()
+          const d = screen.getDisplayMatching(win.getBounds()) || screen.getPrimaryDisplay()
           win.setBounds(d.bounds)
         } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
         win.on('blur', onKioskBlur)
+        try {
+          screen.on('display-metrics-changed', onDisplayChange)
+          screen.on('display-added', onDisplayChange)
+          screen.on('display-removed', onDisplayChange)
+        } catch (_) {}
         // Global shortcut swallowing. globalShortcut.register fires our
         // (no-op) callback INSTEAD of the OS handling the chord, which
         // blocks Alt+Tab and most Win-key combos while the launcher is
@@ -454,16 +460,23 @@ function createWindow(splash) {
           })
         } catch (e) { console.error('[kiosk] failed to register emergency chord:', e.message) }
       } else {
-        // Tear down in reverse order: drop kiosk + fullscreen FIRST so
-        // the window returns to a normal frameless-maximized state with
-        // the taskbar visible again.
+        // Tear down: release alwaysOnTop / skipTaskbar so the window
+        // returns to a normal frameless-maximized state with the
+        // taskbar visible again. (No setFullScreen/setKiosk to undo
+        // because we never used them under the borderless-topmost
+        // strategy — but we still defensively clear them in case a
+        // previous build left the window in fullscreen state.)
         try { win.setKiosk(false) } catch (_) {}
         try { if (win.isFullScreen()) win.setFullScreen(false) } catch (_) {}
         win.setAlwaysOnTop(false)
         win.setSkipTaskbar(false)
+        try { if (!win.isMaximized()) win.maximize() } catch (_) {}
         try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
         try { win.removeListener('focus', onKioskFocus) } catch (_) {}
         try { win.removeListener('blur', onKioskBlur) } catch (_) {}
+        try { screen.removeListener('display-metrics-changed', onDisplayChange) } catch (_) {}
+        try { screen.removeListener('display-added', onDisplayChange) } catch (_) {}
+        try { screen.removeListener('display-removed', onDisplayChange) } catch (_) {}
         // Release every chord we registered above (plus the emergency
         // chord). unregisterAll is the safest single call.
         try { globalShortcut.unregisterAll() } catch (_) {}
