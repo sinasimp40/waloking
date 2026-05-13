@@ -21,6 +21,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zipAndUploadSave: (savePath, gameName, serverUrl, token) => ipcRenderer.invoke('zip-and-upload-save', savePath, gameName, serverUrl, token),
   downloadAndExtractSave: (saveId, savePath, serverUrl, token) => ipcRenderer.invoke('download-and-extract-save', saveId, savePath, serverUrl, token),
 
+  // Kiosk mode controls. The renderer flips kioskMode in the persisted
+  // settings store and then calls kiosk.set() so the main process can
+  // mirror the live BrowserWindow state. emergencyExit is wired to the
+  // global Ctrl+Shift+Alt+K shortcut on the main side; this method exists
+  // as a renderer-callable fallback (e.g. an admin "Exit kiosk" button).
+  kiosk: {
+    set: (enabled) => ipcRenderer.invoke('kiosk:set', !!enabled),
+    getStatus: () => ipcRenderer.invoke('kiosk:get-status'),
+    emergencyExit: () => ipcRenderer.invoke('kiosk:emergency-exit'),
+  },
+
   ota: {
     getStatus: () => ipcRenderer.invoke('ota:get-status'),
     checkNow: () => ipcRenderer.invoke('ota:check-now'),

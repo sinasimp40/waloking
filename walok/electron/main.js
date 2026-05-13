@@ -1,10 +1,14 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 
 let mainWindow = null
+// Module-scoped runtime kiosk state, mutated by applyKiosk() below.
+// Lives outside createWindow so window-recreate (macOS activate path)
+// can read the previous state if needed.
+const kioskState = { enabled: false }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -258,8 +262,26 @@ function createWindow(splash) {
   mainWindow = win
   win.on('closed', () => { if (mainWindow === win) mainWindow = null })
 
+  // Compute persisted kiosk intent up front so we can apply it INSIDE the
+  // ready-to-show handler BEFORE win.show() — otherwise the user sees a
+  // brief normal frame flash before kiosk takes over (architect-flagged
+  // boot-flash bug). Mirrors the renderer-side mutex defensively.
+  let bootKiosk = false
+  try {
+    const pK = !!(cachedSettings?.state?.settings?.kioskMode || cachedSettings?.settings?.kioskMode)
+    const pA = !!(cachedSettings?.state?.settings?.autoCloseOnLaunch || cachedSettings?.settings?.autoCloseOnLaunch)
+    bootKiosk = pK && !pA
+  } catch (_) {}
+
   win.once('ready-to-show', () => {
-    win.maximize()
+    if (bootKiosk) {
+      // applyKiosk handles fullscreen/alwaysOnTop/skipTaskbar internally;
+      // calling it before show() means the very first painted frame is
+      // already in kiosk state.
+      try { applyKiosk(true) } catch (_) {}
+    } else {
+      win.maximize()
+    }
     win.show()
     if (splash && !splash.isDestroyed()) {
       splash.close()
@@ -272,14 +294,103 @@ function createWindow(splash) {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
-  ipcMain.on('minimize-window', () => win.minimize())
+  ipcMain.on('minimize-window', () => { if (kioskState.enabled) return; win.minimize() })
   ipcMain.on('maximize-window', () => {
+    // Disabled while kiosk is on — minimize/maximize would let the user
+    // (or a stray click) leave the locked fullscreen surface.
+    if (kioskState.enabled) return
     if (win.isMaximized()) win.unmaximize()
     else win.maximize()
   })
-  ipcMain.on('close-window', () => win.close())
+  ipcMain.on('close-window', () => {
+    // Always tear kiosk down before close so the next launch starts in
+    // the normal frameless-maximized window even if the close path was
+    // triggered while kiosk was still active.
+    if (kioskState.enabled) applyKiosk(false)
+    win.close()
+  })
   ipcMain.on('fullscreen-window', () => {
+    if (kioskState.enabled) return
     win.setFullScreen(!win.isFullScreen())
+  })
+
+  // ===== KIOSK MODE =====
+  // Single source of truth for the runtime kiosk state. The persisted
+  // setting (settings.kioskMode in the renderer store) is the canonical
+  // intent; this object tracks what's actually been applied to the
+  // BrowserWindow so we never double-toggle or leak state.
+  const beforeInputListener = (event, input) => {
+    if (!kioskState.enabled) return
+    if (input.type !== 'keyDown') return
+    const k = (input.key || '').toLowerCase()
+    // Block common app-switch / close shortcuts. Win key + Ctrl+Alt+Del
+    // are OS-reserved on Windows and CANNOT be intercepted from a
+    // userspace Electron app — that's a Windows limitation, not a bug.
+    if (input.alt && (k === 'tab' || k === 'f4' || k === 'escape')) {
+      event.preventDefault()
+      return
+    }
+    if (input.control && k === 'escape') {
+      event.preventDefault()
+      return
+    }
+    // F11 also escapes fullscreen on some configurations.
+    if (k === 'f11') event.preventDefault()
+  }
+
+  function applyKiosk(enabled) {
+    if (!win || win.isDestroyed()) return
+    const next = !!enabled
+    if (next === kioskState.enabled) return
+    kioskState.enabled = next
+    try {
+      if (next) {
+        // setKiosk() is the canonical Electron API for kiosk mode — on
+        // Windows it removes the title bar, hides the taskbar, and
+        // forces fullscreen. We additionally setAlwaysOnTop with the
+        // 'screen-saver' level so a stray task switcher can't render
+        // above us, and skip the taskbar so Win+T can't pull focus.
+        win.setKiosk(true)
+        win.setAlwaysOnTop(true, 'screen-saver')
+        win.setSkipTaskbar(true)
+        win.webContents.on('before-input-event', beforeInputListener)
+        // Global emergency-exit chord. Registered only while kiosk is
+        // ON so we don't permanently steal the chord from the OS. If
+        // registration fails (another app already owns it) we log but
+        // don't block — the renderer-side admin toggle still works.
+        try {
+          globalShortcut.register('Control+Shift+Alt+K', () => {
+            try { applyKiosk(false) } catch (_) {}
+            try { win.webContents.send('kiosk:emergency-triggered') } catch (_) {}
+          })
+        } catch (e) { console.error('[kiosk] failed to register emergency chord:', e.message) }
+      } else {
+        win.setKiosk(false)
+        win.setAlwaysOnTop(false)
+        win.setSkipTaskbar(false)
+        try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
+        try { globalShortcut.unregister('Control+Shift+Alt+K') } catch (_) {}
+        // Restore the normal frameless-maximized state. setKiosk(false)
+        // can leave the window in an in-between size on some Windows
+        // builds, so explicitly maximize.
+        try { if (!win.isMaximized()) win.maximize() } catch (_) {}
+      }
+    } catch (e) {
+      console.error('[kiosk] applyKiosk failed:', e.message)
+    }
+  }
+
+  // (Boot-time kiosk apply now happens inside the primary ready-to-show
+  // handler above so it runs before win.show() — no frame flash.)
+
+  ipcMain.handle('kiosk:set', (_e, enabled) => {
+    applyKiosk(!!enabled)
+    return { success: true, enabled: kioskState.enabled }
+  })
+  ipcMain.handle('kiosk:get-status', () => ({ enabled: kioskState.enabled }))
+  ipcMain.handle('kiosk:emergency-exit', () => {
+    applyKiosk(false)
+    return { success: true }
   })
 
   ipcMain.handle('launch-game', async (event, filePath) => {
@@ -906,4 +1017,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Always release any kiosk-time globalShortcut registration on quit so
+// Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
+app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll() } catch (_) {}
 })

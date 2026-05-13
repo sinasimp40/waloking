@@ -42,6 +42,13 @@ const useStore = create(
         accentColor: null,
         uiZoom: 100,
         autoCloseOnLaunch: false,
+        // Kiosk mode: when true the launcher runs full-screen with common
+        // app-switch shortcuts (Alt+Tab, Alt+F4, Ctrl+Esc) blocked while
+        // it has focus. Mutually exclusive with autoCloseOnLaunch — the
+        // launcher closing on game launch makes a kiosk lock pointless,
+        // so the two settings can never both be true (enforced in
+        // updateSettings + the v31 migrate).
+        kioskMode: false,
         secretKey: ADMIN_SECRET_KEY,
         computerRates: [
           { name: 'Regular', price: 15, unit: '/hr' },
@@ -117,9 +124,17 @@ const useStore = create(
 
       setLocalIP: (ips, hostname) => set({ localIPs: ips || [], localHostname: hostname || '' }),
 
-      updateSettings: (updates) => set((state) => ({
-        settings: { ...state.settings, ...updates }
-      })),
+      updateSettings: (updates) => set((state) => {
+        // Centralized mutual-exclusion guard for autoCloseOnLaunch <-> kioskMode.
+        // Whichever the caller is *enabling in this update* wins — the other
+        // is force-cleared. This is the single source of truth so neither
+        // the UI nor a stale persisted state can ever produce the invalid
+        // both-true combination.
+        const next = { ...state.settings, ...updates }
+        if (updates.autoCloseOnLaunch === true) next.kioskMode = false
+        else if (updates.kioskMode === true) next.autoCloseOnLaunch = false
+        return { settings: next }
+      }),
 
       getFilteredGames: () => {
         const { games, activeCategory, searchQuery } = get()
@@ -138,7 +153,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 30,
+      version: 31,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -154,6 +169,13 @@ const useStore = create(
             ...(persistedState.settings || {}),
             uiZoom: Math.max(100, Math.min(200, persistedState.settings?.uiZoom || 100)),
             autoCloseOnLaunch: persistedState.settings?.autoCloseOnLaunch || false,
+            // Kiosk mode added in v31. Defensive mutex: if a buggy older
+            // build ever wrote both true, prefer autoClose (the older,
+            // safer behavior) and force kiosk off so the user can never
+            // boot into an impossible state.
+            kioskMode: persistedState.settings?.autoCloseOnLaunch
+              ? false
+              : !!persistedState.settings?.kioskMode,
             poweredBy: persistedState.settings?.poweredBy ?? 'EXAMPLE CAFE',
             socialLinks: Array.isArray(persistedState.settings?.socialLinks) ? persistedState.settings.socialLinks : [
               { id: '1', name: 'Facebook', icon: 'f', url: 'https://facebook.com', color: 'from-blue-500 to-blue-600' },

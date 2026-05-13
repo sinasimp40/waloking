@@ -101,6 +101,18 @@ export default function App() {
     }
   }, [])
 
+  // Reconcile renderer-side kiosk preference with the main-process
+  // BrowserWindow state. Runs whenever settings.kioskMode changes (toggle
+  // in admin panel) AND once on mount after the persisted store hydrates,
+  // so a freshly-launched app picks up its saved kiosk preference.
+  // Mutex with autoCloseOnLaunch is enforced in updateSettings, so we
+  // can trust the value here without re-checking.
+  useEffect(() => {
+    if (!window.electronAPI?.kiosk?.set) return
+    const desired = !!settings.kioskMode && !settings.autoCloseOnLaunch
+    window.electronAPI.kiosk.set(desired).catch(() => {})
+  }, [settings.kioskMode, settings.autoCloseOnLaunch])
+
   useEffect(() => {
     async function detectIP() {
       if (window.electronAPI?.getLocalIP) {
