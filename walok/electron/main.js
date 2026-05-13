@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut, screen } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 const fs = require('fs')
@@ -272,17 +272,23 @@ function createWindow(splash) {
   } catch (_) {}
 
   win.once('ready-to-show', () => {
-    if (bootKiosk) {
-      // applyKiosk handles fullscreen/alwaysOnTop/skipTaskbar internally;
-      // calling it before show() means the very first painted frame is
-      // already in kiosk state.
-      try { applyKiosk(true) } catch (_) {}
-    } else {
-      win.maximize()
-    }
+    // Show the window FIRST. On Windows, setFullScreen(true) on a hidden
+    // BrowserWindow is silently ignored — the window paints maximized
+    // (work area only) and the taskbar stays visible until the user
+    // manually focuses the app. We accept a brief frame of the normal
+    // maximized window before kiosk takes over because that's vastly
+    // better than booting with the taskbar permanently visible.
+    if (!bootKiosk) win.maximize()
     win.show()
     if (splash && !splash.isDestroyed()) {
       splash.close()
+    }
+    if (bootKiosk) {
+      // Defer to next tick so the show() transition completes before
+      // we request fullscreen — Windows needs a real visible window
+      // to perform the exclusive-fullscreen transition that hides
+      // the taskbar.
+      setImmediate(() => { try { applyKiosk(true) } catch (_) {} })
     }
   })
 
@@ -344,10 +350,20 @@ function createWindow(splash) {
   const onKioskFocus = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     try {
-      if (!win.isFullScreen()) win.setFullScreen(true)
+      if (!win.isFullScreen()) {
+        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
+        try { win.setFullScreen(true) } catch (_) {}
+      }
       win.setKiosk(true)
       win.setAlwaysOnTop(true, 'screen-saver')
       win.setSkipTaskbar(true)
+      // Belt-and-suspenders: force window bounds to cover the entire
+      // display (including the taskbar strip) in case the fullscreen
+      // transition was rejected and we're still clipped to work area.
+      try {
+        const d = screen.getPrimaryDisplay()
+        win.setBounds(d.bounds)
+      } catch (_) {}
       win.moveTop()
     } catch (_) {}
   }
@@ -375,20 +391,30 @@ function createWindow(splash) {
     kioskState.enabled = next
     try {
       if (next) {
-        // Kiosk uses a focus-grab strategy: setFullScreen + alwaysOnTop
-        // + skipTaskbar to enter the locked surface, and the focus/blur
-        // handlers below always yank focus back if the user Alt+Tabs or
-        // hits the Win key.
-        // unmaximize() FIRST: on Windows, calling setFullScreen(true)
-        // on an already-maximized frameless window is silently a no-op
-        // and the taskbar stays visible on first activation. Dropping
-        // the maximized state forces a real fullscreen transition so
-        // the very first toggle goes true 100vh with no taskbar.
+        // Hiding the Windows taskbar from a frameless launcher requires
+        // ALL of the following — any single mechanism alone leaves the
+        // taskbar peeking out at the bottom on at least one Win10/11
+        // configuration the user has tested:
+        //   1. unmaximize()  — ensures setFullScreen sees a real
+        //      geometry change to transition into.
+        //   2. setFullScreen(true) — exclusive fullscreen on Win10/11
+        //      hides the taskbar.
+        //   3. setKiosk(true) — additional fullscreen flag.
+        //   4. alwaysOnTop('screen-saver') — keeps us above the taskbar
+        //      Z-order even if the taskbar tries to repaint over us.
+        //   5. setSkipTaskbar(true) — removes our own taskbar entry.
+        //   6. setBounds(primaryDisplay.bounds) — last-ditch guarantee:
+        //      forces the window to physically cover the taskbar strip
+        //      even if the fullscreen transition was rejected.
         try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
         try { win.setFullScreen(true) } catch (_) {}
         win.setKiosk(true)
         win.setAlwaysOnTop(true, 'screen-saver')
         win.setSkipTaskbar(true)
+        try {
+          const d = screen.getPrimaryDisplay()
+          win.setBounds(d.bounds)
+        } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
         win.on('blur', onKioskBlur)
