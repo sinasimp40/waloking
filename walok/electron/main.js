@@ -4,20 +4,6 @@ const { spawn } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 
-// Native low-level keyboard hook (Windows-only). When kiosk is ON we
-// install a WH_KEYBOARD_LL system hook that swallows Alt+Tab, Win key,
-// Ctrl+Esc, Alt+F4, Alt+Esc at the OS level so the user cannot leave
-// the launcher. If the addon failed to build (no MSVC build tools, or
-// non-Windows dev machine), the loader returns no-op stubs and kiosk
-// gracefully degrades — see walok/electron/native/keyblocker/index.js.
-const keyblocker = (() => {
-  try { return require('./native/keyblocker') }
-  catch (e) {
-    console.warn('[keyblocker] not available:', e.message)
-    return { available: false, enable: () => false, disable: () => false, isEnabled: () => false }
-  }
-})()
-
 let mainWindow = null
 // Module-scoped runtime kiosk state, mutated by applyKiosk() below.
 // Lives outside createWindow so window-recreate (macOS activate path)
@@ -386,13 +372,12 @@ function createWindow(splash) {
       win.moveTop()
     } catch (_) {}
   }
-  // NOTE: Option A's focus-snap blur handler was removed — the native
-  // WH_KEYBOARD_LL hook in walok/electron/native/keyblocker now blocks
-  // Alt+Tab/Win/Ctrl+Esc at the OS level so blur from those chords
-  // never fires. If kiosk loses focus for any other reason (UAC prompt,
-  // a freshly-launched game), we let it happen naturally — the launcher
-  // closes on game launch anyway, so there's no scenario in which we
-  // need to fight focus back.
+  // Kiosk OS-chord blocking has been intentionally removed. Neither the
+  // focus-snap blur handler (Option A) nor the native WH_KEYBOARD_LL
+  // hook + taskbar-hide (Option B) reliably stopped Alt+Tab spam on
+  // Windows 11. Real Alt+Tab lockdown requires either killing
+  // explorer.exe while kiosk runs, or using Windows' built-in Assigned
+  // Access kiosk mode. See replit.md → Kiosk Mode for the next step.
 
   function applyKiosk(enabled) {
     if (!win || win.isDestroyed()) return
@@ -433,22 +418,6 @@ function createWindow(splash) {
         } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
-        // Install the native low-level keyboard hook. This is the
-        // primary lockdown mechanism — it swallows Alt+Tab, Win key,
-        // Ctrl+Esc, Alt+F4, Alt+Esc system-wide while the launcher
-        // process owns the hook. If the addon isn't available (non-
-        // Windows dev / build tools missing), enable() returns false
-        // and we log a warning; the launcher still runs but kiosk
-        // can't truly block OS chords.
-        try {
-          const ok = keyblocker.enable()
-          if (!ok) console.warn('[kiosk] native key-blocker not active — Alt+Tab/Win key will not be blocked. Run "npm run rebuild:native" to enable.')
-        } catch (e) { console.error('[kiosk] keyblocker.enable failed:', e.message) }
-        // Physically hide the Windows taskbar (Shell_TrayWnd) so even if
-        // the user spams Alt+Tab and momentarily pulls focus away, the
-        // taskbar literally isn't there to be seen. Restored on disable
-        // / quit / crash via the will-quit handler below.
-        try { keyblocker.hideTaskbar() } catch (e) { console.error('[kiosk] hideTaskbar failed:', e.message) }
         // Emergency exit chord — registered only while kiosk is ON so we
         // don't permanently steal it. Registration failure is logged
         // but non-fatal (the admin toggle still works).
@@ -468,11 +437,6 @@ function createWindow(splash) {
         win.setSkipTaskbar(false)
         try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
         try { win.removeListener('focus', onKioskFocus) } catch (_) {}
-        // Tear down the native key-blocker hook so Alt+Tab/Win key
-        // work normally again outside kiosk.
-        try { keyblocker.disable() } catch (e) { console.error('[kiosk] keyblocker.disable failed:', e.message) }
-        // Restore the Windows taskbar.
-        try { keyblocker.showTaskbar() } catch (e) { console.error('[kiosk] showTaskbar failed:', e.message) }
         // Release the emergency chord (and any stray registrations).
         try { globalShortcut.unregisterAll() } catch (_) {}
         // Restore the normal frameless-maximized state. setKiosk(false)
@@ -1147,20 +1111,4 @@ app.on('window-all-closed', () => {
 // Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll() } catch (_) {}
-  try { keyblocker.disable() } catch (_) {}
-  // CRITICAL: always restore the taskbar on exit — even if kiosk was
-  // never enabled (cheap no-op) and especially if the launcher crashes
-  // out via uncaughtException -> app.exit. Without this the taskbar
-  // would stay invisible until the user logs out and back in.
-  try { keyblocker.showTaskbar() } catch (_) {}
-})
-
-// Belt-and-suspenders: a Node uncaughtException can skip will-quit on
-// some Electron exit paths. Force-show the taskbar then re-throw.
-process.on('uncaughtException', (err) => {
-  try { keyblocker.showTaskbar() } catch (_) {}
-  console.error('[uncaughtException]', err)
-})
-process.on('exit', () => {
-  try { keyblocker.showTaskbar() } catch (_) {}
 })

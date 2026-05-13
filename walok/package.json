@@ -12,9 +12,7 @@
     "dist": "npm run build && electron-builder",
     "dist:server": "cd server && npm run dist",
     "dist:server:fresh": "cd server && npm install && npm run dist",
-    "dist:all": "npm run dist && npm run dist:server && node scripts/collect-builds.js",
-    "rebuild:native": "electron-rebuild -m electron/native/keyblocker",
-    "postinstall": "electron-rebuild -m electron/native/keyblocker || echo \"keyblocker rebuild skipped (non-Windows or build tools missing) — kiosk will fall back to focus-snap\""
+    "dist:all": "npm run dist && npm run dist:server && node scripts/collect-builds.js"
   },
   "keywords": [],
   "author": "",
@@ -37,9 +35,6 @@
     "concurrently": "^8.2.2",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
-    "@electron/rebuild": "^3.6.0",
-    "node-addon-api": "^7.1.0",
-    "node-gyp": "^10.2.0",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.5.12",
     "sharp": "^0.34.5",
