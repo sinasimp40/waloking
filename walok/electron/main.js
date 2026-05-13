@@ -355,21 +355,29 @@ function createWindow(splash) {
   const onKioskFocus = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     try {
-      if (!win.isFullScreen()) {
-        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
-        try { win.setFullScreen(true) } catch (_) {}
-      }
-      win.setKiosk(true)
-      win.setAlwaysOnTop(true, 'screen-saver')
-      win.setSkipTaskbar(true)
-      // Belt-and-suspenders: force window bounds to cover the entire
-      // display (including the taskbar strip) in case the fullscreen
-      // transition was rejected and we're still clipped to work area.
+      // FORCE a fresh fullscreen+kiosk retransition every focus regain.
+      // After Alt+Tab on Win11, the window can stay technically
+      // fullScreen-flagged but the taskbar is repainted on top of it
+      // because Windows demoted our Z-order. Toggling kiosk/fullscreen
+      // OFF then ON forces Windows to re-enter exclusive fullscreen
+      // and pushes the taskbar back behind our window.
+      try { win.setKiosk(false) } catch (_) {}
+      try { win.setFullScreen(false) } catch (_) {}
+      try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
+      try { win.setFullScreen(true) } catch (_) {}
+      try { win.setKiosk(true) } catch (_) {}
+      // Re-assert always-on-top by demoting and re-promoting — Windows
+      // sometimes silently downgrades the screen-saver level after a
+      // task switch, so a flat re-call is a no-op; we have to break the
+      // current state first.
+      try { win.setAlwaysOnTop(false) } catch (_) {}
+      try { win.setAlwaysOnTop(true, 'screen-saver') } catch (_) {}
+      try { win.setSkipTaskbar(true) } catch (_) {}
       try {
         const d = screen.getPrimaryDisplay()
         win.setBounds(d.bounds)
       } catch (_) {}
-      win.moveTop()
+      try { win.moveTop() } catch (_) {}
     } catch (_) {}
   }
   const onKioskBlur = () => {
