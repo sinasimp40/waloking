@@ -382,6 +382,18 @@ function createWindow(splash) {
       try {
         if (!kioskState.enabled || win.isDestroyed()) return
         if (Date.now() < kioskState.suppressRefocusUntil) return
+        // Re-assert all kiosk window flags BEFORE focus snap so the
+        // launcher is still in fullscreen + alwaysOnTop state during
+        // the brief blur window — that way even if the user lingers
+        // on Alt+Tab the taskbar can't sneak in front of us.
+        try { win.setFullScreen(true) } catch (_) {}
+        win.setKiosk(true)
+        win.setAlwaysOnTop(true, 'screen-saver')
+        win.setSkipTaskbar(true)
+        try {
+          const d = screen.getPrimaryDisplay()
+          win.setBounds(d.bounds)
+        } catch (_) {}
         win.show()
         win.focus()
         win.moveTop()
