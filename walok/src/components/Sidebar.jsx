@@ -114,7 +114,7 @@ function TopPicks({ featuredGames }) {
       if (result.success) {
         toast.success(`Launching ${label}...`)
         incrementLaunchCount(game.id)
-        if (settings.autoCloseOnLaunch && window.electronAPI.closeWindow) {
+        if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
           setTimeout(() => window.electronAPI.closeWindow(), 1000)
         }
       } else {
@@ -312,7 +312,7 @@ function SocialMedia() {
     }
     // Mirror the auto-close behavior used by Top Picks / GameCard so the
     // launcher gets out of the way after the user opens an external link.
-    if (settings.autoCloseOnLaunch && window.electronAPI?.closeWindow) {
+    if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI?.closeWindow) {
       setTimeout(() => window.electronAPI.closeWindow(), 1000)
     }
   }
@@ -355,7 +355,7 @@ function OfficeApps() {
         toast.success(`Opening ${app.name}...`)
         // Honor the same auto-close setting Top Picks / GameCard use so the
         // launcher closes after launching a top-app shortcut.
-        if (settings.autoCloseOnLaunch && window.electronAPI.closeWindow) {
+        if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
           setTimeout(() => window.electronAPI.closeWindow(), 1000)
         }
       } else {

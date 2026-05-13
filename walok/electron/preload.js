@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getStatus: () => ipcRenderer.invoke('kiosk:get-status'),
     emergencyExit: () => ipcRenderer.invoke('kiosk:emergency-exit'),
   },
+  // app.restart relaunches the Electron app cleanly. Used by the kiosk
+  // toggle's enable path so the new window boots directly into
+  // fullscreen with no taskbar artifacts.
+  app: {
+    restart: () => ipcRenderer.invoke('app:restart'),
+  },
 
   ota: {
     getStatus: () => ipcRenderer.invoke('ota:get-status'),

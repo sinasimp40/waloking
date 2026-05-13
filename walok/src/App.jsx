@@ -105,13 +105,45 @@ export default function App() {
   // BrowserWindow state. Runs whenever settings.kioskMode changes (toggle
   // in admin panel) AND once on mount after the persisted store hydrates,
   // so a freshly-launched app picks up its saved kiosk preference.
-  // Mutex with autoCloseOnLaunch is enforced in updateSettings, so we
-  // can trust the value here without re-checking.
+  // When kiosk transitions OFF -> ON we restart the whole app so the
+  // brand-new window boots directly into kiosk fullscreen with no
+  // taskbar artifacts (the in-place fullscreen transition on a frameless
+  // window is unreliable on Windows; a fresh launch is bulletproof).
+  const prevKioskRef = React.useRef(settings.kioskMode)
+  const restartGenRef = React.useRef(0)
   useEffect(() => {
     if (!window.electronAPI?.kiosk?.set) return
-    const desired = !!settings.kioskMode && !settings.autoCloseOnLaunch
-    window.electronAPI.kiosk.set(desired).catch(() => {})
-  }, [settings.kioskMode, settings.autoCloseOnLaunch])
+    const wasOn = prevKioskRef.current
+    const isOn = !!settings.kioskMode
+    prevKioskRef.current = isOn
+    // Always bump the generation so any in-flight OFF->ON restart from a
+    // previous toggle is invalidated if the user flips kiosk again
+    // before it fires (architect-flagged cancellation gap).
+    const myGen = ++restartGenRef.current
+    if (!wasOn && isOn && window.electronAPI?.app?.restart) {
+      // Wait for the persisted state to actually land on disk before
+      // relaunching, otherwise the new process reads the stale
+      // pre-toggle blob and boots without kiosk. We pull the current
+      // zustand-persist blob from localStorage (the same payload
+      // fileBackedStorage writes) and invoke saveSettings directly so
+      // we get a real ACK from the main-process disk write.
+      ;(async () => {
+        try {
+          const raw = window.localStorage.getItem('example-cafe-storage')
+          if (raw && window.electronAPI?.saveSettings) {
+            const parsed = JSON.parse(raw)
+            await window.electronAPI.saveSettings(parsed)
+          }
+        } catch (_) {}
+        // If the user toggled again while saveSettings was awaiting,
+        // bail — the newer effect run owns the next decision.
+        if (myGen !== restartGenRef.current) return
+        try { window.electronAPI.app.restart() } catch (_) {}
+      })()
+      return
+    }
+    window.electronAPI.kiosk.set(isOn).catch(() => {})
+  }, [settings.kioskMode])
 
   useEffect(() => {
     async function detectIP() {

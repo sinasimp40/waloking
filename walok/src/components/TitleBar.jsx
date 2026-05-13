@@ -34,7 +34,7 @@ export default function TitleBar({ onOpenSaveLoad }) {
   // stays visible so the operator can still reach Settings to disable
   // kiosk; close/min/max are also blocked at the IPC level in
   // walok/electron/main.js, but hiding the UI removes the temptation.
-  const kioskActive = !!settings.kioskMode && !settings.autoCloseOnLaunch
+  const kioskActive = !!settings.kioskMode
 
   const isElectron = typeof window !== 'undefined' && window.electronAPI
 

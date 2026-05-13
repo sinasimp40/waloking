@@ -15,7 +15,7 @@ const GameCard = memo(function GameCard({ game }) {
   const incrementLaunchCount = useStore(s => s.incrementLaunchCount)
   const accentColor = useStore(s => s.settings.accentColor)
   const showNames = useStore(s => s.settings.showGameNames) !== false
-  const autoCloseOnLaunch = useStore(s => s.settings.autoCloseOnLaunch)
+  const autoCloseOnLaunch = useStore(s => s.settings.autoCloseOnLaunch || s.settings.kioskMode)
   const [isHovered, setIsHovered] = useState(false)
   const [imgError, setImgError] = useState(false)
   const [isPressed, setIsPressed] = useState(false)

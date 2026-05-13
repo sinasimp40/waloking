@@ -265,12 +265,10 @@ function createWindow(splash) {
   // Compute persisted kiosk intent up front so we can apply it INSIDE the
   // ready-to-show handler BEFORE win.show() — otherwise the user sees a
   // brief normal frame flash before kiosk takes over (architect-flagged
-  // boot-flash bug). Mirrors the renderer-side mutex defensively.
+  // boot-flash bug).
   let bootKiosk = false
   try {
-    const pK = !!(cachedSettings?.state?.settings?.kioskMode || cachedSettings?.settings?.kioskMode)
-    const pA = !!(cachedSettings?.state?.settings?.autoCloseOnLaunch || cachedSettings?.settings?.autoCloseOnLaunch)
-    bootKiosk = pK && !pA
+    bootKiosk = !!(cachedSettings?.state?.settings?.kioskMode || cachedSettings?.settings?.kioskMode)
   } catch (_) {}
 
   win.once('ready-to-show', () => {
@@ -455,15 +453,29 @@ function createWindow(splash) {
     return { success: true }
   })
 
+  // Clean app restart — used by the kiosk-enable flow so the new window
+  // boots directly into kiosk fullscreen with a fresh window state.
+  ipcMain.handle('app:restart', () => {
+    try {
+      // Tear kiosk down first so the relaunched process re-applies it
+      // fresh (and globalShortcut releases cleanly via will-quit).
+      if (kioskState.enabled) applyKiosk(false)
+      app.relaunch()
+      app.exit(0)
+    } catch (e) {
+      console.error('[app:restart] failed:', e.message)
+    }
+    return { success: true }
+  })
+
   ipcMain.handle('launch-game', async (event, filePath) => {
     try {
       if (!fs.existsSync(filePath)) {
         return { success: false, error: 'File not found' }
       }
       // Kiosk grace window — when a game launches while kiosk is on we
-      // must NOT yank focus back from the game. Suppress the kiosk
-      // blur-refocus for a few seconds so the game can take the
-      // foreground. Operator can still emergency-exit with the chord.
+      // must NOT yank focus back from the game (kept as a safety net
+      // even though kiosk now auto-closes the launcher on launch).
       kioskState.suppressRefocusUntil = Date.now() + 8000
       const ext = path.extname(filePath).toLowerCase()
       if (ext === '.bat' || ext === '.cmd') {

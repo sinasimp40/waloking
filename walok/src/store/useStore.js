@@ -124,17 +124,9 @@ const useStore = create(
 
       setLocalIP: (ips, hostname) => set({ localIPs: ips || [], localHostname: hostname || '' }),
 
-      updateSettings: (updates) => set((state) => {
-        // Centralized mutual-exclusion guard for autoCloseOnLaunch <-> kioskMode.
-        // Whichever the caller is *enabling in this update* wins — the other
-        // is force-cleared. This is the single source of truth so neither
-        // the UI nor a stale persisted state can ever produce the invalid
-        // both-true combination.
-        const next = { ...state.settings, ...updates }
-        if (updates.autoCloseOnLaunch === true) next.kioskMode = false
-        else if (updates.kioskMode === true) next.autoCloseOnLaunch = false
-        return { settings: next }
-      }),
+      updateSettings: (updates) => set((state) => ({
+        settings: { ...state.settings, ...updates }
+      })),
 
       getFilteredGames: () => {
         const { games, activeCategory, searchQuery } = get()
@@ -169,13 +161,7 @@ const useStore = create(
             ...(persistedState.settings || {}),
             uiZoom: Math.max(100, Math.min(200, persistedState.settings?.uiZoom || 100)),
             autoCloseOnLaunch: persistedState.settings?.autoCloseOnLaunch || false,
-            // Kiosk mode added in v31. Defensive mutex: if a buggy older
-            // build ever wrote both true, prefer autoClose (the older,
-            // safer behavior) and force kiosk off so the user can never
-            // boot into an impossible state.
-            kioskMode: persistedState.settings?.autoCloseOnLaunch
-              ? false
-              : !!persistedState.settings?.kioskMode,
+            kioskMode: !!persistedState.settings?.kioskMode,
             poweredBy: persistedState.settings?.poweredBy ?? 'EXAMPLE CAFE',
             socialLinks: Array.isArray(persistedState.settings?.socialLinks) ? persistedState.settings.socialLinks : [
               { id: '1', name: 'Facebook', icon: 'f', url: 'https://facebook.com', color: 'from-blue-500 to-blue-600' },

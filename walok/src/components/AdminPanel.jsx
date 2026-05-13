@@ -1236,23 +1236,20 @@ function SettingsSection() {
           <div><p className="font-rajdhani text-white/50 text-sm font-semibold">Auto-close launcher on game launch</p><p className="font-rajdhani text-white/30 text-xs">The launcher will close automatically after launching a game.</p></div>
           <ToggleSwitch checked={settings.autoCloseOnLaunch} onChange={() => updateSettings({ autoCloseOnLaunch: !settings.autoCloseOnLaunch })} />
         </div>
-        {/* Kiosk Mode — mutually exclusive with auto-close (the launcher
-            closing on launch makes a kiosk lock pointless). The toggle is
-            disabled while auto-close is on; the helper line below explains
-            why. Emergency exit chord is Ctrl+Shift+Alt+K (handled in
-            walok/electron/main.js). */}
+        {/* Kiosk Mode — locks the launcher in true 100vh fullscreen and
+            ALSO auto-closes the launcher on game launch (so the game can
+            take over the screen). Toggling on triggers an app restart so
+            the new window starts cleanly in fullscreen. Emergency exit:
+            Ctrl+Shift+Alt+K. */}
         <div className="flex items-center justify-between">
           <div>
             <p className="font-rajdhani text-white/50 text-sm font-semibold">Kiosk mode (fullscreen lock)</p>
             <p className="font-rajdhani text-white/30 text-xs">
-              {settings.autoCloseOnLaunch
-                ? 'Disabled because Auto-close is on. Turn off Auto-close to use Kiosk mode.'
-                : 'Locks the launcher full-screen and blocks Alt+Tab / Alt+F4 while focused. Emergency exit: Ctrl+Shift+Alt+K.'}
+              Locks fullscreen, blocks Alt+Tab, and auto-closes on game launch. Enabling restarts the launcher. Emergency exit: Ctrl+Shift+Alt+K.
             </p>
           </div>
           <ToggleSwitch
-            checked={!!settings.kioskMode && !settings.autoCloseOnLaunch}
-            disabled={!!settings.autoCloseOnLaunch}
+            checked={!!settings.kioskMode}
             onChange={() => updateSettings({ kioskMode: !settings.kioskMode })}
           />
         </div>
