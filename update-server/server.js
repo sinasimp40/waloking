@@ -289,7 +289,17 @@ function hasNpmBin(rootDir, name) {
 }
 function rootDepsInstalled() {
   if (!PROJECT_ROOT) return false
-  return hasNpmBin(PROJECT_ROOT, 'vite') && hasNpmBin(PROJECT_ROOT, 'electron-builder')
+  if (!hasNpmBin(PROJECT_ROOT, 'vite') || !hasNpmBin(PROJECT_ROOT, 'electron-builder')) return false
+  // Also verify a few non-bin runtime/build deps. Without these the
+  // operator can have vite + electron-builder present (e.g. from a
+  // partial install) but the build still fails with "Cannot find
+  // module 'X'". Adding them here makes the deps-banner correctly
+  // surface "Install Now" so the operator isn't stuck guessing.
+  const requiredModules = ['tailwindcss', 'autoprefixer', 'postcss', 'react', 'sharp']
+  for (const m of requiredModules) {
+    if (!fs.existsSync(path.join(PROJECT_ROOT, 'node_modules', m, 'package.json'))) return false
+  }
+  return true
 }
 function serverDepsInstalled() {
   if (!PROJECT_ROOT) return false
