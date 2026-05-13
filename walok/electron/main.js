@@ -241,6 +241,18 @@ function createSplashWindow() {
 }
 
 function createWindow(splash) {
+  // Compute persisted kiosk intent BEFORE constructing the BrowserWindow
+  // so we can pass fullscreen + kiosk as CONSTRUCTOR options. On Win11,
+  // toggling fullscreen on a frameless window AFTER creation is unreliable
+  // — the taskbar stays visible until the user clicks the window. Creating
+  // the window with fullscreen/kiosk from the start makes Windows enter
+  // real exclusive-fullscreen at construction, before the first paint, so
+  // the taskbar can never appear.
+  let bootKiosk = false
+  try {
+    bootKiosk = !!(cachedSettings?.state?.settings?.kioskMode || cachedSettings?.settings?.kioskMode)
+  } catch (_) {}
+
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
@@ -249,6 +261,11 @@ function createWindow(splash) {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#050510',
+    fullscreen: bootKiosk,
+    kiosk: bootKiosk,
+    simpleFullscreen: false,
+    alwaysOnTop: bootKiosk,
+    skipTaskbar: bootKiosk,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -262,22 +279,12 @@ function createWindow(splash) {
   mainWindow = win
   win.on('closed', () => { if (mainWindow === win) mainWindow = null })
 
-  // Compute persisted kiosk intent up front so we can apply it INSIDE the
-  // ready-to-show handler BEFORE win.show() — otherwise the user sees a
-  // brief normal frame flash before kiosk takes over (architect-flagged
-  // boot-flash bug).
-  let bootKiosk = false
-  try {
-    bootKiosk = !!(cachedSettings?.state?.settings?.kioskMode || cachedSettings?.settings?.kioskMode)
-  } catch (_) {}
-
   win.once('ready-to-show', () => {
-    // Show the window FIRST. On Windows, setFullScreen(true) on a hidden
-    // OR unfocused BrowserWindow is silently ignored — the window paints
-    // maximized (work area only) and the taskbar stays visible until the
-    // user manually focuses the app (e.g. by clicking the taskbar). We
-    // explicitly show + focus + moveTop, then defer kiosk to next tick
-    // so Windows has registered the focus before we request fullscreen.
+    // The window was constructed with fullscreen/kiosk already baked in
+    // when bootKiosk is true, so all we do here is show it and (for the
+    // kiosk path) wire up the focus/blur handlers and global-shortcut
+    // swallowers via applyKiosk. applyKiosk's setFullScreen/setKiosk
+    // calls are idempotent on an already-fullscreen window.
     if (!bootKiosk) win.maximize()
     win.show()
     if (splash && !splash.isDestroyed()) {
@@ -286,11 +293,7 @@ function createWindow(splash) {
     if (bootKiosk) {
       try { win.focus() } catch (_) {}
       try { win.moveTop() } catch (_) {}
-      // Small delay so Windows has dispatched the focus event before
-      // we transition to fullscreen — without this the very first
-      // boot still paints with the taskbar visible until the user
-      // clicks somewhere to give the window real focus.
-      setTimeout(() => { try { applyKiosk(true) } catch (_) {} }, 150)
+      try { applyKiosk(true) } catch (_) {}
     }
   })
 
