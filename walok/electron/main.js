@@ -8,7 +8,7 @@ let mainWindow = null
 // Module-scoped runtime kiosk state, mutated by applyKiosk() below.
 // Lives outside createWindow so window-recreate (macOS activate path)
 // can read the previous state if needed.
-const kioskState = { enabled: false }
+const kioskState = { enabled: false, suppressRefocusUntil: 0 }
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -338,6 +338,37 @@ function createWindow(splash) {
     if (k === 'f11') event.preventDefault()
   }
 
+  // Re-assert kiosk on focus events. Even with setKiosk(true) +
+  // alwaysOnTop, Windows can drop the launcher behind the taskbar after
+  // an Alt+Tab away-and-back. On every focus regain we re-apply kiosk
+  // window flags so the taskbar disappears again. On blur during kiosk,
+  // we immediately call focus() to yank attention back to the launcher.
+  const onKioskFocus = () => {
+    if (!kioskState.enabled || !win || win.isDestroyed()) return
+    try {
+      win.setKiosk(true)
+      win.setAlwaysOnTop(true, 'screen-saver')
+      win.setSkipTaskbar(true)
+      win.moveTop()
+    } catch (_) {}
+  }
+  const onKioskBlur = () => {
+    if (!kioskState.enabled || !win || win.isDestroyed()) return
+    // Skip refocus during the post-launch grace window so a freshly
+    // launched game can take the foreground without the launcher
+    // stealing focus back.
+    if (Date.now() < kioskState.suppressRefocusUntil) return
+    setImmediate(() => {
+      try {
+        if (!kioskState.enabled || win.isDestroyed()) return
+        if (Date.now() < kioskState.suppressRefocusUntil) return
+        win.show()
+        win.focus()
+        win.moveTop()
+      } catch (_) {}
+    })
+  }
+
   function applyKiosk(enabled) {
     if (!win || win.isDestroyed()) return
     const next = !!enabled
@@ -354,10 +385,26 @@ function createWindow(splash) {
         win.setAlwaysOnTop(true, 'screen-saver')
         win.setSkipTaskbar(true)
         win.webContents.on('before-input-event', beforeInputListener)
-        // Global emergency-exit chord. Registered only while kiosk is
-        // ON so we don't permanently steal the chord from the OS. If
-        // registration fails (another app already owns it) we log but
-        // don't block — the renderer-side admin toggle still works.
+        win.on('focus', onKioskFocus)
+        win.on('blur', onKioskBlur)
+        // Global shortcut swallowing. globalShortcut.register fires our
+        // (no-op) callback INSTEAD of the OS handling the chord, which
+        // blocks Alt+Tab and most Win-key combos while the launcher is
+        // focused. Each register is wrapped in try/catch because a
+        // failed registration on one chord must not skip the others.
+        const swallow = () => {} // no-op = chord absorbed
+        const chords = [
+          'Alt+Tab', 'Alt+Shift+Tab',
+          'Super+Tab', 'Super+D', 'Super+E', 'Super+R',
+          'Super+L', 'Super+M', 'Super+Shift+M',
+          'Alt+F4', 'Alt+Space',
+        ]
+        for (const c of chords) {
+          try { globalShortcut.register(c, swallow) } catch (_) {}
+        }
+        // Emergency exit chord — registered only while kiosk is ON so we
+        // don't permanently steal it. Registration failure is logged
+        // but non-fatal (the admin toggle still works).
         try {
           globalShortcut.register('Control+Shift+Alt+K', () => {
             try { applyKiosk(false) } catch (_) {}
@@ -369,7 +416,11 @@ function createWindow(splash) {
         win.setAlwaysOnTop(false)
         win.setSkipTaskbar(false)
         try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
-        try { globalShortcut.unregister('Control+Shift+Alt+K') } catch (_) {}
+        try { win.removeListener('focus', onKioskFocus) } catch (_) {}
+        try { win.removeListener('blur', onKioskBlur) } catch (_) {}
+        // Release every chord we registered above (plus the emergency
+        // chord). unregisterAll is the safest single call.
+        try { globalShortcut.unregisterAll() } catch (_) {}
         // Restore the normal frameless-maximized state. setKiosk(false)
         // can leave the window in an in-between size on some Windows
         // builds, so explicitly maximize.
@@ -398,6 +449,11 @@ function createWindow(splash) {
       if (!fs.existsSync(filePath)) {
         return { success: false, error: 'File not found' }
       }
+      // Kiosk grace window — when a game launches while kiosk is on we
+      // must NOT yank focus back from the game. Suppress the kiosk
+      // blur-refocus for a few seconds so the game can take the
+      // foreground. Operator can still emergency-exit with the chord.
+      kioskState.suppressRefocusUntil = Date.now() + 8000
       const ext = path.extname(filePath).toLowerCase()
       if (ext === '.bat' || ext === '.cmd') {
         const dir = path.dirname(filePath)

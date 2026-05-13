@@ -30,6 +30,11 @@ function SaveLoadTitleButton({ onOpen }) {
 
 export default function TitleBar({ onOpenSaveLoad }) {
   const { settings, openAdmin } = useStore()
+  // Hide minimize / maximize / close while kiosk is active. The admin gear
+  // stays visible so the operator can still reach Settings to disable
+  // kiosk; close/min/max are also blocked at the IPC level in
+  // walok/electron/main.js, but hiding the UI removes the temptation.
+  const kioskActive = !!settings.kioskMode && !settings.autoCloseOnLaunch
 
   const isElectron = typeof window !== 'undefined' && window.electronAPI
 
@@ -94,26 +99,28 @@ export default function TitleBar({ onOpenSaveLoad }) {
           ⚙
         </button>
 
-        <div className="flex items-center gap-0.5" style={{ WebkitAppRegion: 'no-drag' }}>
-          <button
-            onClick={minimize}
-            className="w-7 h-7 flex items-center justify-center text-white/55 hover:text-neon-orange hover:bg-neon-orange/5 rounded transition-all"
-          >
-            <Minus size={11} />
-          </button>
-          <button
-            onClick={maximize}
-            className="w-7 h-7 flex items-center justify-center text-white/55 hover:text-neon-orange hover:bg-neon-orange/5 rounded transition-all"
-          >
-            <Square size={9} />
-          </button>
-          <button
-            onClick={close}
-            className="w-7 h-7 flex items-center justify-center text-white/55 hover:text-red-500 hover:bg-red-500/5 rounded transition-all"
-          >
-            <X size={11} />
-          </button>
-        </div>
+        {!kioskActive && (
+          <div className="flex items-center gap-0.5" style={{ WebkitAppRegion: 'no-drag' }}>
+            <button
+              onClick={minimize}
+              className="w-7 h-7 flex items-center justify-center text-white/55 hover:text-neon-orange hover:bg-neon-orange/5 rounded transition-all"
+            >
+              <Minus size={11} />
+            </button>
+            <button
+              onClick={maximize}
+              className="w-7 h-7 flex items-center justify-center text-white/55 hover:text-neon-orange hover:bg-neon-orange/5 rounded transition-all"
+            >
+              <Square size={9} />
+            </button>
+            <button
+              onClick={close}
+              className="w-7 h-7 flex items-center justify-center text-white/55 hover:text-red-500 hover:bg-red-500/5 rounded transition-all"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
