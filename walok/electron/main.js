@@ -273,22 +273,24 @@ function createWindow(splash) {
 
   win.once('ready-to-show', () => {
     // Show the window FIRST. On Windows, setFullScreen(true) on a hidden
-    // BrowserWindow is silently ignored — the window paints maximized
-    // (work area only) and the taskbar stays visible until the user
-    // manually focuses the app. We accept a brief frame of the normal
-    // maximized window before kiosk takes over because that's vastly
-    // better than booting with the taskbar permanently visible.
+    // OR unfocused BrowserWindow is silently ignored — the window paints
+    // maximized (work area only) and the taskbar stays visible until the
+    // user manually focuses the app (e.g. by clicking the taskbar). We
+    // explicitly show + focus + moveTop, then defer kiosk to next tick
+    // so Windows has registered the focus before we request fullscreen.
     if (!bootKiosk) win.maximize()
     win.show()
     if (splash && !splash.isDestroyed()) {
       splash.close()
     }
     if (bootKiosk) {
-      // Defer to next tick so the show() transition completes before
-      // we request fullscreen — Windows needs a real visible window
-      // to perform the exclusive-fullscreen transition that hides
-      // the taskbar.
-      setImmediate(() => { try { applyKiosk(true) } catch (_) {} })
+      try { win.focus() } catch (_) {}
+      try { win.moveTop() } catch (_) {}
+      // Small delay so Windows has dispatched the focus event before
+      // we transition to fullscreen — without this the very first
+      // boot still paints with the taskbar visible until the user
+      // clicks somewhere to give the window real focus.
+      setTimeout(() => { try { applyKiosk(true) } catch (_) {} }, 150)
     }
   })
 
@@ -406,6 +408,12 @@ function createWindow(splash) {
         //   6. setBounds(primaryDisplay.bounds) — last-ditch guarantee:
         //      forces the window to physically cover the taskbar strip
         //      even if the fullscreen transition was rejected.
+        // Force focus FIRST — setFullScreen on an unfocused window is a
+        // silent no-op on Windows, which is why the user reported
+        // having to click the taskbar to "wake up" kiosk on first boot.
+        try { win.show() } catch (_) {}
+        try { win.focus() } catch (_) {}
+        try { win.moveTop() } catch (_) {}
         try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
         try { win.setFullScreen(true) } catch (_) {}
         win.setKiosk(true)
