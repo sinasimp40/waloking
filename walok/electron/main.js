@@ -529,16 +529,28 @@ function createWindow(splash) {
 
   // Clean app restart — used by the kiosk-enable flow so the new window
   // boots directly into kiosk fullscreen with a fresh window state.
+  // CRITICAL: previous version called app.exit(0) synchronously after
+  // app.relaunch(), which raced the singleton lock — the relaunched
+  // instance would hit requestSingleInstanceLock() before the old
+  // process fully released it, fail the lock, and immediately quit.
+  // Result: the launcher disappeared and never came back. We now:
+  //   1. return the IPC reply first so the renderer's await resolves
+  //   2. defer the relaunch + quit a tick so the IPC round-trip
+  //      completes
+  //   3. use app.quit() instead of app.exit() so the normal quit
+  //      lifecycle runs (will-quit fires, globalShortcuts release,
+  //      single-instance lock is released cleanly) before the
+  //      relaunched instance tries to claim it
   ipcMain.handle('app:restart', () => {
-    try {
-      // Tear kiosk down first so the relaunched process re-applies it
-      // fresh (and globalShortcut releases cleanly via will-quit).
-      if (kioskState.enabled) applyKiosk(false)
-      app.relaunch()
-      app.exit(0)
-    } catch (e) {
-      console.error('[app:restart] failed:', e.message)
-    }
+    setImmediate(() => {
+      try {
+        if (kioskState.enabled) applyKiosk(false)
+        app.relaunch()
+        app.quit()
+      } catch (e) {
+        console.error('[app:restart] failed:', e.message)
+      }
+    })
     return { success: true }
   })
 

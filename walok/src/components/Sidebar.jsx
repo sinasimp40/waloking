@@ -310,9 +310,11 @@ function SocialMedia() {
     } else {
       window.open(url, '_blank', 'noopener')
     }
-    // Mirror the auto-close behavior used by Top Picks / GameCard so the
-    // launcher gets out of the way after the user opens an external link.
-    if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI?.closeWindow) {
+    // Honor the auto-close setting for external link launches. NOTE:
+    // kioskMode intentionally does NOT close on social links — kiosk
+    // only auto-closes on actual game launches (a social link opens a
+    // browser, the user expects to come back to the launcher after).
+    if (settings.autoCloseOnLaunch && window.electronAPI?.closeWindow) {
       setTimeout(() => window.electronAPI.closeWindow(), 1000)
     }
   }
@@ -353,9 +355,11 @@ function OfficeApps() {
       const result = await window.electronAPI.launchGame(app.exePath)
       if (result.success) {
         toast.success(`Opening ${app.name}...`)
-        // Honor the same auto-close setting Top Picks / GameCard use so the
-        // launcher closes after launching a top-app shortcut.
-        if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
+        // Honor auto-close setting for office-app shortcuts. kioskMode is
+        // intentionally NOT included here — kiosk only auto-closes on
+        // actual GAME launches (where the game takes over the screen);
+        // launching Word/Excel shouldn't kick the user out of the kiosk.
+        if (settings.autoCloseOnLaunch && window.electronAPI.closeWindow) {
           setTimeout(() => window.electronAPI.closeWindow(), 1000)
         }
       } else {
