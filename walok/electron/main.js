@@ -380,11 +380,13 @@ function createWindow(splash) {
         // Kiosk uses a focus-grab strategy: setFullScreen + alwaysOnTop
         // + skipTaskbar to enter the locked surface, and the focus/blur
         // handlers below always yank focus back if the user Alt+Tabs or
-        // hits the Win key. The focus-steal is what enforces the lock —
-        // we don't try to win the fight to hide the taskbar perfectly,
-        // we just always pull the launcher back to the front so the
-        // user sees the launcher fullscreen at all times.
-        if (!win.isMaximized()) try { win.maximize() } catch (_) {}
+        // hits the Win key.
+        // unmaximize() FIRST: on Windows, calling setFullScreen(true)
+        // on an already-maximized frameless window is silently a no-op
+        // and the taskbar stays visible on first activation. Dropping
+        // the maximized state forces a real fullscreen transition so
+        // the very first toggle goes true 100vh with no taskbar.
+        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
         try { win.setFullScreen(true) } catch (_) {}
         win.setKiosk(true)
         win.setAlwaysOnTop(true, 'screen-saver')
