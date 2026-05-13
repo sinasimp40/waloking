@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut, screen } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 const fs = require('fs')
@@ -346,12 +346,19 @@ function createWindow(splash) {
   const onKioskFocus = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     try {
-      // setFullScreen(true) is what actually hides the Windows taskbar
-      // on a frameless window — setKiosk alone isn't enough on Win10/11.
-      if (!win.isFullScreen()) win.setFullScreen(true)
-      win.setKiosk(true)
       win.setAlwaysOnTop(true, 'screen-saver')
       win.setSkipTaskbar(true)
+      if (!win.isFullScreen()) {
+        // Same dance as the initial enable path: unmaximize first so
+        // Windows sees a real transition into exclusive fullscreen, then
+        // force bounds to cover the taskbar.
+        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
+        try { win.setFullScreen(true) } catch (_) {}
+        try {
+          const d = screen.getPrimaryDisplay()
+          win.setBounds(d.bounds)
+        } catch (_) {}
+      }
       win.moveTop()
     } catch (_) {}
   }
@@ -379,18 +386,32 @@ function createWindow(splash) {
     kioskState.enabled = next
     try {
       if (next) {
-        // setFullScreen(true) is REQUIRED on Windows for a frameless
-        // window — it's what actually pushes the launcher into exclusive
-        // fullscreen and hides the taskbar. setKiosk alone keeps the
-        // window in a frameless-maximized state where the taskbar
-        // remains visible at the bottom (this was the user-reported
-        // bug). Order matters: maximize first to lock the bounds, then
-        // fullscreen, then kiosk + alwaysOnTop + skipTaskbar.
-        if (!win.isMaximized()) try { win.maximize() } catch (_) {}
+        // Hiding the Windows taskbar from a FRAMELESS window is finicky.
+        // The bug the user kept hitting: calling setFullScreen(true) on
+        // an already-maximized frameless window is a no-op on Windows —
+        // the window stays clipped to the work area and the taskbar
+        // stays visible. Three steps make this bulletproof:
+        //   1. unmaximize() so Windows sees a real geometry change and
+        //      will perform an actual fullscreen transition.
+        //   2. setFullScreen(true) — enters exclusive fullscreen which
+        //      hides the taskbar on Win10/11.
+        //   3. setBounds(primaryDisplay.bounds) belt-and-suspenders:
+        //      forces the window to cover the taskbar even if the
+        //      fullscreen transition was somehow rejected.
+        // setKiosk(true) on Windows is essentially the same as
+        // setFullScreen(true), but we still call it so other
+        // setKiosk-aware code paths (e.g., devtool plugins) see the
+        // kiosk flag.
+        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
         try { win.setFullScreen(true) } catch (_) {}
-        win.setKiosk(true)
+        try {
+          const d = screen.getPrimaryDisplay()
+          win.setBounds(d.bounds)
+        } catch (_) {}
+        try { win.setKiosk(true) } catch (_) {}
         win.setAlwaysOnTop(true, 'screen-saver')
         win.setSkipTaskbar(true)
+        win.moveTop()
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
         win.on('blur', onKioskBlur)
@@ -419,11 +440,11 @@ function createWindow(splash) {
           })
         } catch (e) { console.error('[kiosk] failed to register emergency chord:', e.message) }
       } else {
-        // Tear down in reverse order: drop fullscreen FIRST so the
-        // window returns to a normal frameless-maximized state with the
-        // taskbar visible again.
+        // Tear down in reverse order: drop kiosk + fullscreen FIRST so
+        // the window returns to a normal frameless-maximized state with
+        // the taskbar visible again.
+        try { win.setKiosk(false) } catch (_) {}
         try { if (win.isFullScreen()) win.setFullScreen(false) } catch (_) {}
-        win.setKiosk(false)
         win.setAlwaysOnTop(false)
         win.setSkipTaskbar(false)
         try { win.webContents.removeListener('before-input-event', beforeInputListener) } catch (_) {}
