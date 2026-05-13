@@ -8,9 +8,11 @@ static Napi::Value NoOpFalse(const Napi::CallbackInfo& info) {
 }
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("enable",    Napi::Function::New(env, NoOpFalse));
-  exports.Set("disable",   Napi::Function::New(env, NoOpFalse));
-  exports.Set("isEnabled", Napi::Function::New(env, NoOpFalse));
+  exports.Set("enable",      Napi::Function::New(env, NoOpFalse));
+  exports.Set("disable",     Napi::Function::New(env, NoOpFalse));
+  exports.Set("isEnabled",   Napi::Function::New(env, NoOpFalse));
+  exports.Set("hideTaskbar", Napi::Function::New(env, NoOpFalse));
+  exports.Set("showTaskbar", Napi::Function::New(env, NoOpFalse));
   return exports;
 }
 

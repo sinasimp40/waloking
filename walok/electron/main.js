@@ -444,6 +444,11 @@ function createWindow(splash) {
           const ok = keyblocker.enable()
           if (!ok) console.warn('[kiosk] native key-blocker not active — Alt+Tab/Win key will not be blocked. Run "npm run rebuild:native" to enable.')
         } catch (e) { console.error('[kiosk] keyblocker.enable failed:', e.message) }
+        // Physically hide the Windows taskbar (Shell_TrayWnd) so even if
+        // the user spams Alt+Tab and momentarily pulls focus away, the
+        // taskbar literally isn't there to be seen. Restored on disable
+        // / quit / crash via the will-quit handler below.
+        try { keyblocker.hideTaskbar() } catch (e) { console.error('[kiosk] hideTaskbar failed:', e.message) }
         // Emergency exit chord — registered only while kiosk is ON so we
         // don't permanently steal it. Registration failure is logged
         // but non-fatal (the admin toggle still works).
@@ -466,6 +471,8 @@ function createWindow(splash) {
         // Tear down the native key-blocker hook so Alt+Tab/Win key
         // work normally again outside kiosk.
         try { keyblocker.disable() } catch (e) { console.error('[kiosk] keyblocker.disable failed:', e.message) }
+        // Restore the Windows taskbar.
+        try { keyblocker.showTaskbar() } catch (e) { console.error('[kiosk] showTaskbar failed:', e.message) }
         // Release the emergency chord (and any stray registrations).
         try { globalShortcut.unregisterAll() } catch (_) {}
         // Restore the normal frameless-maximized state. setKiosk(false)
@@ -1141,4 +1148,19 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll() } catch (_) {}
   try { keyblocker.disable() } catch (_) {}
+  // CRITICAL: always restore the taskbar on exit — even if kiosk was
+  // never enabled (cheap no-op) and especially if the launcher crashes
+  // out via uncaughtException -> app.exit. Without this the taskbar
+  // would stay invisible until the user logs out and back in.
+  try { keyblocker.showTaskbar() } catch (_) {}
+})
+
+// Belt-and-suspenders: a Node uncaughtException can skip will-quit on
+// some Electron exit paths. Force-show the taskbar then re-throw.
+process.on('uncaughtException', (err) => {
+  try { keyblocker.showTaskbar() } catch (_) {}
+  console.error('[uncaughtException]', err)
+})
+process.on('exit', () => {
+  try { keyblocker.showTaskbar() } catch (_) {}
 })

@@ -24,7 +24,9 @@ if (process.platform === 'win32') {
 module.exports = {
   available: !!mod,
   loadError: loadError ? loadError.message : null,
-  enable:    () => (mod ? mod.enable()    : false),
-  disable:   () => (mod ? mod.disable()   : false),
-  isEnabled: () => (mod ? mod.isEnabled() : false),
+  enable:      () => (mod ? mod.enable()      : false),
+  disable:     () => (mod ? mod.disable()     : false),
+  isEnabled:   () => (mod ? mod.isEnabled()   : false),
+  hideTaskbar: () => (mod ? mod.hideTaskbar() : false),
+  showTaskbar: () => (mod ? mod.showTaskbar() : false),
 };

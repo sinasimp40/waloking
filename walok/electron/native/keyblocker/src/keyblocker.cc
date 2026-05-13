@@ -58,10 +58,47 @@ static Napi::Value IsEnabled(const Napi::CallbackInfo& info) {
   return Napi::Boolean::New(info.Env(), g_hook != NULL);
 }
 
+// Hide / show the Windows taskbar by directly toggling the visibility
+// of the shell windows. We touch:
+//   - Shell_TrayWnd          : the primary taskbar
+//   - Shell_SecondaryTrayWnd : taskbars on additional monitors
+//   - Button "Start"         : the standalone Start button (Win10)
+// SW_HIDE makes them physically vanish; SW_SHOW restores them. This is
+// what every Windows kiosk app does (it's also exactly what AutoHotkey
+// kiosk scripts call). MUST be paired with a restore on quit / crash —
+// see the will-quit handler in main.js.
+static void SetTaskbarVisible(bool visible) {
+  int cmd = visible ? SW_SHOW : SW_HIDE;
+
+  HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
+  if (tray) ShowWindow(tray, cmd);
+
+  HWND startBtn = FindWindowExW(NULL, NULL, L"Button", L"Start");
+  if (startBtn) ShowWindow(startBtn, cmd);
+
+  // Walk every secondary taskbar (one per extra monitor).
+  HWND sec = NULL;
+  while ((sec = FindWindowExW(NULL, sec, L"Shell_SecondaryTrayWnd", NULL)) != NULL) {
+    ShowWindow(sec, cmd);
+  }
+}
+
+static Napi::Value HideTaskbar(const Napi::CallbackInfo& info) {
+  SetTaskbarVisible(false);
+  return Napi::Boolean::New(info.Env(), true);
+}
+
+static Napi::Value ShowTaskbar(const Napi::CallbackInfo& info) {
+  SetTaskbarVisible(true);
+  return Napi::Boolean::New(info.Env(), true);
+}
+
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("enable",    Napi::Function::New(env, Enable));
-  exports.Set("disable",   Napi::Function::New(env, Disable));
-  exports.Set("isEnabled", Napi::Function::New(env, IsEnabled));
+  exports.Set("enable",      Napi::Function::New(env, Enable));
+  exports.Set("disable",     Napi::Function::New(env, Disable));
+  exports.Set("isEnabled",   Napi::Function::New(env, IsEnabled));
+  exports.Set("hideTaskbar", Napi::Function::New(env, HideTaskbar));
+  exports.Set("showTaskbar", Napi::Function::New(env, ShowTaskbar));
   return exports;
 }
 
