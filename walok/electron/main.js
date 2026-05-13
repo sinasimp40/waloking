@@ -346,6 +346,9 @@ function createWindow(splash) {
   const onKioskFocus = () => {
     if (!kioskState.enabled || !win || win.isDestroyed()) return
     try {
+      // setFullScreen(true) is what actually hides the Windows taskbar
+      // on a frameless window — setKiosk alone isn't enough on Win10/11.
+      if (!win.isFullScreen()) win.setFullScreen(true)
       win.setKiosk(true)
       win.setAlwaysOnTop(true, 'screen-saver')
       win.setSkipTaskbar(true)
@@ -376,11 +379,15 @@ function createWindow(splash) {
     kioskState.enabled = next
     try {
       if (next) {
-        // setKiosk() is the canonical Electron API for kiosk mode — on
-        // Windows it removes the title bar, hides the taskbar, and
-        // forces fullscreen. We additionally setAlwaysOnTop with the
-        // 'screen-saver' level so a stray task switcher can't render
-        // above us, and skip the taskbar so Win+T can't pull focus.
+        // setFullScreen(true) is REQUIRED on Windows for a frameless
+        // window — it's what actually pushes the launcher into exclusive
+        // fullscreen and hides the taskbar. setKiosk alone keeps the
+        // window in a frameless-maximized state where the taskbar
+        // remains visible at the bottom (this was the user-reported
+        // bug). Order matters: maximize first to lock the bounds, then
+        // fullscreen, then kiosk + alwaysOnTop + skipTaskbar.
+        if (!win.isMaximized()) try { win.maximize() } catch (_) {}
+        try { win.setFullScreen(true) } catch (_) {}
         win.setKiosk(true)
         win.setAlwaysOnTop(true, 'screen-saver')
         win.setSkipTaskbar(true)
@@ -412,6 +419,10 @@ function createWindow(splash) {
           })
         } catch (e) { console.error('[kiosk] failed to register emergency chord:', e.message) }
       } else {
+        // Tear down in reverse order: drop fullscreen FIRST so the
+        // window returns to a normal frameless-maximized state with the
+        // taskbar visible again.
+        try { if (win.isFullScreen()) win.setFullScreen(false) } catch (_) {}
         win.setKiosk(false)
         win.setAlwaysOnTop(false)
         win.setSkipTaskbar(false)
