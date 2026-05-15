@@ -59,9 +59,48 @@ function restoreExplorer() {
     child.unref()
     kioskState.explorerKilled = false
     console.log('[kiosk] explorer.exe respawned — shell restored')
+    // Re-broadcast TaskbarCreated so tray-aware apps (Discord, Steam,
+    // Razer, OneDrive, antivirus, etc.) re-register their tray icons.
+    // Windows fires this automatically when explorer launches, but it
+    // races against app message loops — many tray apps miss the initial
+    // broadcast and end up with no icon until they're restarted.
+    // Re-broadcasting 1.5s and 4s after explorer respawn catches both
+    // fast and slow listeners.
+    rebroadcastTaskbarCreated(1500)
+    rebroadcastTaskbarCreated(4000)
   } catch (e) {
     console.error('[kiosk] restoreExplorer failed:', e.message)
   }
+}
+
+// Fires the `TaskbarCreated` window broadcast that tells tray-aware
+// apps to re-add their notification-area icons. Runs out-of-process via
+// PowerShell so we don't need a native addon. No-op on non-Windows.
+function rebroadcastTaskbarCreated(delayMs = 0) {
+  if (process.platform !== 'win32') return
+  const ps = `
+    $sig = @"
+      [DllImport("user32.dll", CharSet=CharSet.Auto, SetLastError=true)]
+      public static extern uint RegisterWindowMessage(string lpString);
+      [DllImport("user32.dll", SetLastError=true)]
+      public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+"@
+    Add-Type -MemberDefinition $sig -Name U -Namespace W -ErrorAction SilentlyContinue
+    $msg = [W.U]::RegisterWindowMessage("TaskbarCreated")
+    [W.U]::PostMessage([IntPtr]0xffff, $msg, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+  `.trim()
+  setTimeout(() => {
+    try {
+      const c = require('child_process').spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps],
+        { detached: true, stdio: 'ignore', windowsHide: true }
+      )
+      c.unref()
+    } catch (e) {
+      console.warn('[kiosk] rebroadcastTaskbarCreated failed:', e.message)
+    }
+  }, delayMs)
 }
 
 if (!app.requestSingleInstanceLock()) {
