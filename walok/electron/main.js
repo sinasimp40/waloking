@@ -580,14 +580,33 @@ function createWindow(splash) {
     return result.canceled ? null : result.filePaths[0]
   })
 
-  ipcMain.handle('open-external', async (event, url) => {
+  ipcMain.handle('open-external', async (event, url, browserExePath) => {
     try {
       const parsed = new URL(url)
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
         return { success: false, error: 'Only HTTP/HTTPS URLs are allowed' }
       }
+      // If the admin configured a custom browser .exe (portable Chrome,
+      // Firefox, Brave, etc.) launch THAT with the URL as an argument
+      // instead of shelling out to the OS default browser. Falls back
+      // to shell.openExternal on any spawn failure or when no custom
+      // path is configured.
+      if (browserExePath && typeof browserExePath === 'string' && browserExePath.trim()) {
+        const trimmed = browserExePath.trim()
+        if (!fs.existsSync(trimmed)) {
+          return { success: false, error: `Browser not found: ${trimmed}` }
+        }
+        try {
+          const child = spawn(trimmed, [url], { detached: true, stdio: 'ignore' })
+          child.on('error', (e) => console.error('[open-external] custom browser spawn error:', e.message))
+          child.unref()
+          return { success: true, opened: 'custom' }
+        } catch (e) {
+          console.error('[open-external] custom browser spawn failed, falling back to default:', e.message)
+        }
+      }
       await shell.openExternal(url)
-      return { success: true }
+      return { success: true, opened: 'default' }
     } catch (err) {
       return { success: false, error: err.message }
     }

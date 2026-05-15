@@ -306,7 +306,10 @@ function SocialMedia() {
   const handleClick = (url) => {
     if (!url || url === '#') return
     if (window.electronAPI?.openExternal) {
-      window.electronAPI.openExternal(url)
+      // Pass the admin-configured custom browser path (if any) so the
+      // main process spawns that browser instead of the OS default.
+      const browserPath = settings.customBrowserEnabled ? (settings.customBrowserPath || '') : ''
+      window.electronAPI.openExternal(url, browserPath)
     } else {
       window.open(url, '_blank', 'noopener')
     }

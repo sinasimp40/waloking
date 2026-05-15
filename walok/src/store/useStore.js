@@ -76,7 +76,16 @@ const useStore = create(
         pcGroups: [],
         igdbClientId: '10v1tjvitc8rlqrzwlprsjgk1ukogy',
         igdbClientSecret: 'eulj0ebeyc9uh6gtatamg63l6gdknj',
-        saveLoadServerUrl: ''
+        saveLoadServerUrl: '',
+        // Custom browser for social-media / external link buttons.
+        // When customBrowserEnabled is false (default), social link
+        // clicks fall through to shell.openExternal which uses the OS
+        // default browser. When true and customBrowserPath points at a
+        // valid .exe (portable Chrome/Firefox/Brave/etc.), the launcher
+        // spawns that .exe directly with the URL as an argument. Useful
+        // for cafes that ship a portable browser alongside the launcher.
+        customBrowserEnabled: false,
+        customBrowserPath: ''
       },
       activeCategory: 'all',
       searchQuery: '',

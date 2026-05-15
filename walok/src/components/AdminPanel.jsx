@@ -1088,6 +1088,49 @@ function SocialSection() {
     <SectionWrapper>
       <SectionTitle icon={Share2} title="Social Media Links" />
       <p className="font-rajdhani text-white/40 text-sm">Manage social media buttons in the sidebar.</p>
+
+      <CardBox highlight>
+        <h4 className="font-orbitron text-xs uppercase tracking-[0.15em]" style={{ color: `${accentColor}60` }}>Custom Browser</h4>
+        <p className="font-rajdhani text-white/40 text-xs">When OFF, social links open in the system default browser. When ON, they launch the selected .exe (portable Chrome, Brave, Firefox, etc.) with the URL.</p>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!settings.customBrowserEnabled}
+            onChange={e => updateSettings({ customBrowserEnabled: e.target.checked })}
+            className="w-4 h-4 accent-white/60 cursor-pointer"
+          />
+          <span className="font-rajdhani text-white/70 text-sm">Use a custom browser for social links</span>
+        </label>
+        {settings.customBrowserEnabled && (
+          <div>
+            <label className="block text-xs text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Browser EXE Path</label>
+            <div className="flex gap-1">
+              <InputField
+                value={settings.customBrowserPath || ''}
+                onChange={e => updateSettings({ customBrowserPath: e.target.value })}
+                placeholder="C:\\PortableApps\\Chrome\\chrome.exe"
+                className="flex-1"
+              />
+              <button
+                onClick={async () => {
+                  if (window.electronAPI?.selectFile) {
+                    const path = await window.electronAPI.selectFile([{ name: 'Executables', extensions: ['exe'] }])
+                    if (path) updateSettings({ customBrowserPath: path })
+                  } else {
+                    const path = prompt('Enter browser .exe path:')
+                    if (path) updateSettings({ customBrowserPath: path })
+                  }
+                }}
+                className="px-3 py-2 border border-white/[0.06] rounded-lg text-white/20 hover:text-white/50 transition-all"
+                title="Browse for browser .exe"
+              >
+                <ExternalLink size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </CardBox>
+
       <div className="space-y-2">
         {links.map((link) => (
           <div key={link.id} className="flex items-center gap-3 p-3 rounded-xl border transition-all" style={{ background: 'rgba(255,255,255,0.015)', borderColor: 'rgba(255,255,255,0.04)' }}>

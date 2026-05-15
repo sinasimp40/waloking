@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: (filters) => ipcRenderer.invoke('select-file', filters),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   selectImage: () => ipcRenderer.invoke('select-image'),
-  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openExternal: (url, browserExePath) => ipcRenderer.invoke('open-external', url, browserExePath),
   loadSettings: () => ipcRenderer.invoke('load-settings'),
   saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
   igdbSearch: (query, clientId, clientSecret) => ipcRenderer.invoke('igdb-search', query, clientId, clientSecret),
