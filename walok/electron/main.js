@@ -8,7 +8,7 @@ let mainWindow = null
 // Module-scoped runtime kiosk state, mutated by applyKiosk() below.
 // Lives outside createWindow so window-recreate (macOS activate path)
 // can read the previous state if needed.
-const kioskState = { enabled: false, suppressRefocusUntil: 0, explorerKilled: false, windowSnapshot: null }
+const kioskState = { enabled: false, suppressRefocusUntil: 0, explorerKilled: false }
 
 // ---------------------------------------------------------------------
 // Explorer.exe lifecycle (Option C — Windows kiosk hardening)
@@ -70,173 +70,6 @@ function restoreExplorer() {
     rebroadcastTaskbarCreated(4000)
   } catch (e) {
     console.error('[kiosk] restoreExplorer failed:', e.message)
-  }
-}
-
-// ---------------------------------------------------------------------
-// Taskbar-leak guard
-// ---------------------------------------------------------------------
-// When explorer.exe restarts it rebuilds the taskbar from scratch by
-// enumerating every visible top-level window. Apps that were running
-// with a hidden main window before kiosk (e.g. "Session" — a background
-// helper that uses ShowWindow(SW_HIDE) but keeps WS_EX_APPWINDOW set)
-// can end up flagged as taskbar windows by the fresh explorer even
-// though they were never on the taskbar before.
-//
-// Strategy: snapshot every existing top-level HWND + its taskbar
-// visibility BEFORE killing explorer. After explorer respawns, diff
-// the new taskbar list against the snapshot. Hide only HWNDs that:
-//   (a) existed before kiosk (so we never touch processes/windows
-//       created during kiosk — games launched on the way out, etc.),
-//   (b) were NOT taskbar-visible at snapshot time,
-//   (c) ARE taskbar-visible now.
-// These three predicates together identify exactly the windows that
-// "leaked" into the taskbar due to the explorer restart. Everything
-// else is left alone.
-//
-// Implementation runs out-of-process via PowerShell (Add-Type +
-// EnumWindows P/Invoke) so we don't need a native addon.
-function snapshotTopLevelWindowsSync() {
-  if (process.platform !== 'win32') return null
-  const ps = `
-$ErrorActionPreference = 'SilentlyContinue'
-Add-Type -TypeDefinition @"
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using System.Text;
-public class WX {
-    public delegate bool EnumProc(IntPtr h, IntPtr l);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
-    [DllImport("user32.dll", SetLastError=true)] public static extern int GetWindowLong(IntPtr h, int idx);
-    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);
-    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-    public class Entry { public long hwnd; public string title; public bool taskbar; }
-    public static List<Entry> Enum() {
-        var r = new List<Entry>();
-        EnumWindows((h, l) => {
-            int ex = GetWindowLong(h, -20);
-            IntPtr owner = GetWindow(h, 4);
-            bool vis = IsWindowVisible(h);
-            bool tool = (ex & 0x80) != 0;
-            bool appw = (ex & 0x40000) != 0;
-            int tlen = GetWindowTextLength(h);
-            var sb = new StringBuilder(256);
-            if (tlen > 0) GetWindowText(h, sb, 256);
-            bool taskbar = vis && !tool && (owner == IntPtr.Zero || appw) && tlen > 0;
-            r.Add(new Entry { hwnd = h.ToInt64(), title = sb.ToString(), taskbar = taskbar });
-            return true;
-        }, IntPtr.Zero);
-        return r;
-    }
-}
-"@ -ErrorAction SilentlyContinue
-$list = [WX]::Enum()
-$list | ForEach-Object { "{0}|{1}" -f $_.hwnd, $_.taskbar }
-  `.trim()
-  try {
-    const r = require('child_process').spawnSync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps],
-      { windowsHide: true, encoding: 'utf8', timeout: 8000 }
-    )
-    if (r.status !== 0) {
-      console.warn('[kiosk] snapshotTopLevelWindows exit code', r.status, (r.stderr || '').slice(0, 200))
-      return null
-    }
-    const out = (r.stdout || '').split(/\r?\n/).filter(Boolean)
-    const map = new Map()
-    for (const line of out) {
-      const [h, tb] = line.split('|')
-      const hn = Number(h)
-      if (Number.isFinite(hn)) map.set(hn, /true/i.test(tb))
-    }
-    console.log('[kiosk] window snapshot: ' + map.size + ' top-level windows captured')
-    return map
-  } catch (e) {
-    console.warn('[kiosk] snapshotTopLevelWindows failed:', e.message)
-    return null
-  }
-}
-
-// Re-enumerates top-level windows and hides any whose HWND was in the
-// snapshot, was NOT taskbar-visible at snapshot time, but IS taskbar-
-// visible now. HWNDs that didn't exist at snapshot time are skipped
-// entirely (they belong to processes/windows created during or after
-// kiosk and may legitimately want to be on the taskbar — e.g. a game
-// launched on kiosk exit).
-function hideLeakedTaskbarWindows(snapshot, delayMs = 0) {
-  if (process.platform !== 'win32') return
-  if (!snapshot || snapshot.size === 0) return
-  // Build a PS array of "hwnd|wasTaskbar" entries from the snapshot.
-  const entries = []
-  for (const [h, tb] of snapshot.entries()) entries.push(`${h}|${tb ? 1 : 0}`)
-  const snapshotLiteral = entries.map(s => `'${s}'`).join(',')
-  const ps = `
-$ErrorActionPreference = 'SilentlyContinue'
-Add-Type -TypeDefinition @"
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-using System.Text;
-public class WX2 {
-    public delegate bool EnumProc(IntPtr h, IntPtr l);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
-    [DllImport("user32.dll", SetLastError=true)] public static extern int GetWindowLong(IntPtr h, int idx);
-    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);
-    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
-    public class Entry { public long hwnd; public string title; public bool taskbar; }
-    public static List<Entry> Enum() {
-        var r = new List<Entry>();
-        EnumWindows((h, l) => {
-            int ex = GetWindowLong(h, -20);
-            IntPtr owner = GetWindow(h, 4);
-            bool vis = IsWindowVisible(h);
-            bool tool = (ex & 0x80) != 0;
-            bool appw = (ex & 0x40000) != 0;
-            int tlen = GetWindowTextLength(h);
-            var sb = new StringBuilder(256);
-            if (tlen > 0) GetWindowText(h, sb, 256);
-            bool taskbar = vis && !tool && (owner == IntPtr.Zero || appw) && tlen > 0;
-            r.Add(new Entry { hwnd = h.ToInt64(), title = sb.ToString(), taskbar = taskbar });
-            return true;
-        }, IntPtr.Zero);
-        return r;
-    }
-    public static void Hide(long h) { ShowWindow(new IntPtr(h), 0); }
-}
-"@ -ErrorAction SilentlyContinue
-$snap = @{}
-@(${snapshotLiteral || "''"}) | ForEach-Object {
-    if ($_ -match '^(\d+)\|(\d)$') { $snap[[long]$matches[1]] = ($matches[2] -eq '1') }
-}
-$now = [WX2]::Enum()
-foreach ($e in $now) {
-    if ($e.taskbar -and $snap.ContainsKey($e.hwnd) -and (-not $snap[$e.hwnd])) {
-        [WX2]::Hide($e.hwnd)
-        Write-Output ("HIDDEN: 0x{0:X} {1}" -f $e.hwnd, $e.title)
-    }
-}
-  `.trim()
-  // Prepend Start-Sleep + spawn detached so the leak guard survives
-  // Node exiting (user launches game in kiosk → launcher auto-closes →
-  // explorer respawns → we still need to hide the leaked windows even
-  // though our event loop is gone).
-  const psWithSleep = `Start-Sleep -Milliseconds ${Math.max(0, delayMs)}\n` + ps
-  try {
-    const c = require('child_process').spawn(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psWithSleep],
-      { detached: true, stdio: 'ignore', windowsHide: true }
-    )
-    c.unref()
-  } catch (e) {
-    console.warn('[kiosk] hideLeakedTaskbarWindows failed:', e.message)
   }
 }
 
@@ -678,10 +511,6 @@ function createWindow(splash) {
         } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
-        // Snapshot current top-level windows + their taskbar visibility
-        // BEFORE killing explorer, so the leak-guard on the way out can
-        // tell which windows were never supposed to be on the taskbar.
-        try { kioskState.windowSnapshot = snapshotTopLevelWindowsSync() } catch (_) { kioskState.windowSnapshot = null }
         // Kill the Windows shell so there's no taskbar, no Start menu,
         // and Alt+Tab has nothing useful to switch to. Restored on
         // applyKiosk(false) / will-quit / crash.
@@ -710,16 +539,6 @@ function createWindow(splash) {
         // Bring the Windows shell back so the user has a taskbar +
         // Start menu again outside of kiosk.
         restoreExplorer()
-        // After explorer rebuilds the taskbar, hide any pre-kiosk
-        // windows that leaked into it (e.g. background helpers that
-        // had hidden main windows and got re-shown by the fresh
-        // explorer). Two passes catch both fast and slow rebuilds.
-        const snap = kioskState.windowSnapshot
-        if (snap) {
-          hideLeakedTaskbarWindows(snap, 2000)
-          hideLeakedTaskbarWindows(snap, 5000)
-        }
-        kioskState.windowSnapshot = null
         // Restore the normal frameless-maximized state. setKiosk(false)
         // can leave the window in an in-between size on some Windows
         // builds, so explicitly maximize.
@@ -1407,34 +1226,22 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Fires the taskbar-leak guard on launcher exit paths. Same logic as
-// the admin-toggle off path, but runs detached so it survives Node
-// dying (the spawned PS sleeps and then enumerates windows).
-function fireExitLeakGuard() {
-  const snap = kioskState.windowSnapshot
-  if (!snap) return
-  try { hideLeakedTaskbarWindows(snap, 2000) } catch (_) {}
-  try { hideLeakedTaskbarWindows(snap, 5000) } catch (_) {}
-  kioskState.windowSnapshot = null
-}
-
+// Always release any kiosk-time globalShortcut registration on quit so
+// Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll() } catch (_) {}
   // CRITICAL: if kiosk killed explorer.exe, we MUST respawn it on every
   // exit path. Without this the cafe's machine boots into a black
   // wallpaper with no shell after the launcher closes.
   try { restoreExplorer() } catch (_) {}
-  fireExitLeakGuard()
 })
 
 // Belt-and-suspenders: an uncaughtException can skip will-quit on some
 // Electron exit paths. Force-restore the shell then log.
 process.on('uncaughtException', (err) => {
   try { restoreExplorer() } catch (_) {}
-  fireExitLeakGuard()
   console.error('[uncaughtException]', err)
 })
 process.on('exit', () => {
   try { restoreExplorer() } catch (_) {}
-  fireExitLeakGuard()
 })
