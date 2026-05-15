@@ -402,17 +402,30 @@ function createWindow(splash) {
   }
 
   // Re-assert kiosk on focus events. Even with setKiosk(true) +
-  // onKioskFocus used to re-assert setFullScreen / setKiosk / setBounds
-  // / moveTop on every focus event so the launcher couldn't be left
-  // behind the taskbar after an Alt+Tab. After moving to Option C (kill
-  // explorer.exe while kiosk runs) there is no shell to fight for focus
-  // anymore, AND the constant re-layout caused visible UI flicker in
-  // the sidebar (each setBounds/setFullScreen call forces React/CSS to
-  // re-paint). We keep the listener wired but make it a no-op — the
-  // hook is left in place so the wiring code in applyKiosk doesn't need
-  // a special-case removal path, and so we can resurrect it cheaply if
-  // future Windows behaviour requires it.
-  const onKioskFocus = () => { /* no-op (see comment above) */ }
+  // alwaysOnTop, Windows can drop the launcher behind the taskbar after
+  // an Alt+Tab away-and-back. On every focus regain we re-apply kiosk
+  // window flags so the taskbar disappears again. On blur during kiosk,
+  // we immediately call focus() to yank attention back to the launcher.
+  const onKioskFocus = () => {
+    if (!kioskState.enabled || !win || win.isDestroyed()) return
+    try {
+      if (!win.isFullScreen()) {
+        try { if (win.isMaximized()) win.unmaximize() } catch (_) {}
+        try { win.setFullScreen(true) } catch (_) {}
+      }
+      win.setKiosk(true)
+      win.setAlwaysOnTop(true, 'screen-saver')
+      win.setSkipTaskbar(true)
+      // Belt-and-suspenders: force window bounds to cover the entire
+      // display (including the taskbar strip) in case the fullscreen
+      // transition was rejected and we're still clipped to work area.
+      try {
+        const d = screen.getPrimaryDisplay()
+        win.setBounds(d.bounds)
+      } catch (_) {}
+      win.moveTop()
+    } catch (_) {}
+  }
   // Kiosk OS-chord blocking has been intentionally removed. Neither the
   // focus-snap blur handler (Option A) nor the native WH_KEYBOARD_LL
   // hook + taskbar-hide (Option B) reliably stopped Alt+Tab spam on
