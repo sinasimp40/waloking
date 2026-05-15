@@ -8,99 +8,102 @@ let mainWindow = null
 // Module-scoped runtime kiosk state, mutated by applyKiosk() below.
 // Lives outside createWindow so window-recreate (macOS activate path)
 // can read the previous state if needed.
-const kioskState = { enabled: false, suppressRefocusUntil: 0, explorerKilled: false }
+const kioskState = { enabled: false, suppressRefocusUntil: 0, taskbarHidden: false }
 
 // ---------------------------------------------------------------------
-// Explorer.exe lifecycle (Option C — Windows kiosk hardening)
+// Taskbar visibility (kiosk hardening — Shell_TrayWnd hide approach)
 // ---------------------------------------------------------------------
-// Killing explorer.exe removes the Windows shell entirely: no taskbar,
-// no Start menu, no system tray, no Alt+Tab visual switcher. This is
-// what classic Windows kiosk apps (and the MSFT-built Assigned Access
-// itself) do under the hood. The launcher becomes the only visible
-// surface. Caveats:
-//   - System tray icons (volume, network, etc.) disappear while shell
-//     is dead — acceptable for a cafe lockdown.
-//   - If the launcher hard-crashes, the cashier needs Ctrl+Shift+Esc
-//     → File → Run → "explorer.exe" to get the shell back. We wire
-//     up uncaughtException + process.on('exit') as belt-and-suspenders
-//     so a graceful Node crash still respawns the shell.
-//   - We track `explorerKilled` so we never double-kill or accidentally
-//     respawn explorer if we never killed it (e.g. user toggled kiosk
-//     off without ever turning it on).
+// Instead of killing explorer.exe (which loses tray icons and leaks
+// hidden background app windows into a fresh taskbar), we hide the
+// taskbar windows directly via ShowWindow(SW_HIDE):
+//   - Shell_TrayWnd          — primary taskbar (and Start button)
+//   - Shell_SecondaryTrayWnd — one per additional monitor
+// Explorer.exe stays alive so:
+//   - System tray icons keep working (volume, network, Discord, etc.)
+//   - Background apps that registered hidden windows stay hidden
+//   - No "TaskbarCreated" broadcast needed on the way out
+// Caveats vs. the explorer-kill approach:
+//   - Alt+Tab still works (the switcher UI runs in DWM/explorer); the
+//     launcher relies on alwaysOnTop('screen-saver') + setKiosk to keep
+//     the user from interacting with whatever they tab to.
+//   - Win+key chords routed by explorer (Win+R, Win+E, etc.) still
+//     fire — same trade-off.
+// We track `taskbarHidden` so toggling kiosk OFF without ever turning
+// it ON doesn't ShowWindow on a window we never touched.
 // All operations are no-ops on non-Windows.
-function killExplorer() {
-  if (process.platform !== 'win32') return
-  if (kioskState.explorerKilled) return
-  try {
-    const r = require('child_process').spawnSync('taskkill', ['/F', '/IM', 'explorer.exe'], { windowsHide: true })
-    // taskkill returns 128 if the process wasn't running — that's fine,
-    // it just means the shell was already down. Anything else logs.
-    if (r.status !== 0 && r.status !== 128) {
-      console.warn('[kiosk] taskkill explorer.exe exited with code', r.status, r.stderr && r.stderr.toString())
-    }
-    kioskState.explorerKilled = true
-    console.log('[kiosk] explorer.exe killed — shell is down')
-  } catch (e) {
-    console.error('[kiosk] killExplorer failed:', e.message)
-  }
-}
-
-function restoreExplorer() {
-  if (process.platform !== 'win32') return
-  if (!kioskState.explorerKilled) return
-  try {
-    // Spawn detached so explorer.exe outlives this Node process. Using
-    // `start` via cmd avoids inheriting the launcher's handles, which
-    // would tie explorer's lifetime to ours and immediately kill it
-    // when the launcher exits.
-    const child = require('child_process').spawn('cmd.exe', ['/c', 'start', '', 'explorer.exe'], {
-      detached: true, stdio: 'ignore', windowsHide: true,
-    })
-    child.unref()
-    kioskState.explorerKilled = false
-    console.log('[kiosk] explorer.exe respawned — shell restored')
-    // Re-broadcast TaskbarCreated so tray-aware apps (Discord, Steam,
-    // Razer, OneDrive, antivirus, etc.) re-register their tray icons.
-    // Windows fires this automatically when explorer launches, but it
-    // races against app message loops — many tray apps miss the initial
-    // broadcast and end up with no icon until they're restarted.
-    // Re-broadcasting 1.5s and 4s after explorer respawn catches both
-    // fast and slow listeners.
-    rebroadcastTaskbarCreated(1500)
-    rebroadcastTaskbarCreated(4000)
-  } catch (e) {
-    console.error('[kiosk] restoreExplorer failed:', e.message)
-  }
-}
-
-// Fires the `TaskbarCreated` window broadcast that tells tray-aware
-// apps to re-add their notification-area icons. Runs out-of-process via
-// PowerShell so we don't need a native addon. No-op on non-Windows.
-function rebroadcastTaskbarCreated(delayMs = 0) {
-  if (process.platform !== 'win32') return
+// Returns true on success (PS exited 0), false otherwise. Callers must
+// only flip kioskState.taskbarHidden on true so a failed restore leaves
+// the flag set and subsequent exit paths retry.
+function runTaskbarPS(action) {
+  if (process.platform !== 'win32') return false
+  // SW_HIDE = 0, SW_SHOW = 5
+  const state = action === 'hide' ? 0 : 5
   const ps = `
-    $sig = @"
-      [DllImport("user32.dll", CharSet=CharSet.Auto, SetLastError=true)]
-      public static extern uint RegisterWindowMessage(string lpString);
-      [DllImport("user32.dll", SetLastError=true)]
-      public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-"@
-    Add-Type -MemberDefinition $sig -Name U -Namespace W -ErrorAction SilentlyContinue
-    $msg = [W.U]::RegisterWindowMessage("TaskbarCreated")
-    [W.U]::PostMessage([IntPtr]0xffff, $msg, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -MemberDefinition @"
+[DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr FindWindow(string c, string n);
+[DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string n);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+"@ -Name TB -Namespace KX -ErrorAction SilentlyContinue
+$state = ${state}
+$tray = [KX.TB]::FindWindow("Shell_TrayWnd", $null)
+if ($tray -ne [IntPtr]::Zero) { [KX.TB]::ShowWindow($tray, $state) | Out-Null }
+# Win11 Start menu host
+$start = [KX.TB]::FindWindow("Windows.UI.Core.CoreWindow", "Start")
+if ($start -ne [IntPtr]::Zero) { [KX.TB]::ShowWindow($start, $state) | Out-Null }
+# Secondary taskbars (one per extra monitor)
+$prev = [IntPtr]::Zero
+while ($true) {
+    $h = [KX.TB]::FindWindowEx([IntPtr]::Zero, $prev, "Shell_SecondaryTrayWnd", $null)
+    if ($h -eq [IntPtr]::Zero) { break }
+    [KX.TB]::ShowWindow($h, $state) | Out-Null
+    $prev = $h
+}
   `.trim()
-  setTimeout(() => {
-    try {
-      const c = require('child_process').spawn(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps],
-        { detached: true, stdio: 'ignore', windowsHide: true }
-      )
-      c.unref()
-    } catch (e) {
-      console.warn('[kiosk] rebroadcastTaskbarCreated failed:', e.message)
+  try {
+    const r = require('child_process').spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps],
+      { windowsHide: true, timeout: 5000 }
+    )
+    if (r.status !== 0) {
+      console.warn('[kiosk] runTaskbarPS(' + action + ') exit', r.status, (r.stderr || '').toString().slice(0, 200))
+      return false
     }
-  }, delayMs)
+    return true
+  } catch (e) {
+    console.warn('[kiosk] runTaskbarPS(' + action + ') failed:', e.message)
+    return false
+  }
+}
+
+function hideTaskbar() {
+  if (process.platform !== 'win32') return
+  if (kioskState.taskbarHidden) return
+  const ok = runTaskbarPS('hide')
+  // Only mark hidden if PS actually succeeded; otherwise leave the flag
+  // false so a later toggle/exit doesn't try to "restore" something we
+  // never managed to hide.
+  if (ok) {
+    kioskState.taskbarHidden = true
+    console.log('[kiosk] taskbar hidden (Shell_TrayWnd + secondaries)')
+  }
+}
+
+function restoreTaskbar() {
+  if (process.platform !== 'win32') return
+  if (!kioskState.taskbarHidden) return
+  const ok = runTaskbarPS('show')
+  // Critical: only clear the flag on success. If show failed we want
+  // every subsequent exit path (will-quit → uncaughtException → exit)
+  // to keep retrying so the cafe machine never boots into a desktop
+  // with a permanently hidden taskbar.
+  if (ok) {
+    kioskState.taskbarHidden = false
+    console.log('[kiosk] taskbar restored')
+  } else {
+    console.warn('[kiosk] taskbar restore FAILED — flag kept set for retry')
+  }
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -511,10 +514,10 @@ function createWindow(splash) {
         } catch (_) {}
         win.webContents.on('before-input-event', beforeInputListener)
         win.on('focus', onKioskFocus)
-        // Kill the Windows shell so there's no taskbar, no Start menu,
-        // and Alt+Tab has nothing useful to switch to. Restored on
-        // applyKiosk(false) / will-quit / crash.
-        killExplorer()
+        // Hide the taskbar (Shell_TrayWnd + secondaries + Start). Keeps
+        // explorer.exe alive so tray icons and hidden background apps
+        // are untouched. Restored on applyKiosk(false) / will-quit / crash.
+        hideTaskbar()
         // Emergency exit chord — registered only while kiosk is ON so we
         // don't permanently steal it. Registration failure is logged
         // but non-fatal (the admin toggle still works).
@@ -536,9 +539,8 @@ function createWindow(splash) {
         try { win.removeListener('focus', onKioskFocus) } catch (_) {}
         // Release the emergency chord (and any stray registrations).
         try { globalShortcut.unregisterAll() } catch (_) {}
-        // Bring the Windows shell back so the user has a taskbar +
-        // Start menu again outside of kiosk.
-        restoreExplorer()
+        // Show the taskbar again outside of kiosk.
+        restoreTaskbar()
         // Restore the normal frameless-maximized state. setKiosk(false)
         // can leave the window in an in-between size on some Windows
         // builds, so explicitly maximize.
@@ -1230,18 +1232,18 @@ app.on('window-all-closed', () => {
 // Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll() } catch (_) {}
-  // CRITICAL: if kiosk killed explorer.exe, we MUST respawn it on every
-  // exit path. Without this the cafe's machine boots into a black
-  // wallpaper with no shell after the launcher closes.
-  try { restoreExplorer() } catch (_) {}
+  // CRITICAL: if kiosk hid the taskbar, we MUST show it again on every
+  // exit path. Without this the cafe's machine boots into a desktop
+  // with no taskbar after the launcher closes.
+  try { restoreTaskbar() } catch (_) {}
 })
 
 // Belt-and-suspenders: an uncaughtException can skip will-quit on some
-// Electron exit paths. Force-restore the shell then log.
+// Electron exit paths. Force-restore the taskbar then log.
 process.on('uncaughtException', (err) => {
-  try { restoreExplorer() } catch (_) {}
+  try { restoreTaskbar() } catch (_) {}
   console.error('[uncaughtException]', err)
 })
 process.on('exit', () => {
-  try { restoreExplorer() } catch (_) {}
+  try { restoreTaskbar() } catch (_) {}
 })
