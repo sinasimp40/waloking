@@ -453,17 +453,24 @@ function AnnouncementSlideshow() {
 
   return (
     <div className="mt-2 relative group">
-      <div
-        className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full"
-        style={{ aspectRatio: '16 / 9' }}
-      >
+      <div className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full">
         {images.map((img, i) => (
           <img
             key={i}
             src={img}
             alt={`Slide ${i + 1}`}
-            className="absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-700"
-            style={{ opacity: i === current ? 1 : 0 }}
+            className="rounded-lg transition-opacity duration-700"
+            style={{
+              maxWidth: '100%',
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              opacity: i === current ? 1 : 0,
+              position: i === 0 ? 'relative' : 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+            }}
           />
         ))}
         {images.length > 1 && (
