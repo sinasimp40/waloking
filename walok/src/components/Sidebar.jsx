@@ -462,7 +462,7 @@ function AnnouncementSlideshow() {
             key={i}
             src={img}
             alt={`Slide ${i + 1}`}
-            className="absolute inset-0 w-full h-full object-cover rounded-lg transition-opacity duration-700"
+            className="absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-700"
             style={{ opacity: i === current ? 1 : 0 }}
           />
         ))}
