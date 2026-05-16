@@ -303,38 +303,23 @@ function getSplashImage() {
 }
 
 function createSplashWindow() {
-  let bootKiosk = false
-  try {
-    bootKiosk = !!(cachedSettings?.state?.settings?.kioskMode || cachedSettings?.settings?.kioskMode)
-  } catch (_) {}
-
-  const splashOpts = bootKiosk
-    ? {
-        fullscreen: true,
-        frame: false,
-        transparent: false,
-        resizable: false,
-        alwaysOnTop: true,
-        skipTaskbar: true,
-        backgroundColor: '#050403',
-        webPreferences: { contextIsolation: true, nodeIntegration: false, webSecurity: false },
-        icon: path.join(__dirname, '../public/icon.ico'),
-      }
-    : {
-        width: 400,
-        height: 300,
-        frame: false,
-        transparent: true,
-        resizable: false,
-        alwaysOnTop: true,
-        skipTaskbar: false,
-        center: true,
-        backgroundColor: '#00000000',
-        webPreferences: { contextIsolation: true, nodeIntegration: false, webSecurity: false },
-        icon: path.join(__dirname, '../public/icon.ico'),
-      }
-
-  const splash = new BrowserWindow(splashOpts)
+  const splash = new BrowserWindow({
+    width: 400,
+    height: 300,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    center: true,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: false,
+    },
+    icon: path.join(__dirname, '../public/icon.ico'),
+  })
 
   let splashImg = getSplashImage()
   if (splashImg && splashImg.startsWith('file:///')) {
@@ -344,11 +329,8 @@ function createSplashWindow() {
   }
 
   const splashHtml = path.join(__dirname, 'splash.html')
-  const params = new URLSearchParams()
-  if (splashImg) params.set('img', splashImg)
-  if (bootKiosk) params.set('kiosk', '1')
-  const qs = params.toString()
-  splash.loadURL(`file://${splashHtml}${qs ? '?' + qs : ''}`)
+  const imgParam = splashImg ? `?img=${encodeURIComponent(splashImg)}` : ''
+  splash.loadURL(`file://${splashHtml}${imgParam}`)
   splash.show()
 
   return splash
