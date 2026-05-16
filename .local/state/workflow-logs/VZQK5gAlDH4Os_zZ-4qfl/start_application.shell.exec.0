@@ -1,0 +1,9 @@
+
+============================================
+  FATAL: OTA_ADMIN_PASSWORD is not set.
+============================================
+  Set it in .env or on the start.bat command line:
+    set OTA_ADMIN_PASSWORD=your-password-here
+    node server.js
+  (Use at least 8 characters in production.)
+============================================
