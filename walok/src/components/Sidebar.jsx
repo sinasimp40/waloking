@@ -65,6 +65,7 @@ export default function Sidebar() {
         .sidebar-scroll {
           scrollbar-width: thin;
           scrollbar-color: rgb(var(--accent-rgb) / 0.15) transparent;
+          scrollbar-gutter: stable;
         }
       `}</style>
     </div>
