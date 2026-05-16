@@ -436,6 +436,7 @@ function AnnouncementSlideshow() {
   const images = settings.announcementImages || []
   const interval = (settings.announcementSlideInterval || 5) * 1000
   const [current, setCurrent] = React.useState(0)
+  const [ready, setReady] = React.useState(false)
 
   React.useEffect(() => {
     if (images.length <= 1) return
@@ -449,48 +450,52 @@ function AnnouncementSlideshow() {
     if (current >= images.length) setCurrent(0)
   }, [images.length, current])
 
+  // Reset ready state whenever the image list changes so new images
+  // also fade in cleanly instead of jumping.
+  React.useEffect(() => {
+    setReady(false)
+  }, [images.length])
+
   if (images.length === 0) return null
 
   return (
-    <div className="mt-2 relative group">
-      <div
-        className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 w-full"
-        style={{ display: 'grid', gridTemplateColumns: '1fr', position: 'relative' }}
-      >
+    <div className="mt-2 relative group" style={{ opacity: ready ? 1 : 0, transition: 'opacity 400ms' }}>
+      <div className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full">
         {images.map((img, i) => (
           <img
             key={i}
             src={img}
             alt={`Slide ${i + 1}`}
+            className="rounded-lg transition-opacity duration-700"
+            onLoad={i === 0 ? () => setReady(true) : undefined}
             style={{
-              gridColumn: 1,
-              gridRow: 1,
+              maxWidth: '100%',
               width: '100%',
               height: 'auto',
               display: 'block',
               opacity: i === current ? 1 : 0,
-              transition: 'opacity 700ms',
-              borderRadius: '0.5rem',
+              position: i === 0 ? 'relative' : 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
             }}
           />
         ))}
         {images.length > 1 && (
-          <div style={{ gridColumn: 1, gridRow: 1, position: 'relative', pointerEvents: 'none' }}>
+          <>
             <button
               onClick={() => setCurrent((current - 1 + images.length) % images.length)}
               className="absolute left-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center bg-black/60 rounded-full text-white/60 hover:text-neon-orange opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{ pointerEvents: 'all' }}
             >
               <ChevronLeft size={10} />
             </button>
             <button
               onClick={() => setCurrent((current + 1) % images.length)}
               className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center bg-black/60 rounded-full text-white/60 hover:text-neon-orange opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{ pointerEvents: 'all' }}
             >
               <ChevronRight size={10} />
             </button>
-            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1" style={{ pointerEvents: 'all' }}>
+            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1">
               {images.map((_, i) => (
                 <button
                   key={i}
@@ -499,7 +504,7 @@ function AnnouncementSlideshow() {
                 />
               ))}
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>
