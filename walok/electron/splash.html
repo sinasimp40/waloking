@@ -16,6 +16,10 @@
       border: 1px solid rgba(255,106,0,0.15);
       border-radius: 12px;
     }
+    body.kiosk {
+      border: none;
+      border-radius: 0;
+    }
     .splash-container {
       display: flex;
       flex-direction: column;
@@ -70,6 +74,7 @@
   </div>
   <script>
     var params = new URLSearchParams(window.location.search);
+    if (params.get('kiosk') === '1') document.body.classList.add('kiosk');
     var imgPath = params.get('img');
     var logoArea = document.getElementById('logoArea');
     if (imgPath) {
