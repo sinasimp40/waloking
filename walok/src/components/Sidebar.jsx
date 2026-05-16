@@ -455,7 +455,7 @@ function AnnouncementSlideshow() {
     <div className="mt-2 relative group">
       <div
         className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 w-full"
-        style={{ display: 'grid', position: 'relative' }}
+        style={{ display: 'grid', gridTemplateColumns: '1fr', position: 'relative' }}
       >
         {images.map((img, i) => (
           <img
