@@ -453,39 +453,44 @@ function AnnouncementSlideshow() {
 
   return (
     <div className="mt-2 relative group">
-      <div className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full">
+      <div
+        className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 w-full"
+        style={{ display: 'grid', position: 'relative' }}
+      >
         {images.map((img, i) => (
           <img
             key={i}
             src={img}
             alt={`Slide ${i + 1}`}
-            className="rounded-lg transition-opacity duration-700"
             style={{
+              gridColumn: 1,
+              gridRow: 1,
               width: '100%',
               height: 'auto',
               display: 'block',
               opacity: i === current ? 1 : 0,
-              position: i === current ? 'relative' : 'absolute',
-              top: 0,
-              left: 0,
+              transition: 'opacity 700ms',
+              borderRadius: '0.5rem',
             }}
           />
         ))}
         {images.length > 1 && (
-          <>
+          <div style={{ gridColumn: 1, gridRow: 1, position: 'relative', pointerEvents: 'none' }}>
             <button
               onClick={() => setCurrent((current - 1 + images.length) % images.length)}
               className="absolute left-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center bg-black/60 rounded-full text-white/60 hover:text-neon-orange opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ pointerEvents: 'all' }}
             >
               <ChevronLeft size={10} />
             </button>
             <button
               onClick={() => setCurrent((current + 1) % images.length)}
               className="absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center bg-black/60 rounded-full text-white/60 hover:text-neon-orange opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ pointerEvents: 'all' }}
             >
               <ChevronRight size={10} />
             </button>
-            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1">
+            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-1" style={{ pointerEvents: 'all' }}>
               {images.map((_, i) => (
                 <button
                   key={i}
@@ -494,7 +499,7 @@ function AnnouncementSlideshow() {
                 />
               ))}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
