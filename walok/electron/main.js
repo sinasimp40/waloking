@@ -389,7 +389,26 @@ function createWindow(splash) {
     if (bootKiosk) {
       try { win.focus() } catch (_) {}
       try { win.moveTop() } catch (_) {}
-      try { applyKiosk(true) } catch (_) {}
+      // Window was constructed with fullscreen+kiosk already baked in —
+      // calling applyKiosk(true) would redundantly re-apply setFullScreen /
+      // setKiosk / setBounds and trigger a Chromium renderer resize event
+      // that briefly changes the CSS viewport width, causing Tailwind
+      // breakpoints to re-evaluate and the sidebar to flash a different
+      // width. Instead, wire up only the runtime state and event handlers.
+      try {
+        kioskState.enabled = true
+        win.setAlwaysOnTop(true, 'screen-saver')
+        win.setSkipTaskbar(true)
+        win.webContents.on('before-input-event', beforeInputListener)
+        win.on('focus', onKioskFocus)
+        hideTaskbar()
+        try {
+          globalShortcut.register('Control+Shift+Alt+K', () => {
+            try { applyKiosk(false) } catch (_) {}
+            try { win.webContents.send('kiosk:emergency-triggered') } catch (_) {}
+          })
+        } catch (e) { console.error('[kiosk] failed to register emergency chord:', e.message) }
+      } catch (e) { console.error('[kiosk] boot-kiosk setup failed:', e.message) }
     }
   })
 

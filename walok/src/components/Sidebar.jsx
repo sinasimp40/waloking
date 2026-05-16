@@ -436,7 +436,6 @@ function AnnouncementSlideshow() {
   const images = settings.announcementImages || []
   const interval = (settings.announcementSlideInterval || 5) * 1000
   const [current, setCurrent] = React.useState(0)
-  const [ready, setReady] = React.useState(false)
 
   React.useEffect(() => {
     if (images.length <= 1) return
@@ -450,16 +449,10 @@ function AnnouncementSlideshow() {
     if (current >= images.length) setCurrent(0)
   }, [images.length, current])
 
-  // Reset ready state whenever the image list changes so new images
-  // also fade in cleanly instead of jumping.
-  React.useEffect(() => {
-    setReady(false)
-  }, [images.length])
-
   if (images.length === 0) return null
 
   return (
-    <div className="mt-2 relative group" style={{ opacity: ready ? 1 : 0, transition: 'opacity 400ms' }}>
+    <div className="mt-2 relative group">
       <div className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full">
         {images.map((img, i) => (
           <img
@@ -467,7 +460,6 @@ function AnnouncementSlideshow() {
             src={img}
             alt={`Slide ${i + 1}`}
             className="rounded-lg transition-opacity duration-700"
-            onLoad={i === 0 ? () => setReady(true) : undefined}
             style={{
               maxWidth: '100%',
               width: '100%',
