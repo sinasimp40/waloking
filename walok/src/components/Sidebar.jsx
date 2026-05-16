@@ -453,7 +453,7 @@ function AnnouncementSlideshow() {
 
   return (
     <div className="mt-2 relative group">
-      <div className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full" style={{ aspectRatio: '16/9' }}>
+      <div className="rounded-lg overflow-hidden border border-neon-orange/10 bg-dark-500/50 relative w-full">
         {images.map((img, i) => (
           <img
             key={i}
@@ -461,14 +461,13 @@ function AnnouncementSlideshow() {
             alt={`Slide ${i + 1}`}
             className="rounded-lg transition-opacity duration-700"
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
               width: '100%',
-              height: '100%',
-              objectFit: 'cover',
+              height: 'auto',
               display: 'block',
               opacity: i === current ? 1 : 0,
+              position: i === current ? 'relative' : 'absolute',
+              top: 0,
+              left: 0,
             }}
           />
         ))}
