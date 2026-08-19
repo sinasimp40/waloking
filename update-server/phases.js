@@ -1,0 +1,138 @@
+// Build-phase model used by the admin progress bar (Task #17).
+//
+// A "phase" is a coarse, human-meaningful chunk of a customer build. The job
+// runner emits a STRUCTURED `phase` event on the per-job SSE stream every time
+// a phase starts (in addition to the existing per-line `line` events used by
+// the collapsible log view).
+//
+// Wire shape (one SSE `data:` event per phase boundary):
+//   { t, phase: '<id>', label: '<human label>',
+//     weight: <0..1>, weightSoFar: <0..1>, startedAt: <ms> }
+//
+// `weightSoFar` is the cumulative weight of all phases BEFORE this one — i.e.
+// where the progress bar should jump to at the moment this phase starts. The
+// admin UI then animates from `weightSoFar` toward `weightSoFar + weight`
+// over the phase's expected duration so the bar never freezes mid-step.
+//
+// Weights are RELATIVE proportions of total wall-clock time on a typical
+// operator machine (~90s per customer). They don't have to be precise — the
+// only invariant the UI cares about is that they sum to ~1.0 and that they
+// roughly reflect "where am I" so the bar advances monotonically.
+//
+// Phases ordered by execution sequence inside enqueueOneCustomerJob:
+//
+//   1. workspace      .build-jobs/<id>/ clone of the source tree
+//   2. rebrand        scripts/rebrand.js (find/replace + ICO gen) + logo sync
+//   3. vite           npm run build (vite production bundle for the renderer)
+//   4. pack-launcher  electron-builder for the launcher (zip + win-unpacked)
+//   5. pack-server    electron-builder for the companion server
+//   6. collect        copy artifacts into releases/<channel>/<version>/
+//   7. publish        scripts/publish-update.js (manifest + payload zips)
+const PHASES = [
+  { id: 'workspace',     label: 'Preparing workspace',         weight: 0.02 },
+  { id: 'rebrand',       label: 'Rebranding source',           weight: 0.03 },
+  { id: 'vite',          label: 'Bundling launcher (Vite)',    weight: 0.08 },
+  { id: 'pack-launcher', label: 'Packing launcher payload',    weight: 0.36 },
+  { id: 'pack-server',   label: 'Packing server payload',      weight: 0.36 },
+  { id: 'collect',       label: 'Collecting artifacts',        weight: 0.05 },
+  { id: 'publish',       label: 'Publishing to update server', weight: 0.10 },
+]
+
+// scripts/build-customer.js emits "[SUBSTEP_BEGIN] <label>" before each of
+// its inner steps. The runner reads those lines and re-broadcasts the
+// matching phase event. Keys MUST match the labels passed to substep() in
+// scripts/build-customer.js exactly.
+const SUBSTEP_TO_PHASE = {
+  'sync logo + rebrand source':   'rebrand',
+  'vite build (launcher)':        'vite',
+  'electron-builder (launcher)':  'pack-launcher',
+  'electron-builder (server)':    'pack-server',
+  'electron-builder (launcher + server parallel)': 'pack-launcher',
+  'collect artifacts':            'collect',
+}
+
+// Phases for the "Build From Uploaded Source" flow. The operator uploads a
+// launcher-source zip, server-source zip, or both. We emit a separate phase
+// timeline because the steps and weights are different from the workspace-
+// clone build above (we install deps fresh, possibly twice, and skip the
+// workspace clone entirely — the source ZIP IS the workspace).
+//
+// When only one kind is uploaded the unrelated build phases simply never
+// emit; the bar still advances monotonically because each phase's weightSoFar
+// is computed from its own predecessors only (see weightSoFar() below).
+const SOURCE_PHASES = [
+  { id: 'sb-extract',          label: 'Extracting source archive',  weight: 0.04 },
+  { id: 'sb-validate',         label: 'Validating source shape',    weight: 0.01 },
+  { id: 'sb-install-launcher', label: 'Installing launcher deps',   weight: 0.12 },
+  { id: 'sb-rebrand-launcher', label: 'Rebranding launcher',        weight: 0.02 },
+  { id: 'sb-build-launcher',   label: 'Building launcher',          weight: 0.30 },
+  { id: 'sb-pack-launcher',    label: 'Packing launcher payload',   weight: 0.06 },
+  { id: 'sb-install-server',   label: 'Installing server deps',     weight: 0.10 },
+  { id: 'sb-rebrand-server',   label: 'Rebranding server',          weight: 0.02 },
+  { id: 'sb-build-server',     label: 'Building server',            weight: 0.22 },
+  { id: 'sb-pack-server',      label: 'Packing server payload',     weight: 0.06 },
+  { id: 'sb-publish',          label: 'Publishing to update server',weight: 0.05 },
+]
+
+// Phases for the "Build Balok (Dev)" flow (POST /api/admin/build-balok).
+// Without these the admin card had no phase timeline at all, so the bar sat
+// on "Waiting in queue… 0%" for the whole run.
+const BALOK_DEV_PHASES = [
+  { id: 'bkd-prepare', label: 'Preparing Balok source',   weight: 0.05 },
+  { id: 'bkd-install', label: 'Installing Balok deps',    weight: 0.30 },
+  { id: 'bkd-build',   label: 'Building Balok (Vite)',    weight: 0.65 },
+]
+
+// Phases for the per-customer Balok build (POST /api/admin/build-balok-customer).
+const BALOK_CUSTOMER_PHASES = [
+  { id: 'bkc-workspace', label: 'Preparing workspace',         weight: 0.04 },
+  { id: 'bkc-install',   label: 'Installing deps',             weight: 0.12 },
+  { id: 'bkc-brand',     label: 'Applying customer branding',  weight: 0.06 },
+  { id: 'bkc-vite',      label: 'Building launcher (Vite)',    weight: 0.20 },
+  { id: 'bkc-pack-dist', label: 'Packing OTA payload',         weight: 0.06 },
+  { id: 'bkc-pack-app',  label: 'Packing launcher (Electron)', weight: 0.42 },
+  { id: 'bkc-publish',   label: 'Publishing to update server', weight: 0.10 },
+]
+
+// Every independent timeline. weightSoFar() resolves an id inside the timeline
+// that owns it, so each job type gets a monotonic 0→100% bar of its own.
+const TIMELINES = [PHASES, SOURCE_PHASES, BALOK_DEV_PHASES, BALOK_CUSTOMER_PHASES]
+
+// Combined lookup so phaseById works for both timelines without the caller
+// having to know which one owns the id.
+const ALL_PHASES = TIMELINES.reduce((acc, list) => acc.concat(list), [])
+
+
+function phaseById(id) {
+  return ALL_PHASES.find(p => p.id === id) || null
+}
+
+function weightSoFar(id) {
+  // Compute weightSoFar within whichever timeline owns this phase id, so the
+  // progress bar is monotonic per-job (a source-build job never sees the
+  // workspace-clone phases and vice versa).
+  const list = TIMELINES.find(l => l.some(p => p.id === id)) || PHASES
+  let acc = 0
+  for (const p of list) {
+    if (p.id === id) return acc
+    acc += p.weight
+  }
+  return acc
+}
+
+function totalWeight() {
+  return PHASES.reduce((acc, p) => acc + p.weight, 0)
+}
+
+
+module.exports = {
+  PHASES,
+  SOURCE_PHASES,
+  BALOK_DEV_PHASES,
+  BALOK_CUSTOMER_PHASES,
+  SUBSTEP_TO_PHASE,
+  phaseById,
+  weightSoFar,
+  totalWeight,
+}
+

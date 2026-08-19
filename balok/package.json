@@ -1,0 +1,89 @@
+{
+  "name": "game-launcher",
+  "version": "1.0.0",
+  "description": "Game Launcher",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite --port 5174 --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5174 && electron .\"",
+    "dist": "npm run build && electron-builder --win --dir",
+    "dist:server": "cd server && npm run dist",
+    "dist:all": "npm run dist && npm run dist:server && node scripts/collect-builds.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@electron/asar": "^4.2.1",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/orbitron": "^5.3.0",
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
+    "@fontsource/rajdhani": "^5.3.0",
+    "asar": "^3.2.0",
+    "dashjs": "^5.2.0",
+    "framer-motion": "^11.18.2",
+    "hls.js": "^1.6.16",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.441.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.6.0",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.4",
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1",
+    "postcss": "^8.5.26",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21",
+    "wait-on": "^7.2.0"
+  },
+  "overrides": {
+    "tar": "^7.5.20",
+    "shell-quote": "^1.8.4"
+  },
+  "build": {
+    "appId": "com.launcher.app",
+    "productName": "Launcher",
+    "asar": true,
+    "win": {
+      "target": [
+        "dir"
+      ],
+      "icon": "public/icon.ico",
+      "artifactName": "Balok-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    },
+    "directories": {
+      "output": "dist-electron"
+    },
+    "beforePack": "./scripts/integrity-beforepack.js",
+    "afterPack": "./scripts/integrity-postpack.js",
+    "afterSign": "./scripts/integrity-postpack.js",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "branding/ota-config.json",
+        "to": "ota-config.json"
+      }
+    ]
+  }
+}

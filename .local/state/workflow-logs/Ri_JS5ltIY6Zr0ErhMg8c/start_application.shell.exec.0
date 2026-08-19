@@ -1,0 +1,7 @@
+
+[db] FATAL: this Node version has no built-in node:sqlite and the
+[db] optional fallback better-sqlite3 is not installed.
+[db] Fix: upgrade to Node 22 or newer (recommended), or run
+[db]      npm install better-sqlite3   (needs VS C++ build tools)
+[db] Current Node: v20.20.0
+

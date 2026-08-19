@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EXAMPLE CAFE Server</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --accent: #ff6a00;
+      --accent-dim: rgba(255,106,0,0.6);
+      --accent-bg: rgba(255,106,0,0.08);
+      --accent-border: rgba(255,106,0,0.15);
+      --bg: #08080f;
+      --card: rgba(255,255,255,0.025);
+      --card-border: rgba(255,255,255,0.05);
+      --text: #d0d0d8;
+      --text-dim: rgba(255,255,255,0.35);
+      --green: #10b981;
+      --red: #ef4444;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+    .titlebar {
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      height: 40px;
+      flex-shrink: 0;
+      background: rgba(0,0,0,0.4);
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .titlebar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .titlebar-brand {
+      font-family: 'Orbitron', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.12em;
+    }
+
+    .titlebar-sep {
+      width: 1px;
+      height: 14px;
+      background: rgba(255,255,255,0.1);
+    }
+
+    .titlebar-sub {
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .titlebar-controls {
+      -webkit-app-region: no-drag;
+      display: flex;
+      gap: 2px;
+    }
+
+    .titlebar-controls button {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.35);
+      width: 32px;
+      height: 28px;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 16px;
+      line-height: 1;
+      transition: all 0.2s;
+    }
+
+    .titlebar-controls button:hover { background: rgba(255,255,255,0.08); color: white; }
+    .titlebar-controls button.close:hover { background: rgba(239,68,68,0.8); color: white; }
+
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 8px var(--red);
+      animation: pulse 2s infinite;
+    }
+
+    .status-dot.online {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .status-label {
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .status-label.online { color: var(--green); }
+    .status-label.offline { color: var(--red); }
+
+    .status-address {
+      margin-left: auto;
+      font-family: 'Orbitron', monospace;
+      font-size: 11px;
+      color: var(--green);
+      letter-spacing: 0.04em;
+      background: rgba(16,185,129,0.08);
+      border: 1px solid rgba(16,185,129,0.15);
+      padding: 4px 12px;
+      border-radius: 6px;
+    }
+
+    .server-controls {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-border), transparent);
+    }
+
+    .stat-card h4 {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--accent-dim);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-family: 'Orbitron', monospace;
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .stat-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .section {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .section-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--accent-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .config-body {
+      padding: 16px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .config-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .config-field label {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .config-field input {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 7px 12px;
+      outline: none;
+      transition: border-color 0.2s;
+      width: 160px;
+    }
+
+    .config-field input:focus { border-color: var(--accent-border); }
+
+    .config-field input.port { width: 80px; }
+
+    .btn {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .btn-accent:hover { box-shadow: 0 0 16px rgba(255,106,0,0.35); }
+
+    .btn-ghost {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--card-border);
+      color: var(--text-dim);
+    }
+
+    .btn-ghost:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+    .btn-red {
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.2);
+      color: var(--red);
+    }
+
+    .btn-red:hover { background: rgba(239,68,68,0.25); }
+
+    .btn-sm { font-size: 8px; padding: 5px 10px; }
+
+    .config-actions {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+      align-items: flex-end;
+      padding-top: 14px;
+    }
+
+    .users-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .users-table th {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--accent-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--card-border);
+      white-space: nowrap;
+    }
+
+    .users-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.02);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .users-table tr:hover td { background: rgba(255,106,0,0.02); }
+
+    .username-link {
+      cursor: pointer;
+      color: var(--text);
+      transition: color 0.2s;
+    }
+
+    .username-link:hover { color: var(--accent); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: 'Orbitron', monospace;
+      background: rgba(255,106,0,0.1);
+      color: var(--accent);
+      border: 1px solid var(--accent-border);
+    }
+
+    .empty-msg {
+      color: var(--text-dim);
+      text-align: center;
+      padding: 24px;
+      font-size: 13px;
+    }
+
+    .saves-row td {
+      padding: 0 14px 10px 36px !important;
+      border-bottom: 1px solid rgba(255,255,255,0.02);
+    }
+
+    .saves-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .save-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .save-item .game-name {
+      font-weight: 600;
+      color: rgba(255,255,255,0.65);
+      min-width: 100px;
+    }
+
+    .save-item .save-meta {
+      color: var(--text-dim);
+      flex: 1;
+    }
+
+    .td-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .footer {
+      flex-shrink: 0;
+      padding: 8px 18px;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .footer-brand {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      letter-spacing: 0.1em;
+      color: rgba(255,106,0,0.3);
+    }
+
+    /* === OTA UPDATE MODAL ===
+       Mirrors example-cafe/src/components/UpdateModal.jsx so the server dashboard
+       shows the SAME 5-4-3-2-1 countdown experience the launcher does.
+       Premium dark aesthetic to match the OTA admin panel:
+         bg/panel:    #0a0a0b backdrop, #131316 card
+         borders:     1px hairline rgba(white, 0.08)
+         accent:      #ff6a00 used SPARINGLY (brand dot, restart button only)
+         typography:  Inter / SF Pro stack, neutral text, no glow, no scanline */
+    .ota-overlay {
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(8, 8, 10, 0.72);
+      backdrop-filter: blur(12px) saturate(140%);
+      -webkit-backdrop-filter: blur(12px) saturate(140%);
+      display: none;
+      align-items: center; justify-content: center;
+      font-family: 'Inter', 'SF Pro Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -webkit-app-region: no-drag;
+    }
+    .ota-overlay.visible { display: flex; }
+    .ota-card {
+      width: 90%; max-width: 480px;
+      background: #131316;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 28px 32px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6),
+                  0 2px 8px rgba(0, 0, 0, 0.3);
+      color: #f5f5f6;
+      position: relative;
+    }
+    /* Top scan line is removed in premium mode — kept the element so the
+       JS doesn't need a structural change, but it renders as nothing. */
+    .ota-card-scan { display: none; }
+    .ota-kicker {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; letter-spacing: 0.12em;
+      color: #6b6b73; margin-bottom: 18px;
+      text-transform: uppercase; font-weight: 600;
+    }
+    .ota-kicker::before {
+      content: '';
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #ff6a00;
+      flex-shrink: 0;
+    }
+    .ota-card.error .ota-kicker::before { background: #ef4444; }
+    .ota-title {
+      margin: 0;
+      font-size: 22px; letter-spacing: -0.01em;
+      font-weight: 600; color: #f5f5f6;
+      line-height: 1.25;
+      font-family: inherit;
+      text-shadow: none;
+    }
+    .ota-card.error .ota-title { color: #f5f5f6; }
+    .ota-subtitle {
+      margin-top: 6px; font-size: 13px; color: #a1a1aa;
+      letter-spacing: 0; line-height: 1.45; opacity: 1;
+    }
+    /* Progress wrap is the slim track itself. We let the percent label
+       overflow below it (overflow:visible) so it can sit inline with the
+       status text on the row underneath, without restructuring the DOM. */
+    .ota-progress-wrap {
+      margin-top: 24px;
+      position: relative; height: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: none;
+      border-radius: 999px;
+      overflow: visible;
+    }
+    .ota-progress-bar {
+      width: 0%; height: 100%;
+      background: #ff6a00;
+      transition: width 0.3s ease-out;
+      box-shadow: none;
+      border-radius: 999px;
+    }
+    .ota-card.error .ota-progress-bar {
+      background: #ef4444;
+      box-shadow: none;
+    }
+    /* Shimmer animation removed in premium mode (kept the node so JS that
+       toggles .active doesn't error, just renders nothing). */
+    .ota-shimmer { display: none !important; }
+    /* Percent label sits BELOW the slim bar (top:100% pushes it down past
+       the 6px track), pinned to the right. The status text is padded on
+       the right so the two never collide. */
+    .ota-percent-label {
+      position: absolute;
+      top: 100%; right: 0;
+      margin-top: 12px;
+      inset: auto 0 auto auto;
+      display: inline-block;
+      font-size: 13px; font-weight: 600; letter-spacing: 0;
+      color: #f5f5f6; text-shadow: none;
+      pointer-events: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .ota-status-text {
+      margin-top: 12px;
+      padding-right: 56px;
+      font-size: 12px; color: #a1a1aa;
+      font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', 'Courier New', monospace;
+      letter-spacing: 0; min-height: 16px; word-break: break-word;
+    }
+    .ota-card.error .ota-status-text { color: #fca5a5; }
+    .ota-actions {
+      margin-top: 24px; display: none;
+      gap: 12px; justify-content: flex-end;
+      clear: both;
+    }
+    .ota-actions.visible { display: flex; }
+    .ota-restart-btn {
+      background: #ff6a00;
+      color: #fff; border: none;
+      padding: 9px 18px; border-radius: 8px;
+      font-weight: 600; font-size: 13px; letter-spacing: 0;
+      cursor: pointer; text-transform: none;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      font-family: inherit;
+      transition: background 0.15s ease;
+    }
+    .ota-restart-btn:hover { background: #ff7a1a; }
+    .ota-proceed-btn {
+      background: #ff6a00; color: #fff; border: none;
+      padding: 9px 18px; border-radius: 8px;
+      font-weight: 600; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+      transition: background 0.15s ease;
+    }
+    .ota-proceed-btn:hover { background: #ff7a1a; }
+    .ota-secondary-btn {
+      background: transparent; color: #a1a1aa;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 9px 16px; border-radius: 8px;
+      font-weight: 500; font-size: 13px;
+      cursor: pointer; font-family: inherit;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .ota-secondary-btn:hover { color: #f5f5f6; border-color: rgba(255,255,255,0.18); }
+    /* Operator-supplied release notes panel — sits between status text and
+       action buttons during stage='available'. Scrolls if the operator
+       pasted a long changelog. */
+    .ota-notes {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+      clear: both;
+    }
+    .ota-notes-label {
+      font-size: 10px; letter-spacing: 0.12em;
+      color: #6b6b73; text-transform: uppercase;
+      font-weight: 600; margin-bottom: 8px;
+    }
+    .ota-notes-body {
+      font-size: 13px; color: #e4e4e7; line-height: 1.55;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .ota-footer {
+      margin-top: 22px; padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11px; letter-spacing: 0.04em;
+      color: #6b6b73; text-transform: none;
+      text-align: center;
+      clear: both;
+    }
+  </style>
+</head>
+<body>
+  <!-- OTA UPDATE MODAL — hidden until an ota:* event arrives.
+       Mirrors UpdateModal.jsx structure 1:1 so the server matches the
+       launcher's UX (download progress, verify, apply, ready countdown). -->
+  <div class="ota-overlay" id="otaOverlay">
+    <div class="ota-card" id="otaCard">
+      <div class="ota-card-scan"></div>
+      <div class="ota-kicker" id="otaKicker">Update</div>
+      <h2 class="ota-title" id="otaTitle">Update</h2>
+      <div class="ota-subtitle" id="otaSubtitle"></div>
+      <div class="ota-progress-wrap">
+        <div class="ota-progress-bar" id="otaProgressBar"></div>
+        <div class="ota-shimmer" id="otaShimmer"></div>
+        <div class="ota-percent-label" id="otaPercent">0%</div>
+      </div>
+      <div class="ota-status-text" id="otaStatusText"></div>
+      <!-- Release-notes panel — only visible while stage='available'.
+           Operator types these in the OTA admin's "Release notes" prompt
+           and they ride along on the manifest's `notes` field. -->
+      <div class="ota-notes" id="otaNotes" style="display:none;">
+        <div class="ota-notes-label">What's new</div>
+        <div class="ota-notes-body" id="otaNotesBody"></div>
+      </div>
+      <div class="ota-actions" id="otaActions">
+        <button class="ota-secondary-btn" id="otaLaterBtn" style="display:none;">Later</button>
+        <button class="ota-proceed-btn" id="otaProceedBtn" style="display:none;">Proceed Update</button>
+        <button class="ota-restart-btn" id="otaRestartBtn">Restart now</button>
+      </div>
+      <div class="ota-footer" id="otaFooter">Installation is required — please wait</div>
+    </div>
+  </div>
+
+  <div class="titlebar">
+    <div class="titlebar-left">
+      <span class="titlebar-brand">EXAMPLE CAFE</span>
+      <div class="titlebar-sep"></div>
+      <span class="titlebar-sub">Server</span>
+      <span id="titlebarVersion" style="margin-left:10px; font-size:10px; color:rgba(255,255,255,0.35); letter-spacing:0.05em;"></span>
+    </div>
+    <div class="titlebar-controls">
+      <button onclick="window.serverAPI.minimizeToTray()" title="Minimize to tray">&#x2014;</button>
+      <button class="close" onclick="window.serverAPI.minimizeToTray()" title="Hide to tray">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="status-bar">
+      <div class="status-indicator">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-label offline" id="statusLabel">OFFLINE</span>
+      </div>
+      <div class="status-address" id="statusAddress" style="display:none;"></div>
+      <div class="server-controls">
+        <button class="btn btn-accent" id="startBtn">Start</button>
+        <button class="btn btn-red" id="stopBtn">Stop</button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h4>Users</h4>
+        <div class="stat-value" id="userCount">0</div>
+        <div class="stat-sub">Registered accounts</div>
+      </div>
+      <div class="stat-card">
+        <h4>Saves</h4>
+        <div class="stat-value" id="saveCount">0</div>
+        <div class="stat-sub">Game saves stored</div>
+      </div>
+      <div class="stat-card">
+        <h4>Storage</h4>
+        <div class="stat-value" id="storageSize">0 MB</div>
+        <div class="stat-sub">Total data stored</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Configuration</span>
+      </div>
+      <div class="config-body">
+        <div class="config-field">
+          <label>Host</label>
+          <input type="text" id="hostInput" value="0.0.0.0" placeholder="0.0.0.0" readonly style="opacity:0.5;cursor:not-allowed;">
+        </div>
+        <div class="config-field">
+          <label>Port</label>
+          <input type="number" id="portInput" value="3123" placeholder="3123" class="port">
+        </div>
+        <div class="config-actions">
+          <button class="btn btn-ghost" id="saveConfigBtn">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <div class="section-header">
+        <span class="section-title">Registered Users</span>
+      </div>
+      <div style="flex:1; overflow-y:auto;">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Username</th>
+              <th>Saves</th>
+              <th>Storage</th>
+              <th>Created</th>
+              <th>Last Login</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody">
+            <tr><td colspan="7" class="empty-msg">No users registered yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="footer-brand">POWERED BY EXAMPLE CAFE</span>
+    <span id="footerVersion">Save & Load Server</span>
+  </div>
+
+  <script>
+    let expandedUsers = {}
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 MB'
+      const mb = bytes / (1024 * 1024)
+      if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB'
+      if (mb >= 1) return mb.toFixed(1) + ' MB'
+      return (bytes / 1024).toFixed(0) + ' KB'
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '-'
+      const d = new Date(dateStr + 'Z')
+      return d.toLocaleString()
+    }
+
+    async function loadConfig() {
+      const config = await window.serverAPI.getConfig()
+      document.getElementById('hostInput').value = config.host || '0.0.0.0'
+      document.getElementById('portInput').value = config.port || 3123
+      if (window.serverAPI.getLocalIp) {
+        try {
+          const ip = await window.serverAPI.getLocalIp()
+          if (ip && ip !== '127.0.0.1') {
+            document.getElementById('hostInput').value = ip
+          }
+        } catch (e) {}
+      }
+    }
+
+    async function updateStatus() {
+      const status = await window.serverAPI.getServerStatus()
+      const dot = document.getElementById('statusDot')
+      const label = document.getElementById('statusLabel')
+      const addr = document.getElementById('statusAddress')
+
+      if (status.running) {
+        dot.classList.add('online')
+        label.className = 'status-label online'
+        label.textContent = 'ONLINE'
+        addr.style.display = 'block'
+        let displayHost = status.config.host
+        if (displayHost === '0.0.0.0' && window.serverAPI.getLocalIp) {
+          try { const ip = await window.serverAPI.getLocalIp(); if (ip && ip !== '127.0.0.1') displayHost = ip } catch (e) {}
+        }
+        addr.textContent = displayHost + ':' + status.config.port
+      } else {
+        dot.classList.remove('online')
+        label.className = 'status-label offline'
+        label.textContent = 'OFFLINE'
+        addr.style.display = 'none'
+      }
+    }
+
+    async function toggleUserSaves(userId, row) {
+      if (expandedUsers[userId]) {
+        const savesRow = document.getElementById('saves-row-' + userId)
+        if (savesRow) savesRow.remove()
+        delete expandedUsers[userId]
+        return
+      }
+
+      expandedUsers[userId] = true
+      const result = await window.serverAPI.getUserSaves(userId)
+
+      const savesRow = document.createElement('tr')
+      savesRow.id = 'saves-row-' + userId
+      savesRow.className = 'saves-row'
+
+      if (result.success && result.saves.length > 0) {
+        savesRow.innerHTML = '<td colspan="7"><div class="saves-list">' +
+          result.saves.map(s =>
+            '<div class="save-item">' +
+              '<span class="game-name">' + s.game_name + '</span>' +
+              '<span class="save-meta">' + formatBytes(s.archive_size) + ' &bull; ' + formatDate(s.updated_at) + '</span>' +
+              '<button class="btn btn-red btn-sm" onclick="deleteSave(' + s.id + ', ' + userId + ')">Del</button>' +
+            '</div>'
+          ).join('') +
+        '</div></td>'
+      } else {
+        savesRow.innerHTML = '<td colspan="7" style="padding-left:36px;color:rgba(255,255,255,0.25);font-size:12px;">No saves</td>'
+      }
+
+      row.parentNode.insertBefore(savesRow, row.nextSibling)
+    }
+
+    async function deleteUser(userId, username) {
+      if (!confirm('Delete user "' + username + '" and ALL their saves? This cannot be undone.')) return
+      const result = await window.serverAPI.deleteUser(userId)
+      if (result.success) {
+        delete expandedUsers[userId]
+        updateStats()
+      } else {
+        alert('Failed: ' + result.error)
+      }
+    }
+
+    async function deleteSave(saveId, userId) {
+      if (!confirm('Delete this save? This cannot be undone.')) return
+      const result = await window.serverAPI.deleteSave(saveId)
+      if (result.success) {
+        delete expandedUsers[userId]
+        updateStats()
+      } else {
+        alert('Failed: ' + result.error)
+      }
+    }
+
+    async function updateStats() {
+      const result = await window.serverAPI.getAdminStats()
+      if (result.success) {
+        document.getElementById('userCount').textContent = result.stats.users
+        document.getElementById('saveCount').textContent = result.stats.saves
+        document.getElementById('storageSize').textContent = formatBytes(result.stats.totalSize)
+
+        const tbody = document.getElementById('usersBody')
+        if (result.users && result.users.length > 0) {
+          tbody.innerHTML = result.users.map(u =>
+            '<tr id="user-row-' + u.id + '">' +
+              '<td>' + u.id + '</td>' +
+              '<td><span class="username-link" onclick="toggleUserSaves(' + u.id + ', this.closest(\'tr\'))">' + u.username + '</span></td>' +
+              '<td><span class="badge">' + u.saveCount + '</span></td>' +
+              '<td>' + formatBytes(u.totalSize) + '</td>' +
+              '<td>' + formatDate(u.created_at) + '</td>' +
+              '<td>' + formatDate(u.last_login_at) + '</td>' +
+              '<td><div class="td-actions">' +
+                '<button class="btn btn-ghost btn-sm" onclick="toggleUserSaves(' + u.id + ', document.getElementById(\'user-row-' + u.id + '\'))">Saves</button>' +
+                '<button class="btn btn-red btn-sm" onclick="deleteUser(' + u.id + ', \'' + u.username + '\')">Delete</button>' +
+              '</div></td>' +
+            '</tr>'
+          ).join('')
+        } else {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No users registered yet</td></tr>'
+        }
+      }
+    }
+
+    document.getElementById('saveConfigBtn').addEventListener('click', async () => {
+      const port = parseInt(document.getElementById('portInput').value)
+      await window.serverAPI.saveConfig({ host: '0.0.0.0', port })
+      alert('Configuration saved. Restart the server to apply changes.')
+    })
+
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const result = await window.serverAPI.startServer()
+      if (result.success) {
+        updateStatus()
+        setTimeout(updateStats, 500)
+      } else {
+        alert('Failed to start: ' + result.error)
+      }
+    })
+
+    document.getElementById('stopBtn').addEventListener('click', async () => {
+      const result = await window.serverAPI.stopServer()
+      if (result.success) {
+        updateStatus()
+      }
+    })
+
+    loadConfig()
+    updateStatus()
+    setTimeout(updateStats, 1000)
+    setInterval(() => { updateStatus(); updateStats(); }, 5000)
+
+    if (window.serverAPI && window.serverAPI.ota) {
+      // Brand string for the OTA modal kicker — pulled from ota-config.json
+      // via ota:get-status (NOT hardcoded). A rebrand-style update changes
+      // the brand on disk; reading it live ensures the modal always shows
+      // the current brand even immediately after an apply.
+      let otaBrand = ''
+      window.serverAPI.ota.getStatus()
+        .then(s => {
+          if (s && s.currentVersion) {
+            const el = document.getElementById('titlebarVersion')
+            if (el) el.textContent = 'v' + s.currentVersion
+            const fv = document.getElementById('footerVersion')
+            if (fv) fv.textContent = 'Save & Load Server  \u2022  v' + s.currentVersion
+          }
+          if (s && typeof s.brand === 'string' && s.brand.trim()) {
+            otaBrand = s.brand.trim()
+            const k = document.getElementById('otaKicker')
+            if (k) k.textContent = otaBrand
+          }
+        })
+        .catch(() => {})
+
+      // === OTA modal state ===
+      // Mirrors example-cafe/src/components/UpdateModal.jsx — same stages, same
+      // copy, same 5-second countdown wired to ota:restart on click or
+      // when the timer hits 0. The server emits the SAME ota:* IPC events
+      // the launcher does (broadcast() in example-cafe/server/electron/updater.js),
+      // so all we have to do here is subscribe and re-render.
+      const $ = (id) => document.getElementById(id)
+      const overlay = $('otaOverlay')
+      const card = $('otaCard')
+      const titleEl = $('otaTitle')
+      const subtitleEl = $('otaSubtitle')
+      const statusEl = $('otaStatusText')
+      const barEl = $('otaProgressBar')
+      const shimmerEl = $('otaShimmer')
+      const percentEl = $('otaPercent')
+      const actionsEl = $('otaActions')
+      const restartBtn = $('otaRestartBtn')
+      const footerEl = $('otaFooter')
+
+      let stage = 'idle'
+      let info = null
+      let progress = { downloaded: 0, total: 0, percent: 0 }
+      let errorMsg = ''
+      let countdown = null
+      let countdownTimer = null
+      let speed = 0
+      const speedTrack = { lastTime: 0, lastBytes: 0, samples: [] }
+      // One-shot guard: the countdown auto-fires restart at 0 AND the user
+      // can also click RESTART NOW. Without this, both paths would invoke
+      // the IPC, which calls app.relaunch() — a duplicate relaunch can
+      // double-spawn the OLD exe and confuse the OOP applier (architect
+      // recommendation). Latches true on first call; reset never needed
+      // because the process exits immediately afterwards.
+      let restartRequested = false
+      function requestRestartOnce() {
+        if (restartRequested) return
+        restartRequested = true
+        try { window.serverAPI.ota.restart() } catch (e) {}
+      }
+
+      function fmtBytes(n) {
+        if (!n || n <= 0) return '0 B'
+        const units = ['B', 'KB', 'MB', 'GB']
+        let i = 0, v = n
+        while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+        const dp = v >= 100 || i === 0 ? 0 : v >= 10 ? 1 : 2
+        return v.toFixed(dp) + ' ' + units[i]
+      }
+
+      function render() {
+        const isError = stage === 'error'
+        card.classList.toggle('error', isError)
+        const versionLabel = (info && (info.latestVersion || info.version)) || '?'
+        const currentVersion = (info && info.currentVersion) || ''
+
+        let title = 'Update', subtitle = '', statusText = ''
+        switch (stage) {
+          case 'available':
+            title = 'Update available'
+            subtitle = currentVersion ? ('v' + currentVersion + ' \u2192 v' + versionLabel) : ('v' + versionLabel)
+            statusText = 'Review the release notes below, then click Proceed Update.'
+            break
+          case 'downloading':
+            title = 'Downloading update'
+            subtitle = 'v' + currentVersion + ' \u2192 v' + versionLabel
+            statusText = fmtBytes(progress.downloaded) + ' of ' + fmtBytes(progress.total) +
+              (speed > 0 ? '   \u2022   ' + fmtBytes(speed) + '/s' : '')
+            break
+          case 'verifying':
+            title = 'Verifying integrity'
+            subtitle = 'v' + versionLabel
+            statusText = 'Checking SHA-256 signature\u2026'
+            break
+          case 'applying':
+            title = 'Applying update'
+            subtitle = 'v' + versionLabel
+            statusText = 'Staging files for next launch\u2026'
+            break
+          case 'ready':
+            title = 'Update ready'
+            subtitle = 'v' + currentVersion + ' \u2192 v' + versionLabel
+            statusText = countdown != null && countdown > 0
+              ? 'Restarting in ' + countdown + 's\u2026'
+              : 'Restarting now\u2026'
+            break
+          case 'error':
+            title = 'Update failed'
+            subtitle = 'Will retry automatically'
+            statusText = errorMsg
+            break
+        }
+
+        titleEl.textContent = title
+        subtitleEl.textContent = subtitle
+        subtitleEl.style.display = subtitle ? '' : 'none'
+        statusEl.textContent = statusText
+
+        const percent = (stage === 'verifying' || stage === 'applying' || stage === 'ready')
+          ? 100 : (progress.percent || 0)
+        barEl.style.width = percent + '%'
+        percentEl.textContent = percent + '%'
+        shimmerEl.classList.toggle('active', !isError && stage === 'downloading')
+
+        // Action-row visibility:
+        //   stage='available'  -> Later + Proceed Update (notes panel above)
+        //   stage='ready'      -> Restart now (with countdown)
+        //   everything else    -> no buttons
+        const notesEl = $('otaNotes')
+        const notesBody = $('otaNotesBody')
+        const proceedBtn = $('otaProceedBtn')
+        const laterBtn = $('otaLaterBtn')
+        if (stage === 'available') {
+          actionsEl.classList.add('visible')
+          notesEl.style.display = ''
+          notesBody.textContent = (info && (info.notes || (info.manifest && info.manifest.notes))) || ('Update v' + versionLabel)
+          proceedBtn.style.display = ''
+          laterBtn.style.display = ''
+          restartBtn.style.display = 'none'
+        } else if (stage === 'ready') {
+          actionsEl.classList.add('visible')
+          notesEl.style.display = 'none'
+          proceedBtn.style.display = 'none'
+          laterBtn.style.display = 'none'
+          restartBtn.style.display = ''
+          restartBtn.textContent = 'Restart now' +
+            (countdown != null && countdown > 0 ? ' (' + countdown + ')' : '')
+        } else {
+          actionsEl.classList.remove('visible')
+          notesEl.style.display = 'none'
+          proceedBtn.style.display = 'none'
+          laterBtn.style.display = 'none'
+          restartBtn.style.display = 'none'
+        }
+
+        footerEl.textContent = isError
+          ? 'Will retry on the next check cycle'
+          : 'Installation is required \u2014 please wait'
+      }
+
+      function show() { overlay.classList.add('visible') }
+
+      function startCountdown(n) {
+        if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+        countdown = n
+        render()
+        countdownTimer = setInterval(() => {
+          if (countdown == null) return
+          countdown -= 1
+          if (countdown <= 0) {
+            clearInterval(countdownTimer); countdownTimer = null
+            countdown = 0
+            render()
+            // Fire the same IPC the launcher fires when its countdown
+            // hits 0 — main-process restartApp() handles app.relaunch()
+            // and the rebrand-aware exe handoff. Guarded so it can't
+            // race with the RESTART NOW button click.
+            requestRestartOnce()
+            return
+          }
+          render()
+        }, 1000)
+      }
+
+      restartBtn.addEventListener('click', () => {
+        // Guarded so a click during the final countdown second can't
+        // race the auto-fire path and trigger app.relaunch() twice.
+        requestRestartOnce()
+      })
+
+      // "Proceed Update" — operator confirms; main process pulls the
+      // stashed manifest and runs download + apply. The next ota:* event
+      // (download-start) re-renders this overlay through the existing
+      // subscriptions below.
+      $('otaProceedBtn').addEventListener('click', () => {
+        try { window.serverAPI.ota.proceed() } catch (e) {}
+      })
+      // "Later" — drop the pending manifest in main and hide the overlay.
+      // Next poll / SSE push re-broadcasts ota:update-available so the
+      // operator can decide again.
+      $('otaLaterBtn').addEventListener('click', () => {
+        try { window.serverAPI.ota.dismiss() } catch (e) {}
+        overlay.classList.remove('visible')
+        stage = 'idle'
+      })
+
+      const api = window.serverAPI.ota
+      if (api && typeof api.on === 'function') {
+        api.on('ota:update-available', (data) => {
+          stage = 'available'; info = data || null; errorMsg = ''
+          progress = { downloaded: 0, total: 0, percent: 0 }
+          show(); render()
+        })
+        api.on('ota:download-start', (data) => {
+          stage = 'downloading'
+          progress = { downloaded: 0, total: (data && data.totalSize) || 0, percent: 0 }
+          speedTrack.lastTime = Date.now(); speedTrack.lastBytes = 0; speedTrack.samples = []
+          speed = 0
+          show(); render()
+        })
+        api.on('ota:download-progress', (p) => {
+          progress = p || progress
+          const now = Date.now()
+          const dt = (now - speedTrack.lastTime) / 1000
+          if (dt >= 0.4) {
+            const sample = (progress.downloaded - speedTrack.lastBytes) / dt
+            speedTrack.samples.push(sample)
+            if (speedTrack.samples.length > 5) speedTrack.samples.shift()
+            speed = speedTrack.samples.reduce((a, b) => a + b, 0) / speedTrack.samples.length
+            speedTrack.lastTime = now
+            speedTrack.lastBytes = progress.downloaded
+          }
+          render()
+        })
+        api.on('ota:verifying', () => { stage = 'verifying'; render() })
+        api.on('ota:applying', () => { stage = 'applying'; render() })
+        api.on('ota:ready-to-restart', (data) => {
+          stage = 'ready'
+          info = Object.assign({}, info || {}, data || {})
+          show()
+          // 5-4-3-2-1 countdown matches the launcher's UpdateModal.jsx.
+          startCountdown(5)
+        })
+        api.on('ota:error', (e) => {
+          errorMsg = (e && e.error) || 'Unknown error'
+          stage = 'error'
+          if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+          countdown = null
+          show(); render()
+        })
+      }
+    }
+  </script>
+</body>
+</html>

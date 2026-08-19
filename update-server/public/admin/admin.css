@@ -1,0 +1,2165 @@
+/* =====================================================================
+   OTA Admin Panel — Premium Dark Theme
+   Inspired by Linear / Vercel / Stripe Dashboard. Hairline borders,
+   generous whitespace, accent color used sparingly for emphasis only.
+   ===================================================================== */
+
+:root {
+  /* Surface palette — cool near-black with a hint of warmth so accent
+     orange still feels integrated rather than alien. */
+  --bg:           #0a0a0b;
+  --bg-elev-1:    #111113;
+  --bg-elev-2:    #16161a;
+  --bg-input:    rgba(255,255,255,0.03);
+  --bg-hover:    rgba(255,255,255,0.04);
+
+  /* Hairline borders — never thicker than 1px, never colored. */
+  --border:           rgba(255,255,255,0.06);
+  --border-strong:    rgba(255,255,255,0.10);
+  --border-focus:     rgba(255,106,0,0.45);
+
+  /* Accent — kept the brand orange but desaturated very slightly.
+     Used ONLY on primary CTAs, current-version chips, active progress.
+     Everything else is neutral. */
+  --accent:           #ff6a00;
+  --accent-hover:     #ff7d1f;
+  --accent-soft:      rgba(255,106,0,0.10);
+  --accent-ring:      rgba(255,106,0,0.18);
+
+  /* Semantic colors — refined, not neon. */
+  --success:          #34d399;
+  --success-soft:     rgba(52,211,153,0.10);
+  --warning:          #fbbf24;
+  --warning-soft:     rgba(251,191,36,0.10);
+  --error:            #f87171;
+  --error-soft:       rgba(248,113,113,0.10);
+  --info:             #60a5fa;
+  --info-soft:        rgba(96,165,250,0.10);
+
+  /* Text */
+  --text:             #f5f5f7;
+  --text-secondary:   #c4c4c8;
+  --text-muted:       #8a8a92;
+  --text-faint:       #5a5a62;
+
+  /* Type stack */
+  --font-sans: 'Inter', 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Mono', 'Consolas', monospace;
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* Shadows — soft elevation, no glow */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4);
+  --shadow-pop: 0 12px 32px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.45);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Product tab navigation (Walok / Balok) ─────────────────────────────────── */
+.product-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 28px;
+  margin-top: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.ptab {
+  position: relative;
+  padding: 8px 18px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: 600 13px/1 var(--font-sans);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  transition: color 0.15s;
+}
+.ptab:hover { color: var(--text-secondary); }
+.ptab.is-active {
+  color: var(--text);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--bg-elev-2);
+  margin-bottom: -1px;
+}
+.ptab.is-active::after {
+  content: '';
+  position: absolute;
+  inset: auto 6px -2px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+html, body { height: 100%; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  background-image:
+    radial-gradient(1200px 600px at 50% -200px, rgba(255,106,0,0.04), transparent 70%),
+    radial-gradient(800px 400px at 90% 100%, rgba(255,106,0,0.02), transparent 60%);
+  background-attachment: fixed;
+  color: var(--text);
+  min-height: 100vh;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.hidden { display: none !important; }
+.screen { min-height: 100vh; }
+.muted { color: var(--text-muted); font-size: 13px; line-height: 1.55; }
+.muted.small { font-size: 12px; }
+.error { color: var(--error); margin-top: 10px; font-size: 13px; min-height: 18px; line-height: 1.5; }
+.path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  /* On narrow screens this lives inside a flex item that can shrink to 0,
+     so ellipsis takes over instead of forcing the topbar to grow. The full
+     value is preserved in the DOM for copy/paste and hover-title. */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.lbl {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-right: 6px;
+}
+.build-stamp {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: color .15s;
+}
+.build-stamp:hover, .build-stamp:focus { color: var(--accent); }
+
+code {
+  font-family: var(--font-mono);
+  background: rgba(255,255,255,0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
+/* ============ LOGIN ============ */
+#login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 44px 40px;
+  position: relative;
+  box-shadow: var(--shadow-pop);
+}
+.login-card .kicker {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+.login-card h1 {
+  font-size: 28px;
+  letter-spacing: -0.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.login-card .sub {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+#login-form {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.footer-note {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.6;
+  text-align: center;
+}
+.footer-note code { font-size: 10px; color: var(--text-muted); }
+
+/* ============ INPUTS ============ */
+input[type=text],
+input[type=password],
+input[type=url],
+select,
+textarea {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 13px;
+  border-radius: var(--r-sm);
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+  appearance: none;
+}
+input::placeholder { color: var(--text-faint); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  background: rgba(255,255,255,0.04);
+}
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238a8a92' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+input[type=file] {
+  width: 100%;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+input[type=file]::file-selector-button {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  margin-right: 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background .15s, border-color .15s;
+}
+input[type=file]::file-selector-button:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+/* ============ BUTTONS ============ */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  transition: background .15s, border-color .15s, color .15s, transform .08s;
+  letter-spacing: 0;
+}
+button:active { transform: scale(0.98); }
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 18px;
+  font-size: 13px;
+  border-color: var(--accent);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1) inset, 0 1px 2px rgba(0,0,0,0.4);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn-primary.glow {
+  /* Saved for the high-emphasis BUILD ALL CUSTOMERS — uses a soft ring,
+     not the old neon look. */
+  box-shadow: 0 0 0 3px var(--accent-ring), 0 1px 0 rgba(255,255,255,0.1) inset;
+}
+
+.btn-secondary {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+  padding: 9px 16px;
+  font-size: 13px;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: rgba(255,255,255,0.16);
+}
+.btn-secondary.small { padding: 6px 12px; font-size: 12px; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+  padding: 9px 14px;
+  font-size: 12px;
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.btn-ghost.small { font-size: 11px; padding: 5px 10px; }
+
+.btn-danger {
+  background: transparent;
+  color: var(--error);
+  border-color: rgba(248,113,113,0.3);
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--error-soft);
+  border-color: rgba(248,113,113,0.5);
+}
+
+/* ============ TOPBAR ============ */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 28px;
+  background: rgba(10,10,11,0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-tag {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* hide text content; the tag is now a colored dot */
+  font-size: 0;
+  color: transparent;
+}
+.brand-name {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.topbar-info {
+  display: flex;
+  gap: 22px;
+  flex: 1;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  /* Lets each .topbar-info > div shrink past its content width so the
+     long Windows path gets ellipsis instead of pushing the topbar wider
+     than the viewport. */
+  min-width: 0;
+}
+.topbar-info > div {
+  display: flex;
+  align-items: center;
+  /* Each chip can shrink, but the version/build/deps chips have a sensible
+     minimum so their numeric values stay readable. The path chip is the
+     greedy one and absorbs any remaining width. */
+  min-width: 0;
+}
+.topbar-info > .topbar-path {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.topbar-info strong {
+  color: var(--text);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ============ BANNERS ============ */
+.banner {
+  margin: 16px 28px 0;
+  padding: 12px 16px;
+  border-radius: var(--r-sm);
+  background: var(--error-soft);
+  border: 1px solid rgba(248,113,113,0.25);
+  color: var(--error);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.banner-warn {
+  background: var(--warning-soft);
+  border-color: rgba(251,191,36,0.25);
+  color: var(--warning);
+}
+.btn-inline {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--warning);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.btn-inline:hover { filter: brightness(1.1); }
+.btn-inline:disabled { opacity: 0.6; cursor: not-allowed; }
+.install-deps-status {
+  margin-left: 8px;
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* ============ DEPS PILL ============ */
+.deps-pill {
+  font-size: 10px;
+  letter-spacing: 1px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+}
+.deps-pill.ok      { background: var(--success-soft); color: var(--success); border-color: rgba(52,211,153,0.25); }
+.deps-pill.partial { background: var(--warning-soft); color: var(--warning); border-color: rgba(251,191,36,0.25); }
+.deps-pill.missing { background: var(--error-soft);   color: var(--error);   border-color: rgba(248,113,113,0.25); }
+
+/* ============ WORKSPACE SHELL ============
+   Two-column layout: the main grid on the left holds the operator's
+   primary actions (version control, customers, source-build form), while
+   the right-hand dock-sidebar pins the live build operations (queue +
+   consoles). The sidebar is independently scrollable and stays put as
+   the operator scrolls the main column — so a long customer list never
+   buries the running builds. Below the 1200px breakpoint the sidebar
+   reflows back UNDER the main column (handled below).
+*/
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 18px;
+  padding: 24px 28px 48px;
+  max-width: 1700px;
+  margin: 0 auto;
+  align-items: start;
+}
+.dock-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  /* Sit just under the topbar so the operator can always see queue +
+     active console without scrolling. 16px breathing room. */
+  top: 16px;
+  /* Cap height to viewport so an overflowing console list scrolls inside
+     the dock instead of pushing the page taller than the screen. */
+  max-height: calc(100vh - 32px);
+  min-width: 0;
+}
+.dock-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dock-panel .panel-body {
+  overflow-y: auto;
+  /* Belt-and-suspenders: the dock is only 420px wide on desktop, narrower
+     than some of our internal grids historically wanted. Without this,
+     wide content (cancel buttons, long job IDs) silently clips at the
+     right edge instead of wrapping or scrolling. We prefer wrap (handled
+     by the inner layouts) and use hidden here purely to catch regressions. */
+  overflow-x: hidden;
+  min-width: 0;
+  /* The console-card list inside #consoles-area can grow tall. Letting
+     just the body scroll keeps the panel-head sticky-visible. */
+  max-height: 100%;
+}
+
+/* ============ MAIN GRID ============ */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  min-width: 0;
+}
+.panel {
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+.panel.full { grid-column: 1 / -1; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-head h2 {
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+.panel-body { padding: 20px; }
+.action-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.action-row .small { font-size: 12px; line-height: 1.5; flex: 1; min-width: 200px; color: var(--text-muted); }
+.version-row { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.version-row input { flex: 1; }
+
+/* ============ UPDATE SOURCE FILES (master source replace) ============ */
+/* Two side-by-side cards (launcher / server). Each card carries a status
+ * pill telling the operator whether the source is on disk + how recently
+ * it was replaced. The replace action is local to each card so a launcher
+ * upload never blocks or interferes with a server upload. */
+.source-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 14px;
+}
+.source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+/* Unified "Update Project Source" card — sits ABOVE the per-piece
+ * advanced uploads. Visually emphasised because it's the recommended
+ * default flow ("zip walok/, upload once, done"). */
+.source-card-primary {
+  margin-top: 14px;
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1);
+}
+.recommended-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #fff;
+  background: #2563eb;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+.source-advanced {
+  margin-top: 18px;
+  border-top: 1px dashed var(--border);
+  padding-top: 14px;
+}
+.source-advanced > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+  padding: 4px 0;
+}
+.source-advanced > summary:hover {
+  color: var(--text);
+}
+.source-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.source-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+.source-card-target {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.source-card-target code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.source-card-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 22px;
+}
+.src-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  border: 1px solid var(--border);
+}
+.src-pill.ok {
+  background: rgba(34, 197, 94, 0.10);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #5fd388;
+}
+.src-pill.missing {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f5b35d;
+}
+.src-pill.partial {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #ff7878;
+  font-weight: 600;
+  cursor: help;
+}
+.src-warn { color: #ef9a9a; font-size: 12px; }
+.source-card-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.source-card-form input[type="file"] {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.source-card-form button {
+  align-self: flex-start;
+  min-width: 200px;
+}
+.source-card-error:empty { display: none; }
+
+/* Unified upload + extract progress bar — upload phase fills 0–60% with real
+ * byte progress, then the extract phase smoothly animates 60–99% until the
+ * server responds with the final result. */
+.upload-progress {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.upload-progress.hidden { display: none; }
+.upload-progress-track {
+  height: 8px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.upload-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 999px;
+  transition: width 120ms ease-out;
+  box-shadow: 0 0 8px var(--accent-soft);
+}
+.upload-progress-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+.upload-progress-phase { font-weight: 500; color: var(--text-primary); }
+.upload-progress-pct { font-weight: 600; color: var(--accent); min-width: 42px; }
+.upload-progress-bytes { font-family: var(--font-mono); }
+
+@media (max-width: 720px) {
+  .source-cards { grid-template-columns: 1fr; }
+  .source-card-form button { width: 100%; min-width: 0; }
+}
+
+/* ============ CUSTOMER CARDS ============ */
+/* auto-fill (not auto-fit) leaves empty tracks intact instead of stretching
+ * a single card to fill the whole row — without it, one customer would
+ * render as a 900-px-wide block surrounded by emptiness. The 460-px max
+ * caps an individual card so even a long customer name + meta block stays
+ * readable rather than ballooning. */
+.customer-grid {
+  display: grid;
+  /* Tighter columns: min 240px, max ~320px so 3-4 cards fit per row at common
+   * widths without forcing each card to balloon when only one or two exist. */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 320px));
+  gap: 12px;
+}
+/* Cap the visible list area so even an unfiltered, paginated page never makes
+ * the whole admin UI scroll forever. With pagination active (page size 12),
+ * the list rarely overflows; this is a safety net. */
+.customer-list-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+/* ============ PREMIUM CUSTOMER CARD ============
+ * Layout (top → bottom):
+ *   [accent strip — colored by status]
+ *   .cc-header       — brand name + channel pill | receive-updates switch
+ *   placeholder-warn — only when the URL is wrong
+ *   .cc-versions     — two side-by-side mini "Launcher" + "Server" cards
+ *   .cc-meta         — Subtitle / Server URL / Logo (compact, truncated)
+ *   .cc-action-bar   — Edit · Build · Launcher · Server · Delete
+ *
+ * State classes (added by the renderer):
+ *   .has-warning  → amber accent strip + amber border
+ *   .is-disabled  → muted card, gray accent strip, “OTA paused” badge
+ */
+.customer-card {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.0) 100%),
+    var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px 14px 14px;
+  /* leave room for the accent strip drawn via ::before */
+  padding-top: 18px;
+  transition: border-color .15s, transform .15s, box-shadow .15s, opacity .2s;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.customer-card::before {
+  /* Status accent strip across the top of the card. Color is tied to state:
+   *   default                  → accent (orange)
+   *   .has-warning             → amber
+   *   .is-disabled             → muted gray
+   *   .has-shipped (got builds)→ teal/green
+   */
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.customer-card.has-shipped::before { background: linear-gradient(90deg, #34d399 0%, #10b981 100%); }
+.customer-card.has-warning::before { background: var(--warning); }
+.customer-card.is-disabled::before { background: var(--text-faint); }
+
+.customer-card.has-warning { border-color: rgba(251,191,36,0.3); }
+.customer-card.is-disabled {
+  opacity: 0.72;
+  background: var(--bg-elev-1);
+}
+
+.customer-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+}
+
+/* --- Header row: brand name + channel pill | toggle switch --- */
+.cc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cc-id-block {
+  /* Avatar + name/channel pill row. align-items:center keeps the avatar
+   * vertically centered with the two-line text block on its right. */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* Brand initial avatar — circular badge showing the first letter of the
+ * brand name. Background is a soft gradient derived from a hash of the
+ * channel string so each customer gets a stable, distinct color without us
+ * having to ship per-customer config. */
+.cc-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: rgba(255,255,255,0.95);
+  background: linear-gradient(135deg, var(--cc-avatar-1, #ff6b00) 0%, var(--cc-avatar-2, #ff9248) 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.12);
+  text-transform: uppercase;
+  user-select: none;
+  overflow: hidden;
+}
+/* Real uploaded brand mark fills the tile when present, hiding the
+ * letter fallback underneath. If <img> 404s or fails to decode the
+ * inline onerror removes it and the .cc-avatar-fallback span shows. */
+.cc-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Most launcher logos are designed for dark UI but a few uploads have
+   * a white halo around them — a soft inset shadow blends the edges so
+   * the tile reads as a unified mark, not a sticker. */
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.18);
+}
+.cc-avatar.has-logo {
+  /* Drop the gradient when a logo is shown so it doesn't bleed through
+   * any transparent corners of the uploaded image. */
+  background: #181818;
+}
+/* When a logo is present, hide the letter fallback entirely so only the
+ * brand mark is visible. The img.onerror handler (admin.js) removes the
+ * has-logo class on failure, which re-reveals this fallback letter. */
+.cc-avatar.has-logo .cc-avatar-fallback {
+  display: none;
+}
+.cc-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cc-title-block { min-width: 0; flex: 1 1 auto; }
+.cc-name {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.2px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-channel-pill {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Receive updates toggle (iOS-style switch) --- */
+.cc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  user-select: none;
+}
+.cc-toggle-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.cc-toggle.is-on .cc-toggle-label { color: #34d399; }
+.cc-toggle.is-off .cc-toggle-label { color: var(--text-faint); }
+.cc-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  transition: background .18s, border-color .18s;
+  flex-shrink: 0;
+}
+.cc-switch::after {
+  content: "";
+  position: absolute;
+  top: 1px; left: 1px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform .18s, background .18s;
+}
+.cc-toggle.is-on  .cc-switch { background: rgba(52,211,153,0.18); border-color: rgba(52,211,153,0.6); }
+.cc-toggle.is-on  .cc-switch::after { transform: translateX(16px); background: #34d399; }
+.cc-toggle:hover .cc-switch { border-color: var(--border-strong); }
+.cc-toggle:focus-visible {
+  outline: none;
+}
+.cc-toggle:focus-visible .cc-switch {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.cc-toggle.is-busy { opacity: 0.6; pointer-events: none; }
+
+/* --- Placeholder-URL warning (kept) --- */
+.customer-card .placeholder-warn {
+  margin-top: 12px;
+  background: var(--warning-soft);
+  border: 1px solid rgba(251,191,36,0.25);
+  color: var(--warning);
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.customer-card .placeholder-warn strong { color: var(--warning); }
+
+/* --- Versions row: two mini-cards (Launcher / Server) --- */
+.cc-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+.cc-vbox {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(0,0,0,0.0) 100%),
+    var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 9px 10px 8px;
+  min-width: 0;
+  transition: border-color .12s, transform .12s;
+}
+.cc-vbox:hover { border-color: var(--border-strong); }
+/* Header row inside a version mini-card: label on the left, tiny status dot
+ * on the right. Dot color reflects published-state at a glance. */
+.cc-vbox-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.cc-vbox-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.cc-vbox-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+.cc-vbox-dot.is-shipped { background: #34d399; box-shadow: 0 0 0 3px rgba(52,211,153,0.12); }
+.cc-vbox-dot.is-warn    { background: var(--warning); box-shadow: 0 0 0 3px rgba(251,191,36,0.12); }
+.cc-vbox-dot.is-empty   { background: var(--text-faint); opacity: 0.5; }
+.cc-vbox-version {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-vbox-version em {
+  color: var(--text-faint);
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+}
+/* Status badge under the version: download link, file-missing warning, or
+ * rebump pill. Lives on its OWN line (margin-top + display:inline-block) so
+ * a long "[file missing — rebuild]" message no longer overlaps or truncates
+ * the version number above it. */
+.cc-vbox-status {
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  min-height: 14px;
+  white-space: normal;
+  word-break: break-word;
+}
+.cc-vbox.cc-vbox-launcher { border-left: 2px solid var(--accent); }
+.cc-vbox.cc-vbox-server   { border-left: 2px solid var(--info); }
+.cc-vbox .dl-link {
+  color: var(--info);
+  text-decoration: none;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.cc-vbox .dl-link:hover { color: #93c5fd; text-decoration: underline; }
+.cc-vbox .dl-missing {
+  color: var(--warning);
+  font-size: 10.5px;
+  font-style: italic;
+  cursor: help;
+}
+.cc-vbox .rebump-pill {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: help;
+  /* Hard layout safety: the pill lives inside a narrow 2-column mini-card
+   * (.cc-vbox), so clamp its width to the parent and ellipsis any future
+   * overflow rather than letting it spill into the sibling Server box or
+   * the card meta rows below. max-width:100% requires a vertical-align so
+   * the inline-block baseline doesn't push siblings around. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* --- Meta lines (Subtitle / Server / Logo / Last release) --- */
+.cc-meta {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+}
+.cc-meta-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-meta-line strong {
+  color: var(--text-faint);
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 6px;
+}
+
+/* --- Action bar --- */
+.cc-action-bar {
+  /* Balanced 3-column × 2-row layout. Row 1: Edit | Build (spans 2 cols, the
+   * main call-to-action). Row 2: Launcher | Server | Delete. Every button
+   * is the same height and width-fits its column, so the whole bar reads
+   * as a tidy grid instead of a wrap-overflowing flex row where Delete
+   * dropped to a lonely second line. */
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.cc-action-bar .btn-primary,
+.cc-action-bar .btn-secondary,
+.cc-action-bar .btn-danger {
+  width: 100%;
+  min-width: 0;
+  padding-left: 6px;
+  padding-right: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-action-bar [data-action="edit"]            { grid-column: 1 / 2; grid-row: 1; }
+.cc-action-bar [data-action="build"]           { grid-column: 2 / 4; grid-row: 1; }
+.cc-action-bar [data-action="build-launcher"]  { grid-column: 1 / 2; grid-row: 2; }
+.cc-action-bar [data-action="build-server"]    { grid-column: 2 / 3; grid-row: 2; }
+.cc-action-bar [data-action="delete"]          { grid-column: 3 / 4; grid-row: 2; }
+.cc-action-bar [data-action="build"] {
+  /* Tighten the look of the primary CTA — gradient hint + soft glow under
+   * the orange accent, so the eye lands on it first. */
+  background: linear-gradient(180deg, var(--accent) 0%, #e85d00 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 2px 6px rgba(255,107,0,0.25);
+}
+.cc-action-bar [data-action="build"]:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ff7a1f 0%, #ff6b00 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 4px 10px rgba(255,107,0,0.35);
+}
+
+/* Legacy class kept for the live-pill block + add-customer-modal. */
+.customer-card .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* ============ CUSTOMER TOOLBAR (search + count) + PAGINATION ============ */
+.customer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.customer-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-elev-1);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  transition: border-color .12s, box-shadow .12s;
+}
+.customer-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.customer-search::placeholder { color: var(--text-faint); }
+.customer-count { flex: 0 0 auto; white-space: nowrap; }
+
+/* Filter chips: compact pill row that sits between the search input and the
+ * grid. Active chip uses the accent border + bolded text so the operator can
+ * see the current filter without reading the chip text. */
+.customer-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.cf-chip {
+  appearance: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: color .12s, background .12s, border-color .12s;
+}
+.cf-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.cf-chip.is-active {
+  color: var(--accent);
+  background: var(--accent-soft, rgba(255,107,0,0.08));
+  border-color: var(--accent);
+}
+
+/* ============ VIEW TOGGLE (Cards / Compact) ============
+ * Lives at the right end of .customer-toolbar. Two segmented-button-style
+ * pills; the active pill picks up the accent. Click flips localStorage +
+ * adds .is-compact to #customer-list.
+ */
+.view-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px;
+  gap: 0;
+}
+.vt-btn {
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: calc(var(--r-sm) - 2px);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color .12s, background .12s;
+}
+.vt-btn:hover { color: var(--text); }
+.vt-btn.is-active {
+  color: var(--accent);
+  background: var(--accent-soft, rgba(255,107,0,0.10));
+}
+.vt-btn .vt-label { letter-spacing: 0.02em; }
+@media (max-width: 720px) {
+  .vt-btn .vt-label { display: none; }
+  .vt-btn { padding: 5px 8px; }
+}
+
+/* ============ LAST-SEEN LINE (under each cc-vbox) ============
+ * Tiny "↳ 192.168.1.42 · 3m ago" line that surfaces the persistent
+ * last-known IP/timestamp captured from heartbeats. Kept minimal so it
+ * fits inside the existing version mini-card without throwing off layout.
+ */
+.cc-lastseen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  /* Never truncate the IP — wrap to a second line if there isn't room. */
+  word-break: break-all;
+}
+.cc-lastseen-arrow {
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+  flex: 0 0 auto;
+}
+.cc-lastseen-ip {
+  color: var(--text);
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+}
+.cc-lastseen-age {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+}
+/* Second line below cc-lastseen showing the local install path the client
+ * reported via heartbeat. Same monospaced look as the IP, with a folder
+ * glyph so it reads as a filesystem location at a glance. */
+.cc-lastseen-path {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.cc-lastseen-path .cc-lastseen-arrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  opacity: 0.75;
+}
+.cc-lastseen-pathval {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-all;
+}
+
+/* ============ COMPACT LIST VIEW (.customer-grid.is-compact) ============
+ * Switches the grid into a vertical flex column where each customer
+ * renders as a single dense row. Same markup as card view — these rules
+ * just override layout-affecting properties so the operator can fit
+ * 30+ customers on one screen for fast scanning.
+ *
+ * Visible per row:
+ *   [accent rail] avatar  name + channel  online pills  L:vX  S:vX  ↳IP   [On/Off]  [Edit][⚡][L][S][🗑]
+ *
+ * Hidden in compact: cc-meta (subtitle/server URL/logo/last release),
+ * placeholder warnings (still flagged via the amber rail), and the
+ * version download statusLine (the version number itself stays visible).
+ */
+.customer-grid.is-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.customer-grid.is-compact .customer-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 18px;
+  min-height: 56px;
+}
+.customer-grid.is-compact .customer-card::before {
+  /* Accent moves from a top strip to a left rail in compact mode. */
+  top: 0;
+  bottom: 0;
+  right: auto;
+  width: 3px;
+  height: auto;
+}
+.customer-grid.is-compact .customer-card:hover {
+  transform: none;
+}
+.customer-grid.is-compact .cc-header {
+  flex: 0 1 260px;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 10px;
+}
+.customer-grid.is-compact .cc-id-block {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.customer-grid.is-compact .cc-toggle {
+  /* Move the On/Off toggle out of the header so it sits next to the
+   * action bar at the far right. */
+  order: 5;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.customer-grid.is-compact .live-slot {
+  flex: 0 1 220px;
+  min-width: 0;
+  order: 2;
+}
+.customer-grid.is-compact .live-block { padding: 0; }
+.customer-grid.is-compact .live-detail { display: none; }
+.customer-grid.is-compact .cc-versions {
+  flex: 0 1 320px;
+  display: flex;
+  gap: 6px;
+  order: 3;
+  min-width: 0;
+}
+.customer-grid.is-compact .cc-vbox {
+  flex: 1 1 0;
+  padding: 4px 8px;
+  min-width: 0;
+}
+.customer-grid.is-compact .cc-vbox-head { gap: 4px; }
+.customer-grid.is-compact .cc-vbox-version { font-size: 12px; }
+.customer-grid.is-compact .cc-vbox .src-pill {
+  display: none !important;
+}
+.customer-grid.is-compact .cc-lastseen {
+  margin-top: 4px;
+  padding-top: 4px;
+  font-size: 10.5px;
+}
+.customer-grid.is-compact .cc-meta { display: none; }
+.customer-grid.is-compact .placeholder-warn {
+  /* Hide the verbose warning text — the amber rail still signals the
+   * problem and the operator can flip back to Cards view to read it. */
+  display: none;
+}
+.customer-grid.is-compact .cc-action-bar {
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  order: 6;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.customer-grid.is-compact .cc-action-bar .btn-primary,
+.customer-grid.is-compact .cc-action-bar .btn-secondary,
+.customer-grid.is-compact .cc-action-bar .btn-danger {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+/* ----- Responsive: disable compact mode below 1100px -----
+ * Compact mode is a wide-screen-only layout — its single-row design fights
+ * narrow viewports no matter how we wrap things, because too many sections
+ * (header, pills, versions, IPs, actions) need horizontal room. Below
+ * 1100px we revert .is-compact to behave exactly like card view: a vertical
+ * grid of full cards where nothing is hidden, clipped, or overlapped.
+ * The view-toggle stays visible so the user can still switch back when
+ * widening the window. */
+@media (max-width: 1100px) {
+  .customer-grid.is-compact {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .customer-grid.is-compact .customer-card {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0 !important;
+    padding: 16px 14px 14px !important;
+    padding-top: 18px !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  /* Restore source pill in card fallback layout. */
+  .customer-grid.is-compact .cc-vbox .src-pill {
+    display: revert !important;
+  }
+  .customer-grid.is-compact .cc-meta { display: block !important; }
+  .customer-grid.is-compact .placeholder-warn { display: block !important; }
+  .customer-grid.is-compact .live-detail { display: revert !important; }
+  /* Restore the top accent strip (compact uses a left rail instead). */
+  .customer-grid.is-compact .customer-card::before {
+    top: 0; left: 0; right: 0;
+    bottom: auto;
+    height: 3px;
+    width: auto;
+  }
+  /* Reset every section's flex/order so layout flows naturally top-to-bottom. */
+  .customer-grid.is-compact .cc-header,
+  .customer-grid.is-compact .live-slot,
+  .customer-grid.is-compact .cc-versions,
+  .customer-grid.is-compact .cc-action-bar {
+    flex: initial !important;
+    order: initial !important;
+    width: auto !important;
+  }
+  .customer-grid.is-compact .cc-toggle {
+    margin-left: 0 !important;
+    order: initial !important;
+  }
+}
+
+.customer-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.customer-pagination.hidden { display: none; }
+.customer-pagination button[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.customer-pageinfo { font-family: var(--font-mono); }
+
+/* "No results match search" empty state inside the grid. */
+.customer-empty {
+  grid-column: 1 / -1;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.customer-empty button {
+  margin-left: 8px;
+}
+
+/* ============ CONSOLE ============ */
+.console {
+  background: #060608;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  max-height: 380px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.console .line-error   { color: var(--error); }
+.console .line-success { color: var(--success); }
+.console .line-cmd     { color: var(--accent); font-weight: 600; }
+
+/* ============ MULTI CONSOLES (per-customer fan-out) ============ */
+.consoles-area {
+  display: grid;
+  /* Sidebar dock is ~420px wide so each console card stacks vertically.
+     The min track is 0 so a card never overflows the dock when the
+     viewport tightens; 1fr fills whatever width the parent gives us. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.console-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elev-2);
+  min-width: 0;
+  overflow: hidden;
+}
+.console-card .console-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  flex-wrap: wrap;
+}
+.console-card .console-card-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.console-card .console-card-elapsed {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.console-card .console-card-cancel { margin-left: auto; }
+.console-card .console {
+  border: 0;
+  border-radius: 0;
+  max-height: 320px;
+}
+.console-card.finished { opacity: .85; }
+.console-card .job-error-banner { margin: 10px 14px; }
+
+/* T005: Auto-clear countdown pill — appears in the card head when a SUCCESS
+   card starts its 15s self-destruct timer. Hovering the card or clicking
+   the inline "keep" link cancels the countdown (handled in admin.js). */
+.console-card .auto-clear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid rgba(52,211,153,0.25);
+  user-select: none;
+}
+.console-card .auto-clear-pill .auto-clear-keep {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+.console-card .auto-clear-pill .auto-clear-keep:hover { opacity: .8; }
+.console-card.fading-out {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+
+/* Per-build progress bar — Task #17, refined for premium look */
+.console-card .progress-block {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+.console-card .progress-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.console-card .progress-phase {
+  flex: 1 1 auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.console-card .progress-pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+.console-card .progress-bar {
+  position: relative;
+  height: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.console-card .progress-fill {
+  height: 100%;
+  background: var(--accent);
+  /* Smooth width transitions — re-set frequently from JS, this is what
+     makes long phases read as "alive" rather than jumpy. */
+  transition: width .45s cubic-bezier(.25,.8,.25,1);
+  border-radius: 999px;
+}
+/* Subtle shimmer on active builds so a stalled phase still reads as
+   working. Replaces the previous heavy barber-pole. */
+.console-card:not(.finished):not(.cancelled):not(.failed) .progress-fill {
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+@keyframes shimmer {
+  0%   { background-position:   0% 0; }
+  100% { background-position: 200% 0; }
+}
+.console-card.failed .progress-fill {
+  background: var(--error);
+  animation: none;
+}
+.console-card.failed .progress-phase,
+.console-card.failed .progress-pct { color: var(--error); }
+.console-card.cancelled .progress-fill {
+  background: var(--text-faint);
+  animation: none;
+  opacity: .6;
+}
+.console-card.cancelled .progress-phase,
+.console-card.cancelled .progress-pct { color: var(--text-faint); }
+
+.console-card .log-toggle-row {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+
+/* ============ STATUS PILLS ============ */
+.status-pill {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.status-pill.running { background: var(--accent-soft);  color: var(--accent);  border-color: rgba(255,106,0,0.25); }
+.status-pill.queued  { background: var(--warning-soft); color: var(--warning); border-color: rgba(251,191,36,0.25); }
+.status-pill.success { background: var(--success-soft); color: var(--success); border-color: rgba(52,211,153,0.25); }
+.status-pill.failed  { background: var(--error-soft);   color: var(--error);   border-color: rgba(248,113,113,0.25); }
+
+/* ============ JOB ERROR BANNER ============ */
+.job-error-banner {
+  background: var(--error-soft);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-left: 3px solid var(--error);
+  border-radius: var(--r-sm);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.job-error-banner-title {
+  font-size: 13px;
+  color: var(--error);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.job-error-banner-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+.job-error-label {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-right: 6px;
+}
+.job-error-divider { color: var(--border-strong); margin: 0 10px; }
+.job-error-step-text,
+.job-error-exit-text {
+  color: var(--error);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+.job-error-banner-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 8px;
+  font-style: italic;
+}
+
+/* ============ MODAL ============ */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-pop);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-card h3 {
+  font-size: 18px;
+  letter-spacing: -0.2px;
+  color: var(--text);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.modal-card > .muted { margin-bottom: 18px; }
+
+#customer-form,
+#upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+#customer-form label,
+#upload-form label,
+.logo-upload-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.hint {
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0;
+  font-weight: 400;
+  text-transform: none;
+  margin-left: 6px;
+}
+.channel-badge {
+  align-self: flex-start;
+  font-size: 10px;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(255,106,0,0.25);
+  padding: 5px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Release-notes modal — small char-counter row sits between the textarea
+   and the actions. The 4000-char cap is enforced server-side; this just
+   gives the operator a live read so a 2k-line dump doesn't surprise them. */
+.rn-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  margin-bottom: 18px;
+  font-variant-numeric: tabular-nums;
+}
+#rn-textarea {
+  min-height: 160px;
+  font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+/* ============ LIVE ONLINE PILLS ============ */
+.live-block { margin: 10px 0 12px; }
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.live-online {
+  color: var(--success);
+  background: var(--success-soft);
+  border: 1px solid rgba(52,211,153,0.3);
+}
+.live-online::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+.live-offline {
+  color: var(--text-faint);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+}
+.live-offline::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.live-pills-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.role-pill { padding: 3px 9px; }
+.role-pill .live-role { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
+.live-count { font-weight: 700; font-size: 11px; letter-spacing: 0; }
+.live-versions {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.live-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+}
+.live-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.live-role {
+  font-size: 9px;
+  letter-spacing: 0.6px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.live-role.launcher {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border: 1px solid rgba(251,191,36,0.3);
+}
+.live-role.server {
+  color: var(--info);
+  background: var(--info-soft);
+  border: 1px solid rgba(96,165,250,0.3);
+}
+.live-ver { color: var(--text); font-weight: 600; }
+.live-instance { color: var(--text-faint); font-style: italic; }
+
+/* ============ BUILD QUEUE ============ */
+.queue-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; min-width: 0; }
+/* Two-row card layout — works at every container width we ever render in.
+ *   Row 1: STATUS pill | label (truncates) | Cancel (auto)
+ *   Row 2: step note spans the full row
+ * The previous 4-column desktop variant needed ~400 px of inner width which
+ * the 420 px-wide right-side dock can't actually provide once you subtract
+ * panel padding, so the Cancel button used to clip on the right when a build
+ * was running. The 2-row layout is also what we already use on phones, so
+ * keeping a single layout removes a whole class of breakpoint bugs. */
+.queue-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "status label  cancel"
+    "step   step   step";
+  align-items: center;
+  row-gap: 6px;
+  column-gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-elev-2);
+  transition: border-color .15s;
+  min-width: 0;
+}
+.queue-row .queue-row-status { grid-area: status; }
+.queue-row .queue-row-label  { grid-area: label; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row .queue-row-cancel { grid-area: cancel; flex-shrink: 0; }
+.queue-row .queue-row-step   { grid-area: step; white-space: normal; }
+.queue-row-active   { border-color: rgba(52,211,153,0.25); background: var(--success-soft); }
+.queue-row-queued   { border-color: rgba(251,191,36,0.25); background: var(--warning-soft); }
+.queue-row-cancelling { opacity: .5; filter: grayscale(.6); transition: opacity .15s, filter .15s; }
+.queue-row-cancelling .queue-row-cancel { cursor: wait; }
+.queue-row-status {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--warning);
+  text-transform: uppercase;
+}
+.queue-row-active .queue-row-status { color: var(--success); }
+.queue-row-label {
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.queue-row-step {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.build-console-controls { display: flex; align-items: center; gap: 10px; }
+
+/* ============ RESPONSIVE ============
+   Three breakpoints, in order of progressive collapse:
+
+   ≤ 1024px  — tablet / small laptop. Two-column main grid still works,
+               topbar just tightens its padding/gaps.
+   ≤ 760px   — large phone landscape / small tablet portrait. Main grid
+               collapses to one column, topbar wraps to two rows
+               (brand+logout, then info chips), bulk-upload + customer
+               action rows stack, modal padding tightens.
+   ≤ 480px   — phone portrait. Topbar info becomes a vertical stack,
+               panel padding shrinks, queue rows collapse to a card-like
+               two-row layout, console card head wraps cleanly. */
+
+/* Below 1100px the 420px-wide dock crowds the main grid, so reflow the
+   sidebar UNDERNEATH the main column. We also drop sticky positioning
+   so the dock scrolls with the page (which is what users expect once
+   the layout is single-column). */
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    padding: 20px 20px 36px;
+    gap: 16px;
+  }
+  .dock-sidebar {
+    position: static;
+    max-height: none;
+  }
+  .dock-panel .panel-body { overflow-y: visible; max-height: none; }
+}
+
+@media (max-width: 1024px) {
+  .topbar { padding: 12px 20px; gap: 18px; }
+  .topbar-info { gap: 16px; font-size: 12px; }
+  .panel-body { padding: 18px; }
+  .banner { margin: 14px 20px 0; }
+}
+
+@media (max-width: 760px) {
+  /* Topbar reflows: brand + logout on row 1, info chips wrap onto row 2. */
+  .topbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  /* Reflow: brand (left) + logout button (right) on row 1, info chips
+     wrap onto row 2. The :last-child selector keeps this resilient even
+     if the logout-btn id is ever renamed. */
+  .brand { order: 1; }
+  .topbar > button:last-child,
+  #logout-btn { order: 2; margin-left: auto; }
+  .topbar-info {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    font-size: 12px;
+  }
+
+  /* Main grid: single column. */
+  .main-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    max-width: 100%;
+  }
+  .workspace { padding: 16px; gap: 14px; }
+  .panel-body { padding: 16px; }
+  .banner { margin: 12px 16px 0; padding: 11px 14px; font-size: 12.5px; }
+
+  /* Forms with side-by-side fields stack vertically. The 12-col template
+     would clamp `grid-column: span N` to span 1 by itself, but switching
+     to `1fr` here makes the intent (one field per row) explicit AND
+     forces the Build & Ship button to full-width via the override below. */
+
+  /* Version Control: input + button row stays horizontal but the button
+     gets a sensible min width so it doesn't hug the input. */
+  .version-row { gap: 8px; }
+  .version-row .btn-primary { white-space: nowrap; }
+
+  /* Customer cards: full width. */
+  .customer-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .customer-card .actions { gap: 8px; }
+  .customer-card .actions .btn-secondary,
+  .customer-card .actions .btn-danger { flex: 1 1 auto; }
+
+  /* Build queue: stack into a two-row mini card (status+label on top,
+     step + cancel on bottom). The grid columns at desktop don't make
+     sense at this width. */
+  .queue-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "status label  cancel"
+      "step   step   step";
+    row-gap: 6px;
+    column-gap: 10px;
+    padding: 10px 12px;
+  }
+  .queue-row-status { grid-area: status; }
+  .queue-row-label  { grid-area: label; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-row-cancel { grid-area: cancel; }
+  .queue-row-step   { grid-area: step; white-space: normal; }
+
+  /* Console card head: title may be long; let it take a full row and
+     keep the controls in a tidy second row. */
+  .console-card .console-card-head { padding: 10px 12px; gap: 8px; }
+  .console-card .console-card-title { flex-basis: 100%; }
+  .console-card .console-card-cancel { margin-left: auto; }
+
+  /* Multi-console area: one console at a time. */
+  .consoles-area { grid-template-columns: 1fr; }
+
+  /* Panel head: title + small button on the right may collide. */
+  .panel-head { gap: 8px; flex-wrap: wrap; }
+
+  /* Modals: tighter padding so they fit comfortably on narrow viewports. */
+  .modal { padding: 12px; }
+  .modal-card { padding: 22px 20px; max-height: calc(100vh - 24px); }
+
+  /* Action row (Build All Customers + paragraph) stacks. */
+  .action-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .action-row .btn-primary { width: 100%; }
+  .action-row .small { min-width: 0; }
+}
+
+@media (max-width: 480px) {
+  /* Phone portrait — squeeze further. */
+  .topbar { padding: 10px 14px; gap: 10px; }
+  .brand-name { font-size: 15px; }
+
+  /* Each topbar info chip becomes its own row so labels and values stay
+     legible. The path chip still ellipsises; the others naturally fit. */
+  .topbar-info {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .topbar-info > div {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .topbar-info > .topbar-path {
+    flex: 0 0 auto;
+  }
+  .topbar-info .lbl { margin-right: 10px; flex-shrink: 0; }
+  .topbar-info strong { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Main grid + panels — minimal padding on phones. */
+  .workspace { padding: 12px; gap: 12px; }
+  .main-grid { gap: 12px; }
+  .panel-head { padding: 14px 16px; }
+  .panel-body { padding: 14px 16px; }
+  .panel-head h2 { font-size: 14px; }
+  .banner { margin: 10px 12px 0; padding: 10px 12px; font-size: 12px; }
+
+  /* Modals: edge-to-edge on phones. */
+  .modal { padding: 0; align-items: flex-end; }
+  .modal-card {
+    border-radius: var(--r-md) var(--r-md) 0 0;
+    max-height: 92vh;
+    padding: 22px 18px;
+    border-bottom: none;
+  }
+  .modal-actions { flex-direction: column-reverse; gap: 8px; }
+  .modal-actions .btn-primary,
+  .modal-actions .btn-ghost { width: 100%; }
+
+  /* Customer card actions: stack into a single column for thumb-friendly
+     tap targets. */
+  .customer-card { padding: 16px; }
+  .customer-card .actions { flex-direction: column; align-items: stretch; }
+  .customer-card .actions .btn-secondary,
+  .customer-card .actions .btn-danger { width: 100%; }
+
+  /* Login card: shrink horizontal padding so it doesn't bleed off-screen. */
+  .login-card { padding: 28px 22px; }
+  .login-card h1 { font-size: 22px; }
+
+  /* Console card heading: let title wrap fully. */
+  .console-card .console-card-head { padding: 10px 12px; }
+  .console-card .console-card-title { white-space: normal; flex-basis: 100%; }
+  .console-card .console-card-elapsed { font-size: 10px; }
+  .console-card .console { padding: 12px 14px; font-size: 11.5px; }
+
+  /* Build console controls (Clear Finished button) full width. */
+  .build-console-controls { width: 100%; justify-content: flex-end; }
+}

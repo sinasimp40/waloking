@@ -1,0 +1,24 @@
+{
+  "name": "nextreme-ota-update-server",
+  "version": "1.0.0",
+  "description": "OTA update server for NEXTREME GAMING HUB launcher and server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test-job-runner.js && node test-cleanup.js && node test-install-lock.js && node test-build-endpoint.js && node test-publish-paths.js && node test-build-e2e.js && node test-update-source.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.21.0",
+    "multer": "^2.1.1",
+    "yauzl": "^2.10.0"
+  },
+  "sqliteFallbackNote": "better-sqlite3 is ONLY a fallback for Node < 22 (no built-in node:sqlite). It is a native addon needing Visual Studio C++ build tools when no prebuilt binary exists. It is optional so npm install never fails because of it.",
+  "optionalDependencies": {
+    "better-sqlite3": "^12.11.1"
+  },
+  "devDependencies": {
+    "yazl": "^2.5.1"
+  }
+}

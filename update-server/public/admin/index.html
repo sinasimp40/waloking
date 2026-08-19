@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>OTA Admin Panel</title>
+<link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+<div id="login-screen" class="screen">
+  <div class="login-card">
+    <div class="kicker">OTA System</div>
+    <h1>Admin Access</h1>
+    <div class="sub">Authorization required to continue</div>
+    <form id="login-form">
+      <input type="password" id="login-password" placeholder="Enter admin password" autocomplete="current-password" required />
+      <button type="submit" class="btn-primary">Unlock</button>
+    </form>
+    <div id="login-error" class="error"></div>
+  </div>
+</div>
+
+<div id="app-screen" class="screen hidden">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-tag">OTA</span>
+      <span class="brand-name">Admin</span>
+    </div>
+    <div class="topbar-info">
+      <div><span class="lbl">Project</span> <strong id="current-version">?</strong></div>
+      <div><span class="lbl">Server</span> <strong id="server-version">?</strong></div>
+      <div class="topbar-path"><span class="lbl">Path</span> <span id="project-root" class="path">?</span></div>
+      <div><span class="lbl">Deps</span> <span id="deps-status" class="deps-pill">?</span></div>
+      <div title="Identifies which copy of update-server/ is running. Compare against the source folder on disk to confirm fixes are actually deployed."><span class="lbl">Build</span> <span id="build-stamp" class="build-stamp" tabindex="0">?</span></div>
+    </div>
+    <button id="logout-btn" class="btn-ghost">Logout</button>
+  </header>
+
+  <div id="warning-banner" class="banner hidden"></div>
+  <div id="deps-banner" class="banner banner-warn hidden">
+    <span id="deps-banner-msg"></span>
+    <button id="install-deps-btn" type="button" class="btn-inline">Install Now</button>
+    <span id="install-deps-status" class="install-deps-status"></span>
+  </div>
+
+  <!-- Product tabs — switch between Walok and Balok pipelines -->
+  <div class="product-tabs" id="product-tabs">
+    <button class="ptab is-active" data-tab="walok">⚡ Walok</button>
+    <button class="ptab" data-tab="balok">🎮 Balok</button>
+  </div>
+
+  <div class="workspace">
+
+  <!-- ── Walok tab ── -->
+  <main class="main-grid" id="tab-panel-walok">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Version Control</h2>
+      </div>
+      <div class="panel-body">
+        <p class="muted">Set the next version number. The build action below will rebuild and ship the update live to all online customers in one step.</p>
+        <div class="version-row">
+          <input type="text" id="version-input" placeholder="1.0.1" />
+          <button id="bump-version-btn" class="btn-primary">Set Version</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Global Action</h2>
+      </div>
+      <div class="panel-body action-row">
+        <button id="build-all-btn" class="btn-primary glow">Build All Customers</button>
+        <p class="muted small">Builds every customer, ships the updates, cleans up old build folders (keeps newest only), and instantly notifies any launcher or server that is currently online.</p>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Update Source Files</h2>
+      </div>
+      <div class="panel-body">
+        <p class="muted small">Upload a new <strong>master source</strong> zip to replace what lives on disk. The next build (Build All Customers, or any per-customer Build / Launcher / Server button) will rebrand and ship from this freshly replaced source.</p>
+
+        <div class="source-card source-card-primary" id="src-project-card">
+          <div class="source-card-head">
+            <h3>Update Project Source <span class="recommended-badge">recommended</span></h3>
+            <span class="source-card-target">updates launcher + server + electron + scripts together</span>
+          </div>
+          <div class="source-card-status" id="src-project-status">checking…</div>
+          <p class="hint">Zip the <strong>contents</strong> of the entire <code>walok/</code> folder (so the zip contains <code>src/</code>, <code>server/</code>, <code>electron/</code>, <code>scripts/</code>, <code>package.json</code>, etc. at the top level). One upload updates everything the build needs — both launcher AND server. Operator state (customers, logos, releases, node_modules) is preserved.</p>
+          <form class="source-card-form" id="src-project-form">
+            <input type="file" name="file" accept=".zip,application/zip" required />
+            <button type="submit" class="btn-primary">Replace Project Source</button>
+          </form>
+          <div class="upload-progress hidden" id="src-project-progress">
+            <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+            <div class="upload-progress-label"><span class="upload-progress-phase">Uploading…</span> <span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+          </div>
+          <div class="source-card-error error" id="src-project-error"></div>
+        </div>
+
+        <details class="source-advanced">
+          <summary>Advanced: replace just one piece (launcher OR server only)</summary>
+          <p class="muted small">Use the per-piece uploads below only when you specifically want to ship a launcher-only or server-only change. Most of the time, "Update Project Source" above is what you want.</p>
+
+          <div class="source-cards">
+            <div class="source-card" id="src-launcher-card">
+              <div class="source-card-head">
+                <h3>Launcher Source</h3>
+                <span class="source-card-target">replaces <code>walok/src/</code> only</span>
+              </div>
+              <div class="source-card-status" id="src-launcher-status">checking…</div>
+              <p class="hint">Zip the <strong>contents</strong> of <code>walok/src/</code> (App.jsx, main.jsx, index.css, components/, store/) — not the whole project.</p>
+              <form class="source-card-form" data-source-kind="launcher">
+                <input type="file" name="file" accept=".zip,application/zip" required />
+                <button type="submit" class="btn-primary">Replace Launcher Source</button>
+              </form>
+              <div class="upload-progress hidden" id="src-launcher-progress">
+                <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+                <div class="upload-progress-label"><span class="upload-progress-phase">Uploading…</span> <span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+              </div>
+              <div class="source-card-error error" id="src-launcher-error"></div>
+            </div>
+
+            <div class="source-card" id="src-server-card">
+              <div class="source-card-head">
+                <h3>Server Source</h3>
+                <span class="source-card-target">replaces <code>walok/server/</code> only</span>
+              </div>
+              <div class="source-card-status" id="src-server-status">checking…</div>
+              <p class="hint">Zip the <strong>contents</strong> of <code>walok/server/</code> (electron/, src/, package.json, package-lock.json).</p>
+              <form class="source-card-form" data-source-kind="server">
+                <input type="file" name="file" accept=".zip,application/zip" required />
+                <button type="submit" class="btn-primary">Replace Server Source</button>
+              </form>
+              <div class="upload-progress hidden" id="src-server-progress">
+                <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+                <div class="upload-progress-label"><span class="upload-progress-phase">Uploading…</span> <span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+              </div>
+              <div class="source-card-error error" id="src-server-error"></div>
+            </div>
+          </div>
+        </details>
+
+        <p class="hint">Source replacement is refused while a build is running — finish or cancel any in-progress build first. The old source is moved to a sibling <code>.trash-*</code> folder and removed in the background, so a failed swap rolls back automatically.</p>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Customers</h2>
+        <button id="add-customer-btn" class="btn-secondary small">+ Add Customer</button>
+      </div>
+      <div class="panel-body">
+        <div class="customer-toolbar">
+          <input type="search" id="customer-search" class="customer-search" placeholder="Search by name, channel, or subtitle…" autocomplete="off" />
+          <span class="customer-count muted small" id="customer-count"></span>
+        </div>
+        <div class="customer-filters" id="customer-filters" role="tablist" aria-label="Filter customers">
+          <button type="button" class="cf-chip is-active" data-filter="all" role="tab" aria-selected="true">All</button>
+          <button type="button" class="cf-chip" data-filter="with-updates" role="tab" aria-selected="false">With updates</button>
+          <button type="button" class="cf-chip" data-filter="no-updates" role="tab" aria-selected="false">No updates yet</button>
+          <button type="button" class="cf-chip" data-filter="disabled" role="tab" aria-selected="false">Updates disabled</button>
+        </div>
+        <div id="customer-list" class="customer-grid customer-list-scroll">
+          <div class="muted">Loading customers…</div>
+        </div>
+        <div class="customer-pagination hidden" id="customer-pagination">
+          <button type="button" class="btn-secondary small" id="customer-prev">‹ Prev</button>
+          <span class="customer-pageinfo muted small" id="customer-pageinfo"></span>
+          <button type="button" class="btn-secondary small" id="customer-next">Next ›</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Balok tab ── -->
+  <main class="main-grid hidden" id="tab-panel-balok">
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Balok Version</h2>
+      </div>
+      <div class="panel-body">
+        <p class="muted">Set the version applied to the next Balok customer build. Uses the version in <code>balok/package.json</code>.</p>
+        <div class="version-row" style="margin-top:8px">
+          <input type="text" id="balok-version-input" placeholder="e.g. 1.2.0" style="max-width:130px" />
+          <button id="balok-set-version-btn" class="btn-primary">Set Version</button>
+          <span class="muted small" style="margin-left:8px">Current: <strong id="balok-current-version">…</strong></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Build Balok (Dev)</h2>
+      </div>
+      <div class="panel-body">
+        <p class="muted small">Quick dev build — runs <code>npm run build</code> inside <code>balok/</code> with no customer branding applied. Use to test/verify the source compiles before triggering a per-customer build.</p>
+        <div class="action-row" style="margin-top:10px">
+          <button id="build-balok-btn" class="btn-secondary">⚡ Build Balok (dev)</button>
+          <span id="balok-build-status" class="muted small" style="margin-left:10px"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Update Balok Source Files</h2>
+      </div>
+      <div class="panel-body">
+        <p class="muted small">Upload a new <strong>Balok master source</strong> zip to replace what lives on disk. The next Balok build (dev build, per-customer Build, or Build All) compiles and ships the update from this freshly replaced source.</p>
+
+        <div class="source-card source-card-primary" id="src-balok-card">
+          <div class="source-card-head">
+            <h3>Update Balok Source <span class="recommended-badge">recommended</span></h3>
+            <span class="source-card-target">updates launcher UI + electron + scripts together</span>
+          </div>
+          <div class="source-card-status" id="src-balok-status">checking…</div>
+          <p class="hint">Zip the <strong>contents</strong> of the entire <code>balok/</code> folder (so the zip contains <code>src/</code>, <code>electron/</code>, <code>scripts/</code>, <code>public/</code>, <code>package.json</code>, <code>vite.config.js</code> at the top level). Customer configs, uploaded logos, <code>node_modules</code> and releases are preserved.</p>
+          <form class="source-card-form" id="src-balok-form">
+            <input type="file" name="file" accept=".zip,application/zip" required />
+            <button type="submit" class="btn-primary">Replace Balok Source</button>
+          </form>
+          <div class="upload-progress hidden" id="src-balok-progress">
+            <div class="upload-progress-track"><div class="upload-progress-fill"></div></div>
+            <div class="upload-progress-label"><span class="upload-progress-phase">Uploading…</span> <span class="upload-progress-pct">0%</span> <span class="upload-progress-bytes muted small"></span></div>
+          </div>
+          <div class="source-card-error error" id="src-balok-error"></div>
+        </div>
+
+        <p class="hint">After replacing the source: set the new version above, then run <strong>Build All</strong> in Balok Customers so every customer gets the OTA update.</p>
+      </div>
+    </section>
+
+
+    <section class="panel full">
+      <div class="panel-head">
+        <h2>Balok Customers</h2>
+        <div style="display:flex;gap:8px">
+          <button id="build-balok-all-btn" class="btn-secondary small">⚡ Build All</button>
+          <button id="add-balok-customer-btn" class="btn-secondary small">+ Add Customer</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="customer-toolbar">
+          <input type="search" id="balok-customer-search" class="customer-search" placeholder="Search by name, channel, or subtitle…" autocomplete="off" />
+          <span class="customer-count muted small" id="balok-customer-count"></span>
+        </div>
+        <div id="balok-customer-list" class="customer-grid customer-list-scroll">
+          <div class="muted">Loading Balok customers…</div>
+        </div>
+        <div class="customer-pagination hidden" id="balok-customer-pagination">
+          <button type="button" class="btn-secondary small" id="balok-customer-prev">‹ Prev</button>
+          <span class="customer-pageinfo muted small" id="balok-customer-pageinfo"></span>
+          <button type="button" class="btn-secondary small" id="balok-customer-next">Next ›</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <aside class="dock-sidebar" aria-label="Build operations">
+    <section class="panel dock-panel">
+      <div class="panel-head">
+        <h2>Builds</h2>
+        <div class="build-console-controls">
+          <span id="queue-slots" class="status-pill">Slots 0/2</span>
+          <button id="clear-finished-consoles-btn" class="btn-secondary small hidden" type="button">Clear Finished</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <p class="muted small">Up to 2 builds run in parallel; the rest wait their turn. Each build appears as its own card with live progress and log. Cancelling kills the running step and frees the slot.</p>
+        <div id="consoles-area" class="consoles-area">
+          <div id="consoles-empty" class="muted small">Idle. Trigger a build to see it appear here.</div>
+        </div>
+      </div>
+    </section>
+  </aside>
+  </div>
+</div>
+
+<div id="balok-customer-modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="bcm-title">Balok Customer</h3>
+    <p class="muted small">Configure brand, subtitle, update server URL, and logo for this Balok customer.</p>
+    <form id="balok-customer-form">
+      <label id="bcm-channel-label">Channel ID <span class="hint">lowercase letters, numbers, dashes only — cannot be changed later</span>
+        <input type="text" id="bcm-channel" pattern="[a-z0-9][a-z0-9-]*" required />
+      </label>
+      <div id="bcm-channel-readonly" class="channel-badge hidden">Channel: <span id="bcm-channel-readonly-value"></span></div>
+      <label>Brand Name
+        <input type="text" id="bcm-brand" required />
+      </label>
+      <label>Subtitle
+        <input type="text" id="bcm-subtitle" required />
+      </label>
+      <label>Update Server URL <span class="hint">e.g. http://203.0.113.45:4231</span>
+        <input type="url" id="bcm-server" required />
+      </label>
+      <label class="logo-upload-label">Upload Logo <span class="hint">PNG / JPG / WEBP / BMP</span>
+        <input type="file" id="bcm-logo-upload" accept="image/png,image/jpeg,image/webp,image/bmp" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" id="bcm-cancel" class="btn-ghost">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+    <div id="bcm-error" class="error"></div>
+  </div>
+</div>
+
+<div id="customer-modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="customer-modal-title">Customer</h3>
+    <p class="muted small">Configure brand, subtitle, update server URL, and logo for this customer.</p>
+    <form id="customer-form">
+      <label id="cm-channel-label">Channel ID <span class="hint">lowercase letters, numbers, dashes only &mdash; cannot be changed later</span>
+        <input type="text" id="cm-channel" pattern="[a-z0-9][a-z0-9-]*" required />
+      </label>
+      <div id="cm-channel-readonly" class="channel-badge hidden">Channel: <span id="cm-channel-readonly-value"></span></div>
+      <label>Brand Name
+        <input type="text" id="cm-brand" required />
+      </label>
+      <label>Subtitle
+        <input type="text" id="cm-subtitle" required />
+      </label>
+      <label>Update Server URL <span class="hint">e.g. http://203.0.113.45:4231</span>
+        <input type="url" id="cm-server" required />
+      </label>
+      <label class="logo-upload-label">Upload Logo <span class="hint">PNG / JPG / WEBP / BMP — saved as <code>branding/&lt;channel&gt;-logo.&lt;ext&gt;</code></span>
+        <input type="file" id="cm-logo-upload" accept="image/png,image/jpeg,image/webp,image/bmp" />
+      </label>
+      <label>Logo Path <span class="hint">auto-set from upload above &mdash; only edit if your logo is already on disk under a different path</span>
+        <input type="text" id="cm-logo" placeholder="branding/cafe-a-logo.png" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" id="cm-cancel" class="btn-ghost">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+    <div id="cm-error" class="error"></div>
+  </div>
+</div>
+
+<div id="release-notes-modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="rn-title">Release notes</h3>
+    <p class="muted small" id="rn-subtitle">These notes appear in the launcher / server update prompt before the user clicks <strong>Proceed Update</strong>. Leave blank to ship without notes.</p>
+    <label>Notes <span class="hint">plain text, up to 4000 characters &mdash; line breaks preserved</span>
+      <textarea id="rn-textarea" rows="8" maxlength="4000" placeholder="What changed in this build? e.g.&#10;&#10;- Added Steam library auto-detect&#10;- Fixed crash when launching offline&#10;- New cyberpunk theme accent"></textarea>
+    </label>
+    <div class="rn-meta"><span id="rn-counter" class="muted small">0 / 4000</span></div>
+    <div class="modal-actions">
+      <button type="button" id="rn-cancel" class="btn-ghost">Cancel</button>
+      <button type="button" id="rn-skip" class="btn-ghost">Skip notes</button>
+      <button type="button" id="rn-confirm" class="btn-primary">Build &amp; ship</button>
+    </div>
+  </div>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>

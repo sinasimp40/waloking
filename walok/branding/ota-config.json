@@ -1,0 +1,9 @@
+{
+  "channel": "example-cafe",
+  "updateServer": "http://YOUR-RDP-IP:4231",
+  "version": "1.0.0",
+  "checkIntervalMs": 120000,
+  "enabled": true,
+  "brand": "EXAMPLE CAFE",
+  "subtitle": "Premium Gaming Lounge"
+}
