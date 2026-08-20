@@ -22,6 +22,7 @@ const GameCard = memo(function GameCard({ game }) {
   const [showVariations, setShowVariations] = useState(false)
   const popupRef = useRef(null)
   const defaultAccent = accentColor || getDefaultAccent()
+  const cover = game.wallpaper || game.icon
 
   const validVariations = (game.variations || []).filter(v => v.name && v.exePath)
 
@@ -216,50 +217,81 @@ const GameCard = memo(function GameCard({ game }) {
       </div>
 
       {showVariations && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }} onMouseDown={() => setShowVariations(false)}>
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          style={{
+            background: 'radial-gradient(circle at center, rgba(0,0,0,0.52), rgba(0,0,0,0.82))',
+            backdropFilter: 'blur(3px)',
+          }}
+          onMouseDown={() => setShowVariations(false)}
+        >
           <div
             ref={popupRef}
-            className="relative w-[320px] rounded-xl overflow-hidden"
+            className="relative w-full max-w-[430px] rounded-[18px] overflow-hidden"
             style={{
-              background: 'linear-gradient(180deg, rgba(22,22,28,0.98) 0%, rgba(12,12,16,0.99) 100%)',
-              border: `1px solid ${defaultAccent}25`,
-              boxShadow: `0 0 40px ${defaultAccent}15, 0 20px 60px rgba(0,0,0,0.8)`,
+              background: 'linear-gradient(145deg, rgba(28,28,35,0.98), rgba(10,10,14,0.99))',
+              border: `1px solid ${defaultAccent}38`,
+              boxShadow: `0 28px 80px rgba(0,0,0,0.82), 0 0 55px ${defaultAccent}14`,
             }}
             onMouseDown={e => e.stopPropagation()}
           >
-            <div className="absolute top-0 left-0 right-0 h-[1px]" style={{ background: `linear-gradient(90deg, transparent, ${defaultAccent}, transparent)`, opacity: 0.5 }} />
+            <div className="h-[2px]" style={{ background: `linear-gradient(90deg, transparent, ${defaultAccent} 30%, #ffffff 50%, ${defaultAccent} 70%, transparent)` }} />
 
-            <div className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                {game.icon && !imgError && (
-                  <img src={game.icon} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
-                )}
-                <div className="min-w-0">
-                  <p className="font-orbitron text-xs font-bold truncate" style={{ color: defaultAccent }}>{game.name}</p>
-                  <p className="font-rajdhani text-[9px] text-white/30 uppercase tracking-wider">Select action</p>
-                </div>
+            <div className="relative h-[112px] overflow-hidden">
+              {cover && !imgError ? (
+                <img
+                  src={cover}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{ filter: 'brightness(0.45) saturate(0.8)' }}
+                  onError={() => setImgError(true)}
+                />
+              ) : (
+                <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${defaultAccent}30, rgba(14,14,15,1))` }} />
+              )}
+              <div
+                className="absolute inset-0"
+                style={{ background: 'linear-gradient(to top, rgba(10,10,14,1) 0%, rgba(10,10,14,0.42) 64%, rgba(10,10,14,0.18) 100%)' }}
+              />
+              <div className="absolute left-[18px] right-14 bottom-4">
+                <p className="font-rajdhani text-[10px] font-bold uppercase tracking-[0.15em]" style={{ color: defaultAccent }}>Choose a version</p>
+                <p className="font-orbitron text-[15px] font-bold leading-tight text-white truncate mt-1" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>{game.name}</p>
               </div>
-              <button onClick={() => setShowVariations(false)} className="p-1.5 rounded-lg hover:bg-white/5 transition-colors">
-                <X size={13} className="text-white/30 hover:text-white transition-colors" />
+              <button
+                type="button"
+                aria-label="Close edition picker"
+                onClick={() => setShowVariations(false)}
+                className="absolute top-3 right-3 p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-black/30 transition-colors"
+              >
+                <X size={16} />
               </button>
             </div>
 
-            <div className="h-[1px] mx-3" style={{ background: `linear-gradient(90deg, transparent, ${defaultAccent}15, transparent)` }} />
+            <div className="h-px mx-[18px]" style={{ background: `linear-gradient(90deg, ${defaultAccent}40, rgba(255,255,255,0.08), transparent)` }} />
 
-            <div className="p-2 space-y-0.5">
+            <div className="p-3 space-y-2">
               {game.exePath && (
                 <button
                   onClick={() => launchExe(game.exePath, game.name)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all group/item hover:bg-white/[0.04]"
+                  className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all duration-200 group/item hover:bg-white/[0.04] hover:translate-x-[3px]"
                   style={{ border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${defaultAccent}20` }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${defaultAccent}45` }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent' }}
                 >
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${defaultAccent}15` }}>
-                    <Play size={12} fill={defaultAccent} style={{ color: defaultAccent }} className="ml-0.5" />
+                  <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: `${defaultAccent}1f`, color: defaultAccent }}>
+                    <Play size={13} fill="currentColor" className="ml-0.5" />
                   </div>
-                  <span className="font-rajdhani text-sm font-medium text-white/80 group-hover/item:text-white transition-colors truncate">{game.name}</span>
-                  <ChevronRight size={12} style={{ color: `${defaultAccent}40` }} className="group-hover/item:opacity-100 opacity-40 transition-all ml-auto flex-shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className="inline-flex mb-1 px-1.5 py-0.5 rounded-[5px] border font-orbitron text-[8px] font-bold tracking-[0.12em] uppercase"
+                      style={{ color: defaultAccent, borderColor: `${defaultAccent}45`, background: `${defaultAccent}14` }}
+                    >
+                      Base game
+                    </span>
+                    <span className="block font-rajdhani text-[17px] font-semibold leading-none text-white/85 group-hover/item:text-white transition-colors truncate">{game.name}</span>
+                    <span className="block mt-1 font-rajdhani text-[11px] tracking-wide text-white/35">Default installation</span>
+                  </span>
+                  <ChevronRight size={17} className="ml-auto flex-shrink-0 text-white/25 group-hover/item:text-white/55 transition-colors" />
                 </button>
               )}
 
@@ -267,23 +299,29 @@ const GameCard = memo(function GameCard({ game }) {
                 <button
                   key={i}
                   onClick={() => launchExe(v.exePath, v.name)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all group/item hover:bg-white/[0.04]"
+                  className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all duration-200 group/item hover:bg-white/[0.04] hover:translate-x-[3px]"
                   style={{ border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${defaultAccent}20` }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = `${defaultAccent}45` }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent' }}
                 >
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${defaultAccent}15` }}>
-                    <Play size={12} fill={defaultAccent} style={{ color: defaultAccent }} className="ml-0.5" />
+                  <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: `${defaultAccent}1f`, color: defaultAccent }}>
+                    <Play size={13} fill="currentColor" className="ml-0.5" />
                   </div>
-                  <span className="font-rajdhani text-sm font-medium text-white/80 group-hover/item:text-white transition-colors truncate">{v.name}</span>
-                  <ChevronRight size={12} style={{ color: `${defaultAccent}40` }} className="group-hover/item:opacity-100 opacity-40 transition-all ml-auto flex-shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="inline-flex mb-1 px-1.5 py-0.5 rounded-[5px] border border-[#8497ff]/25 bg-[#677bff]/10 font-orbitron text-[8px] font-bold tracking-[0.12em] uppercase text-[#a5b8ff]">
+                      Variation
+                    </span>
+                    <span className="block font-rajdhani text-[17px] font-semibold leading-none text-white/85 group-hover/item:text-white transition-colors truncate">{v.name}</span>
+                    <span className="block mt-1 font-rajdhani text-[11px] tracking-wide text-white/35">Custom launch setup</span>
+                  </span>
+                  <ChevronRight size={17} className="ml-auto flex-shrink-0 text-white/25 group-hover/item:text-white/55 transition-colors" />
                 </button>
               ))}
             </div>
 
-            <div className="h-[1px] mx-3" style={{ background: `linear-gradient(90deg, transparent, ${defaultAccent}08, transparent)` }} />
-            <div className="px-4 py-2">
-              <p className="font-rajdhani text-[9px] text-white/15 tracking-wider text-center uppercase">{validVariations.length + (game.exePath ? 1 : 0)} launch options</p>
+            <div className="mx-[18px] pt-[13px] pb-[15px] border-t border-white/[0.06] flex items-center justify-between">
+              <p className="font-rajdhani text-[11px] text-white/[0.29] tracking-[0.07em] uppercase">{validVariations.length + (game.exePath ? 1 : 0)} editions available</p>
+              <p className="font-rajdhani text-[11px] font-bold" style={{ color: defaultAccent }}>Select to play</p>
             </div>
           </div>
         </div>
