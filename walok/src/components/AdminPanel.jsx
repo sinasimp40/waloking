@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
   X, Plus, Edit2, Trash2, Star, Pin, Upload, Save, Search,
   Gamepad2, Settings, Image, Layout, Key, Monitor, DollarSign,
   Share2, Briefcase, ExternalLink, Power, Megaphone, Bold, Italic,
   Underline, Type, Palette, AlignLeft, List, Network, ChevronRight,
-  Download, ArchiveRestore, Tv
+  Download, ArchiveRestore, Tv, Bell, Activity, Loader2, CheckCircle2,
+  XCircle, AlertCircle, Server
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
@@ -30,6 +31,7 @@ export default function AdminPanel() {
     { id: 'announcement', label: 'Announce', icon: Megaphone },
     { id: 'appearance', label: 'Appearance', icon: Layout },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'notifications', label: 'Alerts', icon: Activity },
     { id: 'backup', label: 'Backup', icon: Download },
   ]
 
@@ -100,6 +102,7 @@ export default function AdminPanel() {
             {adminSection === 'announcement' && <AnnouncementSection />}
             {adminSection === 'appearance' && <AppearanceSection />}
             {adminSection === 'settings' && <SettingsSection />}
+            {adminSection === 'notifications' && <NotificationsSection />}
             {adminSection === 'backup' && <BackupSection />}
           </div>
         </div>
@@ -1522,6 +1525,197 @@ function BackupSection() {
             {importing ? 'IMPORTING...' : 'IMPORT BACKUP'}
           </button>
         </div>
+      </CardBox>
+    </SectionWrapper>
+  )
+}
+
+function NotificationsSection() {
+  const { settings, updateSettings } = useStore()
+  const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
+  const [testState, setTestState] = useState(null) // null | 'loading' | { success, message }
+  const [monitorStatus, setMonitorStatus] = useState(null)
+
+  useEffect(() => {
+    if (window.electronAPI?.monitor?.getStatus) {
+      window.electronAPI.monitor.getStatus().then(status => {
+        if (status && !status.error) setMonitorStatus(status)
+      }).catch(() => {})
+    }
+  }, [])
+
+  const handleTest = async () => {
+    setTestState('loading')
+    try {
+      if (!window.electronAPI?.monitor?.testNotification) {
+        setTestState({ success: false, message: 'Monitor API not available (non-Electron environment).' })
+        return
+      }
+      const result = await window.electronAPI.monitor.testNotification()
+      setTestState(result)
+    } catch (e) {
+      setTestState({ success: false, message: e.message })
+    }
+  }
+
+  const Row = ({ title, hint, checked, onChange, disabled }) => (
+    <div className="flex items-center justify-between p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+      <div>
+        <p className="text-[11px] font-rajdhani font-bold text-white uppercase tracking-wider">{title}</p>
+        <p className="text-[10px] text-white/30 font-rajdhani mt-0.5">{hint}</p>
+      </div>
+      <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} />
+    </div>
+  )
+
+  return (
+    <SectionWrapper>
+      <SectionTitle icon={Activity} title="Game & PC Alerts" />
+
+      <CardBox>
+        <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">Telegram Connection</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Telegram Bot Token</label>
+            <InputField
+              type="password"
+              value={settings.telegramBotToken || ''}
+              onChange={e => updateSettings({ telegramBotToken: e.target.value.trim() })}
+              placeholder="123456:ABC-DEF..."
+              autoComplete="off"
+            />
+            <p className="mt-1 text-[9px] text-white/25 font-rajdhani">From @BotFather. Stored on this computer only.</p>
+          </div>
+          <div>
+            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Telegram Chat ID</label>
+            <InputField
+              value={settings.telegramChatId || ''}
+              onChange={e => updateSettings({ telegramChatId: e.target.value.trim() })}
+              placeholder="-1001234567890"
+              autoComplete="off"
+            />
+            <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Private chat, group, or channel chat ID.</p>
+          </div>
+        </div>
+        <p className="text-[10px] text-white/30 font-rajdhani mt-3 leading-relaxed">Each launcher can use its own Telegram bot and chat. OTA updates never send Telegram alerts.</p>
+      </CardBox>
+
+      {/* Notification toggles */}
+      <CardBox>
+        <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">Alert Preferences</p>
+        <div className="space-y-2">
+          <Row
+            title="Enable Notifications"
+            hint="Master toggle — does not affect OTA updates"
+            checked={settings.notificationEnabled !== false}
+            onChange={() => updateSettings({ notificationEnabled: settings.notificationEnabled === false })}
+          />
+          <Row
+            title="Game Launch Alerts"
+            hint="Alert when a game is started on this PC"
+            checked={settings.notifyGameLaunches !== false}
+            onChange={() => updateSettings({ notifyGameLaunches: settings.notifyGameLaunches === false })}
+            disabled={settings.notificationEnabled === false}
+          />
+          <Row
+            title="PC Status Alerts"
+            hint="Alert only when this PC comes online or goes offline"
+            checked={settings.notifyPcMonitoring !== false}
+            onChange={() => updateSettings({ notifyPcMonitoring: settings.notifyPcMonitoring === false })}
+            disabled={settings.notificationEnabled === false}
+          />
+        </div>
+      </CardBox>
+
+      {/* Background monitor */}
+      <CardBox>
+        <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">Background PC Monitor</p>
+        <div className="space-y-3">
+          <Row
+            title="Enable Background Monitor"
+            hint="Runs independently after the launcher closes and starts with Windows"
+            checked={!!settings.monitorEnabled}
+            onChange={() => updateSettings({ monitorEnabled: !settings.monitorEnabled })}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">This Computer's Name</label>
+              <InputField
+                value={settings.pcName || ''}
+                onChange={e => updateSettings({ pcName: e.target.value })}
+                placeholder="e.g. PC-01 or Booth A"
+              />
+              <p className="mt-1 text-[9px] text-white/25 font-rajdhani">One launcher install = one computer. Set a unique name on every PC.</p>
+            </div>
+            <div>
+              <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Online Check-in (seconds)</label>
+              <InputField
+                type="number"
+                min={30}
+                max={60}
+                value={settings.monitorIntervalSeconds || 30}
+                onChange={e => updateSettings({ monitorIntervalSeconds: Math.min(60, Math.max(30, parseInt(e.target.value) || 30)) })}
+              />
+              <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Small background signal that confirms this computer is still on.</p>
+            </div>
+          </div>
+        </div>
+      </CardBox>
+
+      {/* Monitor server URL */}
+      <CardBox>
+        <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">Monitor Server Connection</p>
+        <div>
+          <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">
+            Monitor Server URL <span className="text-white/20">(used only for alerts, never OTA notifications)</span>
+          </label>
+          <InputField
+            value={settings.updateServerUrl || ''}
+            onChange={e => updateSettings({ updateServerUrl: e.target.value.trim() })}
+            placeholder="http://YOUR-SERVER-IP:4231"
+          />
+        </div>
+        {monitorStatus && (
+          <div className={`mt-2 flex items-center gap-2 text-[10px] font-rajdhani ${monitorStatus.serverConfigured ? 'text-emerald-400' : 'text-white/30'}`}>
+            <Server size={11} />
+            {monitorStatus.serverConfigured ? 'Monitor server URL configured' : 'No monitor server URL — alerts will not be sent'}
+          </div>
+        )}
+      </CardBox>
+
+      {/* Connection status */}
+      <CardBox>
+        <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">Telegram Setup Check</p>
+        <p className="text-[10px] text-white/30 font-rajdhani mb-3 leading-relaxed">
+          Checks that the monitor server is reachable and that this launcher has a bot token and chat ID.
+          This does not send an OTA notification or a test alert.
+        </p>
+        <AccentButton onClick={handleTest} disabled={testState === 'loading'}>
+          {testState === 'loading' ? (
+            <span className="flex items-center gap-2"><Loader2 size={12} className="animate-spin" />Checking...</span>
+          ) : (
+            <span className="flex items-center gap-2"><Activity size={12} />CHECK CONNECTION</span>
+          )}
+        </AccentButton>
+        {testState && testState !== 'loading' && (
+          <div
+            className="mt-3 flex items-start gap-2 p-3 rounded-xl text-[11px] font-rajdhani"
+            style={{
+              background: testState.success ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+              border: `1px solid ${testState.success ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+              color: testState.success ? '#6ee7b7' : '#fca5a5',
+            }}
+          >
+            {testState.success ? <CheckCircle2 size={14} className="flex-shrink-0 mt-0.5" /> : <XCircle size={14} className="flex-shrink-0 mt-0.5" />}
+            <div>
+              <p className="font-bold">{testState.success ? 'Monitor server reachable' : 'Connection check failed'}</p>
+              <p className="opacity-70 mt-0.5">{testState.message}</p>
+              {testState.reason === 'not_configured' && (
+                <p className="mt-1 text-yellow-400">Add the Monitor Server URL, Telegram Bot Token, and Telegram Chat ID above.</p>
+              )}
+            </div>
+          </div>
+        )}
       </CardBox>
     </SectionWrapper>
   )

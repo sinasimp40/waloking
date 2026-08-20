@@ -651,6 +651,126 @@ function setBalokUpdatesEnabled(ch, on) {
   return getBalokCustomer(ch)
 }
 
+// ── Notification configuration ────────────────────────────────────────────────
+// Persistent per-channel config for Telegram alerts + PC monitoring.
+// Only safe fields are persisted here — bot token/chat-id are NEVER stored
+// in the DB; they come exclusively from server environment variables.
+//
+// Schema:
+//   channel          TEXT PRIMARY KEY
+//   enabled          INTEGER  (0/1)  — master switch
+//   game_launches    INTEGER  (0/1)  — notify on game launch events
+//   pc_monitoring    INTEGER  (0/1)  — notify on PC online/offline transitions
+//   roster_json      TEXT           — JSON array of {name,ip} entries
+//   last_delivery_ok INTEGER        — 1 = last send succeeded, 0 = failed
+//   last_delivery_at INTEGER        — ms epoch of last send attempt
+//   updated_at       INTEGER
+db.exec(`
+CREATE TABLE IF NOT EXISTS notification_config (
+  channel          TEXT PRIMARY KEY,
+  enabled          INTEGER NOT NULL DEFAULT 1,
+  game_launches    INTEGER NOT NULL DEFAULT 1,
+  pc_monitoring    INTEGER NOT NULL DEFAULT 1,
+  roster_json      TEXT NOT NULL DEFAULT '[]',
+  last_delivery_ok INTEGER,
+  last_delivery_at INTEGER,
+  updated_at       INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
+);
+`)
+// Idempotent column adds in case this table pre-dates a column.
+;(function ensureNotifCols() {
+  const cols = new Set(db.prepare('PRAGMA table_info(notification_config)').all().map(r => r.name))
+  const adds = [
+    ['enabled',          'INTEGER NOT NULL DEFAULT 1'],
+    ['game_launches',    'INTEGER NOT NULL DEFAULT 1'],
+    ['pc_monitoring',    'INTEGER NOT NULL DEFAULT 1'],
+    ['roster_json',      "TEXT NOT NULL DEFAULT '[]'"],
+    ['last_delivery_ok', 'INTEGER'],
+    ['last_delivery_at', 'INTEGER'],
+    ['updated_at',       'INTEGER NOT NULL DEFAULT (CAST(strftime(\'%s\',\'now\') AS INTEGER) * 1000)'],
+  ]
+  for (const [name, type] of adds) {
+    if (!cols.has(name)) {
+      try { db.exec('ALTER TABLE notification_config ADD COLUMN ' + name + ' ' + type) } catch (_) {}
+    }
+  }
+})()
+
+const nStmts = {
+  get: db.prepare('SELECT * FROM notification_config WHERE channel = ?'),
+  upsert: db.prepare(`
+    INSERT INTO notification_config (channel, enabled, game_launches, pc_monitoring, roster_json, updated_at)
+    VALUES (@channel, @enabled, @gameLaunches, @pcMonitoring, @rosterJson, CAST(strftime('%s','now') AS INTEGER) * 1000)
+    ON CONFLICT(channel) DO UPDATE SET
+      enabled       = excluded.enabled,
+      game_launches = excluded.game_launches,
+      pc_monitoring = excluded.pc_monitoring,
+      roster_json   = excluded.roster_json,
+      updated_at    = excluded.updated_at
+  `),
+  setDelivery: db.prepare(`
+    UPDATE notification_config
+    SET last_delivery_ok = ?, last_delivery_at = ?
+    WHERE channel = ?
+  `),
+}
+
+function rowToNotifConfig(r) {
+  if (!r) return null
+  let roster = []
+  try { roster = JSON.parse(r.roster_json || '[]') } catch (_) {}
+  if (!Array.isArray(roster)) roster = []
+  return {
+    channel: r.channel,
+    enabled: !!r.enabled,
+    gameLaunches: !!r.game_launches,
+    pcMonitoring: !!r.pc_monitoring,
+    roster,
+    lastDeliveryOk: r.last_delivery_ok === null || r.last_delivery_ok === undefined
+      ? null : !!r.last_delivery_ok,
+    lastDeliveryAt: r.last_delivery_at || null,
+    updatedAt: r.updated_at || null,
+  }
+}
+
+function getNotifConfig(channel) {
+  return rowToNotifConfig(nStmts.get.get(channel))
+}
+
+// Returns the config (creating default if absent).
+function getOrCreateNotifConfig(channel) {
+  const existing = nStmts.get.get(channel)
+  if (existing) return rowToNotifConfig(existing)
+  // Insert default
+  nStmts.upsert.run({
+    channel, enabled: 1, gameLaunches: 1, pcMonitoring: 1, rosterJson: '[]',
+  })
+  return rowToNotifConfig(nStmts.get.get(channel))
+}
+
+function setNotifConfig(channel, patch) {
+  const cur = getOrCreateNotifConfig(channel)
+  // Merge patch over current values
+  const next = {
+    channel,
+    enabled:      'enabled'      in patch ? (patch.enabled      ? 1 : 0) : (cur.enabled      ? 1 : 0),
+    gameLaunches: 'gameLaunches' in patch ? (patch.gameLaunches ? 1 : 0) : (cur.gameLaunches ? 1 : 0),
+    pcMonitoring: 'pcMonitoring' in patch ? (patch.pcMonitoring ? 1 : 0) : (cur.pcMonitoring ? 1 : 0),
+    rosterJson:   'roster'       in patch
+      ? JSON.stringify(Array.isArray(patch.roster) ? patch.roster : [])
+      : (cur.roster ? JSON.stringify(cur.roster) : '[]'),
+  }
+  nStmts.upsert.run(next)
+  return rowToNotifConfig(nStmts.get.get(channel))
+}
+
+function recordNotifDelivery(channel, ok) {
+  const now = Date.now()
+  // Ensure row exists
+  getOrCreateNotifConfig(channel)
+  nStmts.setDelivery.run(ok ? 1 : 0, now, channel)
+}
+
 module.exports = {
   db,
   listCustomers,
@@ -674,6 +794,11 @@ module.exports = {
   setSourceUpdatedAt,
   getSourcePartial,
   setSourcePartial,
+  // Notification config API
+  getNotifConfig,
+  getOrCreateNotifConfig,
+  setNotifConfig,
+  recordNotifDelivery,
   // Balok customer API
   listBalokCustomers,
   getBalokCustomer,

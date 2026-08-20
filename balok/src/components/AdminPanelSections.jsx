@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react'
-import { Plus, Trash2, Save, DollarSign, Share2, Briefcase, Network, Megaphone, Calendar, Palette, Settings, Download, Search, ChevronUp, ChevronDown, Edit2, Image as ImageIcon, FileArchive } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { Plus, Trash2, Save, DollarSign, Share2, Briefcase, Network, Megaphone, Calendar, Palette, Settings, Download, Search, ChevronUp, ChevronDown, Edit2, Image as ImageIcon, FileArchive, Bell, Activity, Loader2, CheckCircle2, XCircle, AlertCircle, Server } from 'lucide-react'
 import JSZip from 'jszip'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -1340,6 +1340,194 @@ export function EventsSection() {
               </div>
             </div>
           ))}
+        </div>
+      </Panel>
+    </div>
+  )
+}
+
+export function NotificationsSection() {
+  const { settings, updateSettings } = useStore()
+  const [testState, setTestState] = useState(null) // null | 'loading' | { success, message }
+  const [monitorStatus, setMonitorStatus] = useState(null)
+  const accent = useStore(s => s.settings.accentColor) || getDefaultAccent()
+
+  useEffect(() => {
+    if (window.electronAPI?.monitor?.getStatus) {
+      window.electronAPI.monitor.getStatus().then(status => {
+        if (status && !status.error) setMonitorStatus(status)
+      }).catch(() => {})
+    }
+  }, [])
+
+  const handleTestNotification = async () => {
+    setTestState('loading')
+    try {
+      if (!window.electronAPI?.monitor?.testNotification) {
+        setTestState({ success: false, message: 'Monitor API not available (non-Electron environment).' })
+        return
+      }
+      const result = await window.electronAPI.monitor.testNotification()
+      setTestState(result)
+    } catch (e) {
+      setTestState({ success: false, message: e.message })
+    }
+  }
+
+  return (
+    <div className="space-y-8">
+      <SectionTitle title="Game & PC Alerts" />
+
+      <Panel title="Telegram Connection" subtitle="Saved locally in this BALOK launcher">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Field label="Telegram Bot Token" hint="From @BotFather. Stored on this computer only.">
+            <Input
+              type="password"
+              value={settings.telegramBotToken || ''}
+              onChange={e => updateSettings({ telegramBotToken: e.target.value.trim() })}
+              placeholder="123456:ABC-DEF..."
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="Telegram Chat ID" hint="Your private chat, group, or channel chat ID.">
+            <Input
+              value={settings.telegramChatId || ''}
+              onChange={e => updateSettings({ telegramChatId: e.target.value.trim() })}
+              placeholder="-1001234567890"
+              autoComplete="off"
+            />
+          </Field>
+        </div>
+        <p className="mt-4 text-xs text-zinc-500">
+          Each launcher can use its own Telegram bot and chat. Game launches and PC status changes use these values; OTA updates never send Telegram alerts.
+        </p>
+      </Panel>
+
+      {/* Master notification toggle */}
+      <Panel title="Alert Preferences" subtitle="Only game launches and PC status can trigger Telegram alerts">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="flex items-center justify-between p-5 bg-[#0A0A0B] border border-zinc-800/50 rounded-2xl">
+            <div>
+              <h5 className="text-[10px] font-black text-white uppercase tracking-widest">Enable Notifications</h5>
+              <p className="text-[10px] text-zinc-500 uppercase font-medium mt-1">Master toggle — does not affect OTA updates</p>
+            </div>
+            <Toggle
+              checked={settings.notificationEnabled !== false}
+              onChange={v => updateSettings({ notificationEnabled: !!v })}
+            />
+          </div>
+          <div className="flex items-center justify-between p-5 bg-[#0A0A0B] border border-zinc-800/50 rounded-2xl">
+            <div>
+              <h5 className="text-[10px] font-black text-white uppercase tracking-widest">Game Launch Alerts</h5>
+              <p className="text-[10px] text-zinc-500 uppercase font-medium mt-1">Alert when a game is started</p>
+            </div>
+            <Toggle
+              checked={settings.notifyGameLaunches !== false}
+              onChange={v => updateSettings({ notifyGameLaunches: !!v })}
+              disabled={settings.notificationEnabled === false}
+            />
+          </div>
+          <div className="flex items-center justify-between p-5 bg-[#0A0A0B] border border-zinc-800/50 rounded-2xl">
+            <div>
+              <h5 className="text-[10px] font-black text-white uppercase tracking-widest">PC Status Alerts</h5>
+              <p className="text-[10px] text-zinc-500 uppercase font-medium mt-1">Alert only when this PC comes online or goes offline</p>
+            </div>
+            <Toggle
+              checked={settings.notifyPcMonitoring !== false}
+              onChange={v => updateSettings({ notifyPcMonitoring: !!v })}
+              disabled={settings.notificationEnabled === false}
+            />
+          </div>
+        </div>
+      </Panel>
+
+      {/* Background monitor */}
+      <Panel title="Background PC Monitor" subtitle="Keeps checking this computer after the launcher closes">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between p-5 bg-[#0A0A0B] border border-zinc-800/50 rounded-2xl">
+            <div>
+              <h5 className="text-[10px] font-black text-white uppercase tracking-widest">Enable Background Monitor</h5>
+              <p className="text-[10px] text-zinc-500 uppercase font-medium mt-1">
+                {!window.electronAPI ? 'Preview only — packaged launcher runs the monitor in the background' : 'Runs independently after the launcher closes and starts with Windows'}
+              </p>
+            </div>
+            <Toggle
+              checked={!!settings.monitorEnabled}
+              onChange={v => updateSettings({ monitorEnabled: !!v })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Field label="This Computer's Name" hint="One launcher install = one computer. Set a unique name on every PC.">
+              <Input
+                value={settings.pcName || ''}
+                onChange={e => updateSettings({ pcName: e.target.value })}
+                placeholder="e.g. PC-01 or Booth A"
+              />
+            </Field>
+            <Field label="Online Check-in (seconds)" hint="A small background signal that confirms this computer is still on.">
+              <Input
+                type="number"
+                min={30}
+                max={60}
+                value={settings.monitorIntervalSeconds || 30}
+                onChange={e => updateSettings({ monitorIntervalSeconds: Math.min(60, Math.max(30, parseInt(e.target.value) || 30)) })}
+              />
+            </Field>
+          </div>
+        </div>
+      </Panel>
+
+      {/* Monitor server URL */}
+      <Panel title="Monitor Server Connection" subtitle="Used only for game and PC-status alerts">
+        <Field label="Monitor Server URL" hint="e.g. http://192.168.1.100:4231 — no OTA alert is sent here">
+          <Input
+            value={settings.updateServerUrl || ''}
+            onChange={e => updateSettings({ updateServerUrl: e.target.value.trim() })}
+            placeholder="http://YOUR-SERVER-IP:4231"
+          />
+        </Field>
+        {monitorStatus && (
+          <div className={`mt-3 flex items-center gap-2 text-xs ${monitorStatus.serverConfigured ? 'text-emerald-400' : 'text-zinc-500'}`}>
+            <Server size={12} />
+              {monitorStatus.serverConfigured ? 'Monitor server URL configured' : 'No monitor server URL configured — alerts will not be sent'}
+          </div>
+        )}
+      </Panel>
+
+      {/* Connection status */}
+      <Panel title="Telegram Setup Check" subtitle="Confirm this launcher’s Telegram settings and monitor server">
+        <div className="space-y-4">
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            Checks that the monitor server is reachable and that this launcher has a bot token and chat ID.
+            This does not send an OTA notification or a test alert.
+          </p>
+          <PrimaryBtn
+            onClick={handleTestNotification}
+            disabled={testState === 'loading'}
+          >
+            {testState === 'loading' ? (
+              <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />Checking...</span>
+            ) : (
+              <span className="flex items-center gap-2"><Activity size={14} />Check Connection</span>
+            )}
+          </PrimaryBtn>
+          {testState && testState !== 'loading' && (
+            <div className={`flex items-start gap-3 p-4 rounded-xl border ${testState.success ? 'bg-emerald-950/20 border-emerald-800/30 text-emerald-300' : 'bg-red-950/20 border-red-800/30 text-red-300'}`}>
+              {testState.success
+                ? <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+                : <XCircle size={16} className="flex-shrink-0 mt-0.5" />}
+              <div>
+                <p className="text-sm font-semibold">{testState.success ? 'Monitor server reachable' : 'Connection check failed'}</p>
+                <p className="text-xs mt-1 opacity-80">{testState.message}</p>
+                {testState.reason === 'not_configured' && (
+                  <p className="text-xs mt-2 text-yellow-400">
+                    Add the Monitor Server URL, Telegram Bot Token, and Telegram Chat ID above.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </Panel>
     </div>

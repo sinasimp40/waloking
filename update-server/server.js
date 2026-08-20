@@ -84,6 +84,7 @@ const multer = require('multer')
 
 const dbApi = require('./db')
 const live = require('./live')
+const notif = require('./notifications')
 const { cleanupAfterBuild, cleanupCancelledJob } = require('./cleanup')
 const jobRunner = require('./job-runner')
 const sourceBuild = require('./source-build')
@@ -311,6 +312,32 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0
 function normalizeIp(ip) {
   if (!ip) return ''
   return String(ip).replace(/^::ffff:/, '').toLowerCase()
+}
+
+// Monitor endpoints are public because the detached Windows helper cannot hold
+// an administrator credential. Their authorization must therefore be based
+// solely on the network address observed by this server, never on a body field
+// that an arbitrary caller can forge.
+function getObservedRequestIp(req) {
+  return normalizeIp(req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress)
+}
+
+// Launcher-owned Telegram credentials travel only in monitor request bodies.
+// They are capped, never written to the database, and only retained in the
+// live monitor entry long enough to notify its later offline transition.
+function readLauncherTelegram(body) {
+  const botToken = typeof body?.telegram?.botToken === 'string' ? body.telegram.botToken.trim().slice(0, 256) : ''
+  const chatId = typeof body?.telegram?.chatId === 'string' ? body.telegram.chatId.trim().slice(0, 128) : ''
+  return botToken && chatId ? { botToken, chatId } : null
+}
+
+// Monitor routes are intentionally public so a Windows helper can run without
+// storing an administrator password. Restrict them to the PC/IP allow-list
+// maintained in the protected update-server admin panel; this prevents an
+// internet caller from inventing PCs or Telegram game-launch messages.
+function isEnrolledMonitor(cfg, ip) {
+  return Array.isArray(cfg?.roster) && cfg.roster.length > 0 &&
+    cfg.roster.some(entry => normalizeIp(entry?.ip) === ip)
 }
 function isLoopbackIp(ip) {
   const v = normalizeIp(ip)
@@ -578,7 +605,7 @@ app.use('/updates', express.static(UPDATES_DIR, {
 app.get('/api/live/:channel/:role/:instance', (req, res) => {
   const { channel, role, instance } = req.params
   if (!isValidChannel(channel)) return res.status(400).end()
-  if (role !== 'launcher' && role !== 'server') return res.status(400).end()
+  if (!live.VALID_ROLES.has(role)) return res.status(400).end()
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(instance)) return res.status(400).end()
   // Reject unknown channels to stop spoofed presence / registry-churn from
   // any client that can guess the URL shape. The registry stays clean.
@@ -587,6 +614,13 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
   const installPath = typeof req.query.p === 'string' && req.query.p.length <= 512 ? req.query.p : null
   const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
   const userAgent = String(req.headers['user-agent'] || '').slice(0, 256)
+  if (role === 'monitor') {
+    let cfg
+    try { cfg = dbApi.getOrCreateNotifConfig(channel) } catch (_) {}
+    if (!isEnrolledMonitor(cfg, ip)) {
+      return res.status(403).json({ error: 'monitor IP is not enrolled for this channel' })
+    }
+  }
 
   res.set('Content-Type', 'text/event-stream')
   res.set('Cache-Control', 'no-cache')
@@ -621,7 +655,10 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
   live.addClient({ channel, role, instance, version, ip, userAgent, send, close })
   // Persist last-seen on first connect so the admin sees "just now" even
   // before the first heartbeat tick (which is HEARTBEAT_MS away).
-  try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
+  // monitor role is not tracked in the customers table (no launcher/server col).
+  if (role !== 'monitor') {
+    try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
+  }
 
   const heartbeatTimer = setInterval(() => {
     try {
@@ -629,7 +666,9 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
       live.touchClient(channel, role, instance)
       // Refresh last-seen each heartbeat — IP + path are captured at connect
       // time and reused since neither can change mid-stream.
-      try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
+      if (role !== 'monitor') {
+        try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
+      }
     } catch (e) {}
   }, live.HEARTBEAT_MS)
 
@@ -642,29 +681,207 @@ app.get('/api/live/:channel/:role/:instance', (req, res) => {
 // HTTP-based heartbeat fallback for clients whose SSE connection is blocked
 // by a corporate proxy / aggressive NAT — they can fall back to plain POST
 // every 60s and still appear "online" in the admin.
+// Also used by the monitor role (PC agents) to register presence without
+// needing a persistent SSE connection.
 app.post('/api/live/:channel/:role/:instance/heartbeat', (req, res) => {
   const { channel, role, instance } = req.params
   if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
-  if (role !== 'launcher' && role !== 'server') return res.status(400).json({ error: 'invalid role' })
+  if (!live.VALID_ROLES.has(role)) return res.status(400).json({ error: 'invalid role' })
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(instance)) return res.status(400).json({ error: 'invalid instance' })
   if (!isKnownLiveChannel(channel)) return res.status(404).json({ error: 'unknown channel' })
   const version = req.body && typeof req.body.version === 'string' ? req.body.version : null
   const installPath = req.body && typeof req.body.path === 'string' && req.body.path.length <= 512 ? req.body.path : null
   const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
-  const ok = live.touchClient(channel, role, instance, { version })
-  if (!ok) {
+  const deviceName = req.body && typeof req.body.deviceName === 'string'
+    ? req.body.deviceName.slice(0, 80).trim() : null
+  if (role === 'monitor') {
+    let cfg
+    try { cfg = dbApi.getOrCreateNotifConfig(channel) } catch (_) {}
+    if (!isEnrolledMonitor(cfg, ip)) {
+      return res.status(403).json({ error: 'monitor IP is not enrolled for this channel' })
+    }
+  }
+  const preferences = role === 'monitor' ? {
+    notificationEnabled: req.body?.notificationEnabled !== false,
+    notifyPcMonitoring: req.body?.notifyPcMonitoring !== false,
+  } : null
+  const telegram = role === 'monitor' ? readLauncherTelegram(req.body) : null
+  const wasRegistered = live.touchClient(channel, role, instance, { version, name: deviceName, preferences, telegram })
+  if (!wasRegistered) {
     // Client wasn't in registry — auto-register a "ghost" entry that has no
     // SSE socket so the admin still sees them as online.
+    // For monitor role this fires the 'online' hook inside addClient.
     live.addClient({
       channel, role, instance, version, ip,
       userAgent: String(req.headers['user-agent'] || '').slice(0, 256),
-      send: () => {}, close: () => {},
+      send: () => {}, close: () => {}, name: deviceName, preferences, telegram,
     })
   }
-  // Persist last-seen IP + install path regardless of whether this was a
-  // touch or a ghost registration — both mean the client is reachable now.
-  try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
-  res.json({ ok: true, registered: !ok })
+  // Persist last-seen IP + install path for launcher/server roles.
+  // monitor presence is tracked only in the live registry (in-memory).
+  if (role !== 'monitor') {
+    try { dbApi.recordClientSeen(channel, role, ip, installPath) } catch (e) {}
+  }
+  res.json({ ok: true, registered: !wasRegistered })
+})
+
+// ============ MONITOR EVENT HOOKS (PC presence → Telegram) ============
+//
+// Wired at startup: any monitor event (online/close/stale) fires a Telegram
+// alert when pcMonitoring is enabled for that channel. Only TRANSITIONS
+// trigger a send — heartbeats (touchClient) do NOT reach this handler.
+live.onAnyMonitorEvent(async function handleMonitorEvent(channel, event, entry) {
+  // Non-blocking — never propagate errors back to the event emitter.
+  try {
+    // Config lookup: if not found, treat as disabled (safe default).
+    if (entry.preferences?.notificationEnabled === false || entry.preferences?.notifyPcMonitoring === false) return
+    let cfg
+    try { cfg = dbApi.getOrCreateNotifConfig(channel) } catch (_) {}
+    if (!cfg || !cfg.enabled || !cfg.pcMonitoring) return
+
+    // Launcher credentials are held only on this live monitor entry.
+    if (!notif.isConfigured(entry.telegram)) return
+
+    // Get current online monitors AFTER the transition.
+    const onlinePcs = live.monitorSnapshot(channel)
+    const msg = notif.buildPcMessage(event, entry, onlinePcs, cfg.roster)
+    const result = await notif.send(msg, entry.telegram)
+    try { dbApi.recordNotifDelivery(channel, result.ok) } catch (_) {}
+  } catch (_) {}
+})
+
+// ============ UNAUTHENTICATED MONITOR ROUTES ============
+//
+// These routes accept data from PC agents without admin auth.
+// They are safe because:
+//   1. channel/role/instance are validated against known channels.
+//   2. The game event route is gated by persisted config.
+//   3. No sensitive data is returned.
+
+// Compatibility heartbeat route for the detached launcher helper.
+// It maps the helper's stable device ID to the canonical live monitor route.
+app.post('/api/monitor/heartbeat', (req, res) => {
+  const body = req.body || {}
+  const channel = typeof body.channel === 'string' ? body.channel : ''
+  const instance = typeof body.deviceId === 'string' ? body.deviceId : ''
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(instance)) return res.status(400).json({ error: 'invalid device id' })
+  if (!isKnownLiveChannel(channel)) return res.status(404).json({ error: 'unknown channel' })
+
+  const ip = normalizeIp(req.ip || req.connection?.remoteAddress)
+  const name = typeof body.deviceName === 'string' ? body.deviceName.slice(0, 80).trim() : null
+  let cfg
+  try { cfg = dbApi.getOrCreateNotifConfig(channel) } catch (_) {}
+  if (!isEnrolledMonitor(cfg, ip)) {
+    return res.status(403).json({ error: 'monitor IP is not enrolled for this channel' })
+  }
+  const preferences = {
+    notificationEnabled: body.notificationEnabled !== false,
+    notifyPcMonitoring: body.notifyPcMonitoring !== false,
+  }
+  const wasRegistered = live.touchClient(channel, 'monitor', instance, { name, preferences })
+  if (!wasRegistered) {
+    live.addClient({
+      channel, role: 'monitor', instance, version: null, ip,
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 256),
+      send: () => {}, close: () => {}, name, preferences,
+    })
+  }
+  res.json({ ok: true, registered: !wasRegistered })
+})
+
+// POST /api/monitor/:channel/game-launch
+// Body: { instance, game }
+// Returns 200 {ok:true} or 4xx on validation failure.
+// Silently succeeds (no notification sent) when channel's config has
+// gameLaunches=false or notifications disabled — agent should not retry.
+app.post('/api/monitor/:channel/game-launch', async (req, res) => {
+  const { channel } = req.params
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!isKnownLiveChannel(channel)) return res.status(404).json({ error: 'unknown channel' })
+
+  const body = req.body || {}
+  const instanceValue = typeof body.instance === 'string' ? body.instance : body.deviceId
+  const instance = typeof instanceValue === 'string'
+    ? instanceValue.slice(0, 128).replace(/[^A-Za-z0-9_-]/g, '') : null
+  if (!instance || instance.length === 0) {
+    return res.status(400).json({ error: 'instance required (alphanumeric, dash, underscore, 1-128 chars)' })
+  }
+
+  const game = typeof body.game === 'string'
+    ? body.game.slice(0, 256).trim()
+    : typeof body.gameName === 'string'
+      ? (body.gameName + (typeof body.variation === 'string' && body.variation.trim() ? ' — ' + body.variation.trim() : '')).slice(0, 256).trim()
+      : ''
+  if (!game) return res.status(400).json({ error: 'game name required' })
+  if (body.notificationEnabled === false || body.notifyGameLaunches === false) {
+    return res.json({ ok: true, notified: false, reason: 'game launch notifications disabled locally' })
+  }
+
+  const ip = getObservedRequestIp(req)
+
+  // Config gate — fetch config; treat missing as disabled (safe default).
+  let cfg
+  try { cfg = dbApi.getOrCreateNotifConfig(channel) } catch (_) {}
+  if (!isEnrolledMonitor(cfg, ip)) {
+    return res.status(403).json({ error: 'monitor IP is not enrolled for this channel' })
+  }
+  const activeMonitor = live.monitorSnapshot(channel)
+    .find(entry => entry.instance === instance && entry.ip === ip)
+  if (!activeMonitor) {
+    return res.status(403).json({ error: 'active enrolled monitor required before reporting a game launch' })
+  }
+  if (!cfg || !cfg.enabled || !cfg.gameLaunches) {
+    return res.json({ ok: true, notified: false, reason: 'game launch notifications disabled' })
+  }
+
+  const telegram = readLauncherTelegram(body)
+  if (!notif.isConfigured(telegram)) {
+    return res.json({ ok: true, notified: false, reason: 'notification service not configured' })
+  }
+
+  const reportedName = typeof body.deviceName === 'string' ? body.deviceName.slice(0, 80).trim() : null
+  const msg = notif.buildGameMessage(channel, instance, ip, game, cfg.roster, reportedName)
+  let result
+  try {
+    result = await notif.send(msg, telegram)
+  } catch (_) {
+    result = { ok: false, configured: true, reason: 'send error' }
+  }
+  try { dbApi.recordNotifDelivery(channel, result.ok) } catch (_) {}
+  if (result.ok) {
+    return res.json({ ok: true, notified: true })
+  }
+  // Don't block the agent on notification failure — still return 200.
+  return res.json({ ok: true, notified: false, reason: result.reason })
+})
+
+// Compatibility game event route used by shipped launcher monitor helpers.
+app.post('/api/monitor/game-launch', (req, res, next) => {
+  const channel = req.body && typeof req.body.channel === 'string' ? req.body.channel : ''
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  req.params.channel = channel
+  return next()
+}, (req, res) => {
+  // Keep the launcher helper's response deterministic while it is updated.
+  // The canonical per-channel route above remains the complete handler.
+  return res.status(501).json({ error: 'use /api/monitor/:channel/game-launch' })
+})
+
+// The launcher deliberately cannot authenticate as a server administrator, so
+// this endpoint never sends a message. It makes the test control truthful:
+// the returned connection state is safe to expose, while actual test delivery
+// remains protected by POST /api/admin/notifications/:channel/test.
+app.post('/api/monitor/test', (req, res) => {
+  const configured = notif.isConfigured(readLauncherTelegram(req.body))
+  res.json({
+    ok: true,
+    reason: configured ? 'ready' : 'not_configured',
+    message: configured
+      ? 'Monitor server is reachable and this launcher’s Telegram settings are ready.'
+      : 'Enter both the Telegram Bot Token and Telegram Chat ID in this launcher.',
+    configured,
+  })
 })
 
 // ============ ADMIN ROUTES ============
@@ -3354,6 +3571,118 @@ app.get('/api/admin/channels', requireAdmin, (req, res) => {
   res.json({ channels })
 })
 
+// ============ ADMIN NOTIFICATION CONFIG ROUTES ============
+//
+// GET /api/admin/notifications/:channel
+//   Returns persisted notification config for the channel (no credentials).
+//   Also includes the notification service status (configured/not-configured).
+//
+// PUT /api/admin/notifications/:channel
+//   Body: { enabled?, gameLaunches?, pcMonitoring?, roster? }
+//   roster is an array of { name: string, ip: string } — names shown in alerts.
+//   Max 100 entries, name/ip capped at 128 chars each.
+//
+// POST /api/admin/notifications/:channel/test
+//   Sends a test Telegram message for this channel.
+//   Returns clear configured/not-configured status.
+
+app.get('/api/admin/notifications/:channel', requireAdmin, (req, res) => {
+  const { channel } = req.params
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!isKnownLiveChannel(channel)) return res.status(404).json({ error: 'unknown channel' })
+
+  let cfg
+  try { cfg = dbApi.getOrCreateNotifConfig(channel) } catch (e) {
+    return res.status(500).json({ error: 'failed to read notification config: ' + e.message })
+  }
+  res.json({
+    config: cfg,
+    service: notif.configStatus(),
+  })
+})
+
+app.put('/api/admin/notifications/:channel', requireAdmin, (req, res) => {
+  const { channel } = req.params
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!isKnownLiveChannel(channel)) return res.status(404).json({ error: 'unknown channel' })
+
+  const body = req.body || {}
+
+  // Validate roster if provided.
+  let roster
+  if ('roster' in body) {
+    if (!Array.isArray(body.roster)) {
+      return res.status(400).json({ error: 'roster must be an array' })
+    }
+    if (body.roster.length > 100) {
+      return res.status(400).json({ error: 'roster may not exceed 100 entries' })
+    }
+    roster = []
+    for (let i = 0; i < body.roster.length; i++) {
+      const entry = body.roster[i]
+      if (!entry || typeof entry !== 'object') {
+        return res.status(400).json({ error: 'roster[' + i + '] must be an object with name and ip' })
+      }
+      const name = typeof entry.name === 'string' ? entry.name.slice(0, 128).trim() : ''
+      const ip   = typeof entry.ip   === 'string' ? entry.ip.slice(0, 128).trim()   : ''
+      if (!name) return res.status(400).json({ error: 'roster[' + i + '].name is required' })
+      if (!ip)   return res.status(400).json({ error: 'roster[' + i + '].ip is required' })
+      roster.push({ name, ip })
+    }
+  }
+
+  const patch = {}
+  if ('enabled'      in body) patch.enabled      = !!body.enabled
+  if ('gameLaunches' in body) patch.gameLaunches  = !!body.gameLaunches
+  if ('pcMonitoring' in body) patch.pcMonitoring  = !!body.pcMonitoring
+  if (roster !== undefined)   patch.roster        = roster
+
+  let cfg
+  try { cfg = dbApi.setNotifConfig(channel, patch) } catch (e) {
+    return res.status(500).json({ error: 'failed to save notification config: ' + e.message })
+  }
+  res.json({
+    ok: true,
+    config: cfg,
+    service: notif.configStatus(),
+  })
+})
+
+app.post('/api/admin/notifications/:channel/test', requireAdmin, async (req, res) => {
+  const { channel } = req.params
+  if (!isValidChannel(channel)) return res.status(400).json({ error: 'invalid channel' })
+  if (!isKnownLiveChannel(channel)) return res.status(404).json({ error: 'unknown channel' })
+
+  const status = notif.configStatus()
+  if (!status.configured) {
+    return res.json({
+      ok: false,
+      configured: false,
+      service: status,
+      reason: 'Telegram credentials not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables on the server.',
+    })
+  }
+
+  const text = '🔔 <b>Test notification</b>\nChannel: <code>' +
+    channel + '</code>\nServer running OK — Telegram delivery confirmed.'
+
+  let result
+  try {
+    result = await notif.send(text)
+  } catch (e) {
+    result = { ok: false, configured: true, reason: 'unexpected error: ' + e.message }
+  }
+
+  try { dbApi.recordNotifDelivery(channel, result.ok) } catch (_) {}
+
+  res.json({
+    ok: result.ok,
+    configured: result.configured,
+    service: status,
+    ...(result.ok ? {} : { reason: result.reason }),
+  })
+})
+
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }))
 
 // Test-friendly export so test harnesses can require this file without
@@ -3366,6 +3695,7 @@ module.exports = {
     _hasActiveBuildJob,
     _validateExtractedSourceShape,
     _scheduleTrashRemoval,
+    getObservedRequestIp,
   },
 }
 

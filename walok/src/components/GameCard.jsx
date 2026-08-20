@@ -43,7 +43,11 @@ const GameCard = memo(function GameCard({ game }) {
       return
     }
     if (window.electronAPI) {
-      const result = await window.electronAPI.launchGame(exePath)
+      const result = await window.electronAPI.launchGame({
+        exePath,
+        gameName: game.name,
+        variation: label !== game.name ? label : null,
+      })
       if (result.success) {
         toast.success(`Launching ${label}...`)
         incrementLaunchCount(game.id)

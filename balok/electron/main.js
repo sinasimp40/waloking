@@ -138,6 +138,49 @@ try {
   console.error('[OTA] init failed:', e.message)
 }
 
+/* ── PC Monitor helper ───────────────────────────────────────────────────────
+   Posts heartbeat pings to the update server so Telegram alerts can fire.
+   No Telegram credentials live here — the server holds the bot token. */
+const monitorHelper = require('./monitor')
+function getOtaConfigPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'ota-config.json')
+    : path.join(__dirname, '..', 'branding', 'ota-config.json')
+}
+let detachedMonitorStarted = false
+function startMonitorService() {
+  if (!app.isPackaged || process.platform !== 'win32') {
+    monitorHelper.start(settingsPath, getOtaConfigPath())
+    return
+  }
+  if (detachedMonitorStarted) return
+  try {
+    // Run Electron as Node so this helper keeps heartbeating after the window
+    // and the launcher process exit. The copy lives outside app.asar because a
+    // detached Node process cannot reliably resolve an asar-only entry point.
+    const helperPath = path.join(userDataDir, 'pc-monitor.js')
+    const lockPath = path.join(userDataDir, '.pc-monitor.lock')
+    try {
+      const pid = Number(fs.readFileSync(lockPath, 'utf-8'))
+      if (pid > 0) process.kill(pid, 'SIGTERM')
+    } catch (_) {}
+    // Always refresh the helper from the installed app so OTA updates do not
+    // leave a previous monitor implementation running indefinitely.
+    fs.copyFileSync(path.join(__dirname, 'monitor.js'), helperPath)
+    const child = spawn(process.execPath, [helperPath, settingsPath, getOtaConfigPath()], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    })
+    child.unref()
+    detachedMonitorStarted = true
+  } catch (e) {
+    console.warn('[monitor] detached helper unavailable; using launcher process:', e.message)
+    monitorHelper.start(settingsPath, getOtaConfigPath())
+  }
+}
+
 let win = null
 
 
@@ -345,6 +388,27 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+
+  // Start background PC monitor (reads its own settings; works independently
+  // of the renderer window so it survives auto-close-on-launch).
+  try {
+    // The helper checks the persisted enabled switch itself. Starting it now
+    // lets a later UI toggle take effect without a launcher restart.
+    startMonitorService()
+    // Register Windows startup for monitor when packaged and monitor is enabled
+    if (app.isPackaged && process.platform === 'win32') {
+      const startupSettings = cachedSettings?.state?.settings || cachedSettings?.settings || {}
+      const loginItemSettings = app.getLoginItemSettings()
+      const shouldRegister = !!startupSettings.monitorEnabled
+      if (shouldRegister && !loginItemSettings.openAtLogin) {
+        app.setLoginItemSettings({ openAtLogin: true, name: 'BALOK Monitor' })
+      } else if (!shouldRegister && loginItemSettings.openAtLogin) {
+        app.setLoginItemSettings({ openAtLogin: false })
+      }
+    }
+  } catch (e) {
+    console.warn('[monitor] startup error:', e.message)
+  }
 })
 
 app.on('window-all-closed', () => {
@@ -352,6 +416,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  // Do not stop the detached Windows helper: its job is to keep monitoring
+  // while auto-close-on-launch exits this Electron process.
+  if (!app.isPackaged || process.platform !== 'win32') {
+    try { monitorHelper.stop() } catch (_) {}
+  }
   try { globalShortcut.unregisterAll() } catch (_) {}
   try { restoreTaskbar() } catch (_) {}
 })
@@ -410,7 +479,19 @@ ipcMain.on('close-window', () => {
 })
 
 /* ── Game launching ── */
-ipcMain.handle('launch-game', async (_e, exePath) => {
+// launch-game accepts either a plain exePath string (legacy) or an object
+// { exePath, gameName, variation } for notification-aware launches.
+ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
+  let exePath, gameName, variation
+  if (exePathOrInfo && typeof exePathOrInfo === 'object') {
+    exePath   = exePathOrInfo.exePath
+    gameName  = exePathOrInfo.gameName  || ''
+    variation = exePathOrInfo.variation || null
+  } else {
+    exePath   = exePathOrInfo
+    gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
+    variation = (gameInfoExtra && gameInfoExtra.variation) || null
+  }
   if (!exePath) return { success: false, error: 'No path provided' }
   try {
     if (!fs.existsSync(exePath)) return { success: false, error: 'File not found: ' + exePath }
@@ -443,6 +524,16 @@ ipcMain.handle('launch-game', async (_e, exePath) => {
       const err = await shell.openPath(exePath)
       if (err) return { success: false, error: err }
     }
+
+    // Report game launch to update server (for Telegram notifications).
+    // Fire-and-forget; never blocks the launch.
+    try {
+      monitorHelper.reportGameLaunch(settingsPath, getOtaConfigPath(), {
+        gameName:  gameName  || path.basename(exePath, path.extname(exePath)),
+        variation: variation || null,
+      })
+    } catch (_) {}
+
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
@@ -530,11 +621,127 @@ ipcMain.handle('load-settings', () => {
 ipcMain.handle('save-settings', (_e, data) => {
   try {
     fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2))
+    try { startMonitorService() } catch (_) {}
+    // Update Windows startup registration whenever monitorEnabled changes.
+    try {
+      if (app.isPackaged && process.platform === 'win32') {
+        const s = (data && data.state && data.state.settings) ? data.state.settings : (data && data.settings) ? data.settings : {}
+        const shouldRegister = !!s.monitorEnabled
+        const loginItemSettings = app.getLoginItemSettings()
+        if (shouldRegister && !loginItemSettings.openAtLogin) {
+          app.setLoginItemSettings({ openAtLogin: true, name: 'BALOK Monitor' })
+        } else if (!shouldRegister && loginItemSettings.openAtLogin) {
+          app.setLoginItemSettings({ openAtLogin: false })
+        }
+      }
+    } catch (_) {}
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
   }
 })
+
+/* ── Monitor IPC ── */
+ipcMain.handle('monitor:get-status', () => {
+  try {
+    const settings = readCurrentSettings()
+    const otaCfg   = readOtaConfigSafe()
+    const updateServer = (settings.updateServerUrl || otaCfg.updateServer || otaCfg.updateServerUrl || '').trim()
+    return {
+      monitorEnabled:      !!settings.monitorEnabled,
+      notificationEnabled: settings.notificationEnabled !== false,
+      notifyGameLaunches:  settings.notifyGameLaunches  !== false,
+      notifyPcMonitoring:  settings.notifyPcMonitoring  !== false,
+      pcName:              settings.pcName || os.hostname(),
+      updateServerUrl:     updateServer,
+      serverConfigured:    !!updateServer,
+      telegramConfigured:  !!(settings.telegramBotToken && settings.telegramChatId),
+      telegramNote: 'Telegram credentials are stored in this launcher’s local settings.',
+    }
+  } catch (e) {
+    return { error: e.message }
+  }
+})
+
+// Connection check verifies the monitor server and this launcher's local
+// Telegram settings. It never sends an alert.
+ipcMain.handle('monitor:test-notification', async () => {
+  try {
+    const settings     = readCurrentSettings()
+    const otaCfg       = readOtaConfigSafe()
+    const updateServer = (settings.updateServerUrl || otaCfg.updateServer || otaCfg.updateServerUrl || '').trim().replace(/\/$/, '')
+    if (!updateServer) {
+      return { success: false, reason: 'not_configured', message: 'Update server URL is not set. Configure it in Admin → Notifications.' }
+    }
+    const { getOrCreateDeviceId } = monitorHelper
+    const deviceId = getOrCreateDeviceId(userDataDir)
+    const pcName   = (settings.pcName || os.hostname()).trim()
+    const channel  = otaCfg.channel || 'balok'
+
+    // POST to the test endpoint — it only validates presence, never logs or
+    // persists the launcher credentials and never sends a Telegram message.
+    const http2  = require('http')
+    const https2 = require('https')
+    const body   = JSON.stringify({
+      type: 'test', deviceId, deviceName: pcName, channel, timestamp: new Date().toISOString(),
+      telegram: {
+        botToken: String(settings.telegramBotToken || '').trim(),
+        chatId: String(settings.telegramChatId || '').trim(),
+      },
+    })
+    const result = await new Promise((resolve) => {
+      try {
+        const u   = new URL(updateServer + '/api/monitor/test')
+        const mod = u.protocol === 'https:' ? https2 : http2
+        const req = mod.request({
+          hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80),
+          path: u.pathname, method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+          timeout: 8000,
+        }, (res) => {
+          let d = ''; res.on('data', c => d += c)
+          res.on('end', () => resolve({ status: res.statusCode, body: d }))
+        })
+        req.on('error', e => resolve({ status: 0, error: e.message }))
+        req.on('timeout', () => { req.destroy(); resolve({ status: 0, error: 'timeout' }) })
+        req.write(body); req.end()
+      } catch (e) { resolve({ status: 0, error: e.message }) }
+    })
+    let serverMessage = ''
+    try { serverMessage = JSON.parse(result.body || '{}').message || '' } catch (_) {}
+    if (result.status >= 200 && result.status < 300) {
+      return { success: true, message: serverMessage || 'Update server is reachable.' }
+    }
+    if (result.status === 404) {
+      return { success: false, reason: 'not_supported', message: 'Test endpoint not found on this server version. Server may need updating.' }
+    }
+    if (result.status === 0) {
+      return { success: false, reason: 'unreachable', message: 'Could not reach update server: ' + (result.error || 'connection refused') }
+    }
+    return { success: false, reason: 'server_error', message: serverMessage || 'Server returned HTTP ' + result.status }
+  } catch (e) {
+    return { success: false, reason: 'error', message: e.message }
+  }
+})
+
+function readCurrentSettings() {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const raw = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+      return (raw && raw.state && raw.state.settings) ? raw.state.settings
+           : (raw && raw.settings) ? raw.settings : {}
+    }
+  } catch (_) {}
+  return {}
+}
+
+function readOtaConfigSafe() {
+  try {
+    const p = getOtaConfigPath()
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8'))
+  } catch (_) {}
+  return {}
+}
 
 /* ── Local network info ── */
 // LAN auto-discovery of the Save & Load server (UDP beacon broadcast by the

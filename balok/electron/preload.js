@@ -86,4 +86,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zipAndUploadSave: (savePath, gameName, serverUrl, token) => ipcRenderer.invoke('zip-and-upload-save', savePath, gameName, serverUrl, token),
   downloadAndExtractSave: (saveId, savePath, serverUrl, token) => ipcRenderer.invoke('download-and-extract-save', saveId, savePath, serverUrl, token),
 
+  // PC Monitor & Telegram notification controls.
+  // No Telegram credentials are stored or passed through here.
+  monitor: {
+    // Returns { monitorEnabled, notificationEnabled, notifyGameLaunches,
+    //           notifyPcMonitoring, pcName, updateServerUrl, serverConfigured,
+    //           telegramNote }
+    getStatus: () => ipcRenderer.invoke('monitor:get-status'),
+    // Calls the update-server's /api/monitor/test endpoint.
+    // Returns { success, message, reason? }
+    testNotification: () => ipcRenderer.invoke('monitor:test-notification'),
+  },
+
 })

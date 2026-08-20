@@ -33,6 +33,7 @@ export default function AdminPanel() {
     { id: 'events', label: 'Events', icon: Calendar },
     { id: 'appearance', label: 'Design', icon: Palette },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'notifications', label: 'Notifications', icon: Activity },
     { id: 'backup', label: 'Backup', icon: Download },
   ]
 
@@ -128,6 +129,7 @@ export default function AdminPanel() {
                     {adminSection === 'events' && <Sections.EventsSection />}
                     {adminSection === 'appearance' && <Sections.AppearanceSection />}
                     {adminSection === 'settings' && <Sections.SettingsSection />}
+                    {adminSection === 'notifications' && <Sections.NotificationsSection />}
                     {adminSection === 'backup' && <Sections.BackupSection />}
                   </div>
                 </motion.div>
