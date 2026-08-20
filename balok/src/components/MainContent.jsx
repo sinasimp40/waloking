@@ -37,25 +37,35 @@ function ShelfCard({ game, fill }) {
   const settings = useStore(s => s.settings)
   const [imgErr, setImgErr] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [isLaunching, setIsLaunching] = useState(false)
   const [showVars, setShowVars] = useState(false)
+  const isLaunchingRef = useRef(false)
   const validVars = (game.variations || []).filter(v => v.label && (v.path || v.exePath))
 
   const launch = async (exePath, label) => {
     if (!exePath) { toast.error(`No exe set for ${label}`); return }
-    if (window.electronAPI) {
-      const r = await window.electronAPI.launchGame(
-        createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
-      )
-      if (r.success) {
-        toast.success(`Launching ${label}…`)
+    if (isLaunchingRef.current) return
+    isLaunchingRef.current = true
+    setIsLaunching(true)
+    try {
+      if (window.electronAPI) {
+        const r = await window.electronAPI.launchGame(
+          createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
+        )
+        if (r.success) {
+          toast.success(`Launching ${label}…`)
+          incrementLaunchCount(game.id)
+          afterGameLaunch(settings)
+        } else toast.error(r.error || 'Failed')
+      } else {
+        toast.success(`Launching ${label}… (preview)`)
         incrementLaunchCount(game.id)
-        afterGameLaunch(settings)
-      } else toast.error(r.error || 'Failed')
-    } else {
-      toast.success(`Launching ${label}… (preview)`)
-      incrementLaunchCount(game.id)
+      }
+    } finally {
+      isLaunchingRef.current = false
+      setIsLaunching(false)
+      setShowVars(false)
     }
-    setShowVars(false)
   }
 
   const handleClick = () => {
@@ -78,7 +88,7 @@ function ShelfCard({ game, fill }) {
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={handleClick}
+        onClick={() => { if (!isLaunchingRef.current) handleClick() }}
       >
         {game.icon && !imgErr && (
           <img src={game.icon} alt={game.name} className="absolute inset-0 w-full h-full object-cover"

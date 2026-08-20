@@ -20,8 +20,10 @@ const GameCard = memo(function GameCard({ game }) {
   const [isHovered, setIsHovered] = useState(false)
   const [imgError, setImgError] = useState(false)
   const [isPressed, setIsPressed] = useState(false)
+  const [isLaunching, setIsLaunching] = useState(false)
   const [showVariations, setShowVariations] = useState(false)
   const popupRef = useRef(null)
+  const isLaunchingRef = useRef(false)
   const defaultAccent = accentColor || getDefaultAccent()
   const cover = game.wallpaper || game.icon
 
@@ -43,35 +45,43 @@ const GameCard = memo(function GameCard({ game }) {
       toast.error(`No executable set for ${label}`)
       return
     }
-    if (window.electronAPI) {
-      const result = await window.electronAPI.launchGame({
-        exePath,
-        gameName: game.name,
-        variation: label !== game.name ? label : null,
-        iconPath: game.icon || game.wallpaper || null,
-          notificationSettings: {
-            notificationEnabled: settings.notificationEnabled,
-            notifyGameLaunches: settings.notifyGameLaunches,
-            pcName: settings.pcName,
-            pcMappings: settings.pcMappings,
-            telegramBotToken: settings.telegramBotToken,
-            telegramChatId: settings.telegramChatId,
-          },
-      })
-      if (result.success) {
-        toast.success(`Launching ${label}...`)
-        incrementLaunchCount(game.id)
-        if (autoCloseOnLaunch && window.electronAPI.closeWindow) {
-          setTimeout(() => window.electronAPI.closeWindow(), 1000)
+    if (isLaunchingRef.current) return
+    isLaunchingRef.current = true
+    setIsLaunching(true)
+    try {
+      if (window.electronAPI) {
+        const result = await window.electronAPI.launchGame({
+          exePath,
+          gameName: game.name,
+          variation: label !== game.name ? label : null,
+          iconPath: game.icon || game.wallpaper || null,
+            notificationSettings: {
+              notificationEnabled: settings.notificationEnabled,
+              notifyGameLaunches: settings.notifyGameLaunches,
+              pcName: settings.pcName,
+              pcMappings: settings.pcMappings,
+              telegramBotToken: settings.telegramBotToken,
+              telegramChatId: settings.telegramChatId,
+            },
+        })
+        if (result.success) {
+          toast.success(`Launching ${label}...`)
+          incrementLaunchCount(game.id)
+          if (autoCloseOnLaunch && window.electronAPI.closeWindow) {
+            setTimeout(() => window.electronAPI.closeWindow(), 1000)
+          }
+        } else {
+          toast.error(result.error || 'Failed to launch')
         }
       } else {
-        toast.error(result.error || 'Failed to launch')
+        toast.success(`Launching ${label}... (preview mode)`)
+        incrementLaunchCount(game.id)
       }
-    } else {
-      toast.success(`Launching ${label}... (preview mode)`)
-      incrementLaunchCount(game.id)
+    } finally {
+      isLaunchingRef.current = false
+      setIsLaunching(false)
+      setShowVariations(false)
     }
-    setShowVariations(false)
   }
 
   const handleCardClick = () => {
@@ -96,7 +106,7 @@ const GameCard = memo(function GameCard({ game }) {
         onPointerLeave={() => { setIsHovered(false); setIsPressed(false) }}
         onPointerDown={() => setIsPressed(true)}
         onPointerUp={() => setIsPressed(false)}
-        onClick={handleCardClick}
+        onClick={() => { if (!isLaunchingRef.current) handleCardClick() }}
         style={{
           transform: `scale(${cardScale}) translateY(${cardY}px)`,
           transition: 'transform 0.25s cubic-bezier(0.22,1,0.36,1)',

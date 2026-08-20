@@ -23,8 +23,10 @@ const GameCard = memo(function GameCard({ game }) {
   const kioskMode = settings.kioskMode
   const [isHovered, setIsHovered] = useState(false)
   const [imgError, setImgError] = useState(false)
+  const [isLaunching, setIsLaunching] = useState(false)
   const [showVariations, setShowVariations] = useState(false)
   const popupRef = useRef(null)
+  const isLaunchingRef = useRef(false)
   const defaultAccent = accentColor || getDefaultAccent()
   const validVariations = (game.variations || []).filter(v => v.name && v.exePath)
 
@@ -40,20 +42,28 @@ const GameCard = memo(function GameCard({ game }) {
 
   const launchExe = async (exePath, label) => {
     if (!exePath) { toast.error(`No executable set for ${label}`); return }
-    if (window.electronAPI) {
-      const result = await window.electronAPI.launchGame(
-        createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
-      )
-      if (result.success) {
-        toast.success(`Launching ${label}…`)
+    if (isLaunchingRef.current) return
+    isLaunchingRef.current = true
+    setIsLaunching(true)
+    try {
+      if (window.electronAPI) {
+        const result = await window.electronAPI.launchGame(
+          createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
+        )
+        if (result.success) {
+          toast.success(`Launching ${label}…`)
+          incrementLaunchCount(game.id)
+          afterGameLaunch({ autoCloseOnLaunch, kioskMode })
+        } else { toast.error(result.error || 'Failed to launch') }
+      } else {
+        toast.success(`Launching ${label}… (preview mode)`)
         incrementLaunchCount(game.id)
-        afterGameLaunch({ autoCloseOnLaunch, kioskMode })
-      } else { toast.error(result.error || 'Failed to launch') }
-    } else {
-      toast.success(`Launching ${label}… (preview mode)`)
-      incrementLaunchCount(game.id)
+      }
+    } finally {
+      isLaunchingRef.current = false
+      setIsLaunching(false)
+      setShowVariations(false)
     }
-    setShowVariations(false)
   }
 
   const handleClick = () => {
@@ -78,7 +88,7 @@ const GameCard = memo(function GameCard({ game }) {
         }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        onClick={handleClick}
+        onClick={() => { if (!isLaunchingRef.current) handleClick() }}
       >
         {/* Game art */}
         {game.icon && !imgError ? (
