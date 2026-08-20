@@ -102,8 +102,16 @@ function resolvePhoto(imagePath) {
   return fs.existsSync(localPath) ? { kind: 'file', value: localPath } : null
 }
 
-function sendTelegramMessage(botToken, chatId, text) {
-  const body = Buffer.from(JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }))
+function sendTelegramMessage(botToken, chatId, text, previewUrl = '') {
+  const payload = { chat_id: chatId, text, parse_mode: 'HTML' }
+  if (/^https?:\/\//i.test(String(previewUrl || '').trim())) {
+    payload.link_preview_options = {
+      url: String(previewUrl).trim(),
+      prefer_small_media: true,
+      show_above_text: false,
+    }
+  }
+  const body = Buffer.from(JSON.stringify(payload))
   return requestTelegram(botToken, 'sendMessage', body, 'application/json')
 }
 
@@ -264,6 +272,10 @@ async function createAlertCard(imagePath, cardDetails) {
 
 async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDetails) {
   try {
+    const image = resolvePhoto(imagePath)
+    if (image?.kind === 'url') {
+      return sendTelegramMessage(botToken, chatId, text, image.value)
+    }
     const card = await createAlertCard(imagePath, cardDetails)
     if (!card) return sendTelegramMessage(botToken, chatId, text)
     return await sendTelegramPhoto(botToken, chatId, '', {
