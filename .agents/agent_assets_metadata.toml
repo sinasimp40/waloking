@@ -14,3 +14,17 @@ mtime_ms = 1787195510348
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/34d348f1-48ce-4151-94e5-67180b049faa/f7a3215d-6f44-4fda-bc54-edc45971ebaa"
 storage_version_token = "1787195517319527"
 content_type = "image/png"
+
+[[outputs]]
+id = "SOaDgno7ACsU3Pdj4zl1I"
+uri = "file://screenshots/balok-telegram-alert-fixed.png"
+type = "image"
+title = "Fixed Telegram alert preview"
+description = "The updated alert card used by both BALOK and WALOK: an opaque full canvas with an aligned launch-card frame and rounded game artwork."
+logical_id = "59a66820-41d0-4a7e-b50c-5b8942eef015"
+content_hash = "sha256:588acad3be6c3dfa0a5111a9cc98461f39208d9c3d228c20d54e6b8993ce6dbd"
+size = 247973
+mtime_ms = 1787196300651
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/59a66820-41d0-4a7e-b50c-5b8942eef015/9fd88b90-0814-47de-9170-14f2cf9c4619"
+storage_version_token = "1787196327495089"
+content_type = "image/png"

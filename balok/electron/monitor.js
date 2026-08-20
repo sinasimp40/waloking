@@ -227,8 +227,11 @@ function createCardSvg({ pcName, gameName, timestamp }) {
         <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0"/>
       </linearGradient>
     </defs>
-    <rect width="1024" height="512" rx="30" fill="url(#cardBg)"/>
-    <rect x="28" y="28" width="968" height="456" rx="22" fill="none" stroke="#8cb6ff" stroke-opacity=".17"/>
+    <!-- Keep the entire PNG opaque. Telegram otherwise shows white through
+         the transparent pixels left by a rounded outer SVG rectangle. -->
+    <rect width="1024" height="512" fill="#080c14"/>
+    <rect width="1024" height="512" fill="url(#cardBg)"/>
+    <rect x="24" y="24" width="976" height="464" rx="20" fill="none" stroke="#8cb6ff" stroke-opacity=".17"/>
     <rect x="58" y="58" width="150" height="34" rx="17" fill="#2563eb" fill-opacity=".20" stroke="#7db2ff" stroke-opacity=".38"/>
     <circle cx="79" cy="75" r="7" fill="#8cc8ff"/>
     <text x="96" y="80" fill="#b9d8ff" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.6">GAME LAUNCH</text>
