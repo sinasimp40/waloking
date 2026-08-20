@@ -282,11 +282,21 @@ function getSettingsPath() {
   return path.join(appRoot, SETTINGS_FILE)
 }
 
-// Keep the Electron process alive when a launch alert is still being sent.
-// Otherwise auto-close can quit the app about a second after the game starts,
-// cutting off a cold Telegram request before its first delivery.
+// Keep the Electron process alive until an immediate auto-close has both
+// dispatched the requested game launch and finished its Telegram alert.
 let pendingTelegramNotifications = 0
+let pendingGameLaunches = 0
 let quitAfterTelegramNotifications = false
+
+function quitWhenLaunchWorkSettles() {
+  if (
+    quitAfterTelegramNotifications &&
+    pendingGameLaunches === 0 &&
+    pendingTelegramNotifications === 0
+  ) {
+    app.quit()
+  }
+}
 
 function reportTelegramGameLaunch(gameInfo, settingsOverride) {
   let delivery
@@ -307,9 +317,7 @@ function reportTelegramGameLaunch(gameInfo, settingsOverride) {
     .catch(error => console.warn('[telegram] game-launch notification failed:', error.message))
     .finally(() => {
       pendingTelegramNotifications = Math.max(0, pendingTelegramNotifications - 1)
-      if (quitAfterTelegramNotifications && pendingTelegramNotifications === 0) {
-        app.quit()
-      }
+      quitWhenLaunchWorkSettles()
     })
 
   return delivery
@@ -630,6 +638,8 @@ function createWindow(splash) {
   // launch-game accepts either a plain filePath string (legacy) or an object
   // { exePath, gameName, variation, iconPath } for notification-aware launches.
   ipcMain.handle('launch-game', async (event, filePathOrInfo, gameInfoExtra) => {
+    pendingGameLaunches += 1
+    try {
     let filePath, gameName, variation, iconPath, notificationSettings
     if (filePathOrInfo && typeof filePathOrInfo === 'object') {
       filePath  = filePathOrInfo.exePath
@@ -678,6 +688,10 @@ function createWindow(splash) {
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
+    }
+    } finally {
+      pendingGameLaunches = Math.max(0, pendingGameLaunches - 1)
+      quitWhenLaunchWorkSettles()
     }
   })
 
@@ -1642,7 +1656,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform === 'darwin') return
-  if (pendingTelegramNotifications > 0) {
+  if (pendingTelegramNotifications > 0 || pendingGameLaunches > 0) {
     quitAfterTelegramNotifications = true
     return
   }

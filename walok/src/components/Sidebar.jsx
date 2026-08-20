@@ -112,13 +112,14 @@ function TopPicks({ featuredGames }) {
         toast.error(`No executable set for ${game.name}`)
         return
       }
-      const result = await window.electronAPI.launchGame(exePath)
+      const launchRequest = window.electronAPI.launchGame(exePath)
+      if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
+        window.electronAPI.closeWindow()
+      }
+      const result = await launchRequest
       if (result.success) {
         toast.success(`Launching ${label}...`)
         incrementLaunchCount(game.id)
-        if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
-          setTimeout(() => window.electronAPI.closeWindow(), 1000)
-        }
       } else {
         toast.error(result.error || 'Failed to launch game')
       }
@@ -318,7 +319,7 @@ function SocialMedia() {
     // Mirror the auto-close behavior used by Top Picks / GameCard so the
     // launcher gets out of the way after the user opens an external link.
     if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI?.closeWindow) {
-      setTimeout(() => window.electronAPI.closeWindow(), 1000)
+      window.electronAPI.closeWindow()
     }
   }
 
@@ -355,14 +356,13 @@ function OfficeApps() {
       return
     }
     if (window.electronAPI) {
-      const result = await window.electronAPI.launchGame(app.exePath)
+      const launchRequest = window.electronAPI.launchGame(app.exePath)
+      if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
+        window.electronAPI.closeWindow()
+      }
+      const result = await launchRequest
       if (result.success) {
         toast.success(`Opening ${app.name}...`)
-        // Honor the same auto-close setting Top Picks / GameCard use so the
-        // launcher closes after launching a top-app shortcut.
-        if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
-          setTimeout(() => window.electronAPI.closeWindow(), 1000)
-        }
       } else {
         toast.error(result.error || `Could not open ${app.name}`)
       }

@@ -146,10 +146,21 @@ function getOtaConfigPath() {
     : path.join(__dirname, '..', 'branding', 'ota-config.json')
 }
 
-// An auto-closing launcher must not terminate the first cold Telegram request
-// before it completes. Keep the main process alive until active alerts settle.
+// An auto-closing launcher must not terminate the launch request or its first
+// cold Telegram alert. Keep the main process alive until both settle.
 let pendingTelegramNotifications = 0
+let pendingGameLaunches = 0
 let quitAfterTelegramNotifications = false
+
+function quitWhenLaunchWorkSettles() {
+  if (
+    quitAfterTelegramNotifications &&
+    pendingGameLaunches === 0 &&
+    pendingTelegramNotifications === 0
+  ) {
+    app.quit()
+  }
+}
 
 function reportTelegramGameLaunch(gameInfo, settingsOverride) {
   let delivery
@@ -170,9 +181,7 @@ function reportTelegramGameLaunch(gameInfo, settingsOverride) {
     .catch(error => console.warn('[telegram] game-launch notification failed:', error.message))
     .finally(() => {
       pendingTelegramNotifications = Math.max(0, pendingTelegramNotifications - 1)
-      if (quitAfterTelegramNotifications && pendingTelegramNotifications === 0) {
-        app.quit()
-      }
+      quitWhenLaunchWorkSettles()
     })
 
   return delivery
@@ -391,7 +400,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform === 'darwin') return
-  if (pendingTelegramNotifications > 0) {
+  if (pendingTelegramNotifications > 0 || pendingGameLaunches > 0) {
     quitAfterTelegramNotifications = true
     return
   }
@@ -460,6 +469,8 @@ ipcMain.on('close-window', () => {
 // launch-game accepts either a plain exePath string (legacy) or an object
 // { exePath, gameName, variation, iconPath } for notification-aware launches.
 ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
+  pendingGameLaunches += 1
+  try {
   let exePath, gameName, variation, iconPath, notificationSettings
   if (exePathOrInfo && typeof exePathOrInfo === 'object') {
     exePath   = exePathOrInfo.exePath
@@ -518,6 +529,10 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
     return { success: true }
   } catch (err) {
     return { success: false, error: err.message }
+  }
+  } finally {
+    pendingGameLaunches = Math.max(0, pendingGameLaunches - 1)
+    quitWhenLaunchWorkSettles()
   }
 })
 

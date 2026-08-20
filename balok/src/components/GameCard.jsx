@@ -47,13 +47,14 @@ const GameCard = memo(function GameCard({ game }) {
     setIsLaunching(true)
     try {
       if (window.electronAPI) {
-        const result = await window.electronAPI.launchGame(
+        const launchRequest = window.electronAPI.launchGame(
           createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
         )
+        afterGameLaunch({ autoCloseOnLaunch, kioskMode })
+        const result = await launchRequest
         if (result.success) {
           toast.success(`Launching ${label}…`)
           incrementLaunchCount(game.id)
-          afterGameLaunch({ autoCloseOnLaunch, kioskMode })
         } else { toast.error(result.error || 'Failed to launch') }
       } else {
         toast.success(`Launching ${label}… (preview mode)`)

@@ -49,13 +49,14 @@ function ShelfCard({ game, fill }) {
     setIsLaunching(true)
     try {
       if (window.electronAPI) {
-        const r = await window.electronAPI.launchGame(
+        const launchRequest = window.electronAPI.launchGame(
           createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
         )
+        afterGameLaunch(settings)
+        const r = await launchRequest
         if (r.success) {
           toast.success(`Launching ${label}…`)
           incrementLaunchCount(game.id)
-          afterGameLaunch(settings)
         } else toast.error(r.error || 'Failed')
       } else {
         toast.success(`Launching ${label}… (preview)`)

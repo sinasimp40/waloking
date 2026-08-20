@@ -298,11 +298,12 @@ export default function LeftSidebar() {
     } else {
       if (!item.exePath) return
       if (window.electronAPI) {
-        const res = await window.electronAPI.launchGame(
+        const launchRequest = window.electronAPI.launchGame(
           createGameLaunchPayload(item, item.exePath, settings)
         )
-        // Same post-launch rule as every other launch path.
-        if (res?.success) afterGameLaunch(settings)
+        afterGameLaunch(settings)
+        const res = await launchRequest
+        if (!res?.success) toast.error(res?.error || `Could not open ${item.name}`)
       }
     }
   }

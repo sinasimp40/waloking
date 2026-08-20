@@ -28,12 +28,13 @@ export default function BottomBar() {
   const handleAppClick = async (app) => {
     if (!app.exePath) { toast.error(`No path for ${app.name}`); return }
     if (window.electronAPI) {
-      const r = await window.electronAPI.launchGame(
+      const launchRequest = window.electronAPI.launchGame(
         createGameLaunchPayload(app, app.exePath, settings)
       )
+      afterGameLaunch(settings)
+      const r = await launchRequest
       if (r.success) {
         toast.success(`Opening ${app.name}…`)
-        afterGameLaunch(settings)
       } else { toast.error(r.error || `Could not open ${app.name}`) }
     } else {
       toast.success(`Opening ${app.name}… (preview)`)

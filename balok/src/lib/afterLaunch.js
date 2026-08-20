@@ -1,4 +1,4 @@
-// What the launcher does with itself after a successful game/app launch.
+// What the launcher does with itself as soon as a game/app launch is requested.
 //
 // - Auto-Close ON            → close the launcher (frees RAM, classic cafe flow)
 // - Auto-Close OFF + kiosk   → minimize instead: the kiosk window is
@@ -12,8 +12,8 @@ export function afterGameLaunch({ autoCloseOnLaunch, kioskMode }) {
   const api = window.electronAPI
   if (!api) return
   if (autoCloseOnLaunch && api.closeWindow) {
-    setTimeout(() => api.closeWindow(), 1000)
+    api.closeWindow()
   } else if (kioskMode && api.minimizeWindow) {
-    setTimeout(() => api.minimizeWindow(), 1000)
+    api.minimizeWindow()
   }
 }

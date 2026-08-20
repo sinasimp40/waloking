@@ -72,13 +72,14 @@ export default function FeaturedBanner() {
     if (window.electronAPI) {
       if (!exePath) { toast.error(`No executable for ${game.name}`); return }
       const variation = game.exePath ? null : (game.variations?.[0]?.name || null)
-      const result = await window.electronAPI.launchGame(
+      const launchRequest = window.electronAPI.launchGame(
         createGameLaunchPayload(game, exePath, settings, variation)
       )
+      afterGameLaunch(settings)
+      const result = await launchRequest
       if (result.success) {
         toast.success(`Launching ${label}…`)
         incrementLaunchCount(game.id)
-        afterGameLaunch(settings)
       } else { toast.error(result.error || 'Failed to launch') }
     } else {
       toast.success(`Launching ${label}… (preview mode)`)

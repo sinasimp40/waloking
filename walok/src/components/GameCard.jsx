@@ -50,7 +50,7 @@ const GameCard = memo(function GameCard({ game }) {
     setIsLaunching(true)
     try {
       if (window.electronAPI) {
-        const result = await window.electronAPI.launchGame({
+        const launchRequest = window.electronAPI.launchGame({
           exePath,
           gameName: game.name,
           variation: label !== game.name ? label : null,
@@ -64,12 +64,13 @@ const GameCard = memo(function GameCard({ game }) {
               telegramChatId: settings.telegramChatId,
             },
         })
+        if (autoCloseOnLaunch && window.electronAPI.closeWindow) {
+          window.electronAPI.closeWindow()
+        }
+        const result = await launchRequest
         if (result.success) {
           toast.success(`Launching ${label}...`)
           incrementLaunchCount(game.id)
-          if (autoCloseOnLaunch && window.electronAPI.closeWindow) {
-            setTimeout(() => window.electronAPI.closeWindow(), 1000)
-          }
         } else {
           toast.error(result.error || 'Failed to launch')
         }

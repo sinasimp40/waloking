@@ -230,12 +230,13 @@ export default function RightPanel() {
     if (window.electronAPI) {
       if (!exePath) { toast.error(`No exe for ${game.name}`); return }
       const variation = game.exePath ? null : (game.variations?.[0]?.name || null)
-      const r = await window.electronAPI.launchGame(
+      const launchRequest = window.electronAPI.launchGame(
         createGameLaunchPayload(game, exePath, settings, variation)
       )
+      afterGameLaunch(settings)
+      const r = await launchRequest
       if (r.success) {
         toast.success(`Launching ${game.name}…`); incrementLaunchCount(game.id)
-        afterGameLaunch(settings)
       } else toast.error(r.error || 'Failed')
     } else { toast.success(`Launching ${game.name}… (preview)`); incrementLaunchCount(game.id) }
   }
