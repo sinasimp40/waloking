@@ -259,7 +259,6 @@ const GameCard = memo(function GameCard({ game }) {
               />
               <div className="absolute left-[18px] right-14 bottom-4">
                 <p className="font-rajdhani text-[10px] font-bold uppercase tracking-[0.15em]" style={{ color: defaultAccent }}>Choose a version</p>
-                <p className="font-orbitron text-[15px] font-bold leading-tight text-white truncate mt-1" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>{game.name}</p>
               </div>
               <button
                 type="button"
