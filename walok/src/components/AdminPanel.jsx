@@ -1584,14 +1584,14 @@ function NotificationsSection() {
             <p className="mt-1 text-[9px] text-white/25 font-rajdhani">From @BotFather. Stored on this computer only.</p>
           </div>
           <div>
-            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Telegram Chat ID</label>
+            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Telegram Channel ID</label>
             <InputField
               value={settings.telegramChatId || ''}
               onChange={e => updateSettings({ telegramChatId: e.target.value.trim() })}
               placeholder="-1001234567890"
               autoComplete="off"
             />
-            <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Private chat, group, or channel chat ID.</p>
+            <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Use the channel ID, usually starting with -100. Add the bot as a channel administrator.</p>
           </div>
         </div>
       </CardBox>

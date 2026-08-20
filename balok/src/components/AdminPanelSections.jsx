@@ -1385,7 +1385,7 @@ export function NotificationsSection() {
               autoComplete="off"
             />
           </Field>
-          <Field label="Telegram Chat ID" hint="Your private chat, group, or channel chat ID.">
+          <Field label="Telegram Channel ID" hint="Usually starts with -100. Add the bot as a channel administrator.">
             <Input
               value={settings.telegramChatId || ''}
               onChange={e => updateSettings({ telegramChatId: e.target.value.trim() })}
