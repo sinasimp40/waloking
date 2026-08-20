@@ -1533,6 +1533,27 @@ function BackupSection() {
 function NotificationsSection() {
   const { settings, updateSettings } = useStore()
   const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
+  const [newPc, setNewPc] = useState({ name: '', ip: '' })
+  const pcMappings = Array.isArray(settings.pcMappings) ? settings.pcMappings : []
+
+  const addPcMapping = () => {
+    const name = newPc.name.trim()
+    const ip = newPc.ip.trim()
+    if (!name || !ip) return toast.error('Enter both a PC name and IP address')
+    if (pcMappings.some(entry => String(entry.ip || '').trim() === ip)) {
+      return toast.error('That IP address already has a PC name')
+    }
+    updateSettings({ pcMappings: [...pcMappings, { name, ip }] })
+    setNewPc({ name: '', ip: '' })
+  }
+
+  const updatePcMapping = (index, field, value) => {
+    updateSettings({
+      pcMappings: pcMappings.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, [field]: value } : entry
+      ),
+    })
+  }
 
   const Row = ({ title, hint, checked, onChange, disabled }) => (
     <div className="flex items-center justify-between p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
@@ -1550,7 +1571,7 @@ function NotificationsSection() {
 
       <CardBox>
         <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">Telegram Connection</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">Telegram Bot Token</label>
             <InputField
@@ -1572,17 +1593,45 @@ function NotificationsSection() {
             />
             <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Private chat, group, or channel chat ID.</p>
           </div>
-          <div>
-            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">This Computer's Name</label>
-            <InputField
-              value={settings.pcName || ''}
-              onChange={e => updateSettings({ pcName: e.target.value })}
-              placeholder="PC 1"
-            />
-            <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Set a unique name, such as PC 1, on every computer.</p>
-          </div>
         </div>
-        <p className="text-[10px] text-white/30 font-rajdhani mt-3 leading-relaxed">When a game opens, this computer sends Telegram directly with its name and detected local IP. No monitor server, heartbeat, or PC-status alert is used. OTA updates never send Telegram alerts.</p>
+      </CardBox>
+
+      <CardBox>
+        <p className="text-[10px] font-rajdhani font-bold uppercase tracking-wider text-white/40 mb-3">PC Name &amp; IP Map</p>
+        <p className="text-[10px] text-white/30 font-rajdhani mb-3">The launcher matches its detected local IP to the PC name below.</p>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+          <div>
+            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">PC Name</label>
+            <InputField value={newPc.name} onChange={e => setNewPc({ ...newPc, name: e.target.value })} placeholder="PC 1" />
+          </div>
+          <div>
+            <label className="block text-[10px] text-white/40 mb-1.5 font-rajdhani uppercase tracking-wider">IP Address</label>
+            <InputField value={newPc.ip} onChange={e => setNewPc({ ...newPc, ip: e.target.value })} placeholder="10.10.10.1" />
+          </div>
+          <AccentButton onClick={addPcMapping} className="h-[40px]"><Plus size={13} /> ADD PC</AccentButton>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {pcMappings.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-white/10 px-3 py-3 text-[10px] text-white/30 font-rajdhani">
+              Add every diskless PC here. When a game opens, this launcher uses the name assigned to its current IP.
+            </p>
+          ) : pcMappings.map((entry, index) => (
+            <div key={`${entry.ip || 'pc'}-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-center rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <InputField value={entry.name || ''} onChange={e => updatePcMapping(index, 'name', e.target.value)} placeholder="PC 1" />
+              <InputField value={entry.ip || ''} onChange={e => updatePcMapping(index, 'ip', e.target.value)} placeholder="10.10.10.1" />
+              <button
+                type="button"
+                onClick={() => updateSettings({ pcMappings: pcMappings.filter((_, entryIndex) => entryIndex !== index) })}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-500/20 text-red-300 transition-colors hover:bg-red-500/10"
+                title={`Delete ${entry.name || 'PC mapping'}`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-white/30 font-rajdhani mt-3 leading-relaxed">Game alerts go directly to Telegram. The message uses the matching PC name and includes the detected local IP. No monitor server, heartbeat, or PC-status alert is used.</p>
       </CardBox>
 
       {/* Notification toggles */}

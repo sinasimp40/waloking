@@ -129,6 +129,7 @@ const useStore = create(
         notificationEnabled:   true,
         notifyGameLaunches:    true,
         pcName:                '',
+        pcMappings:            [],
         telegramBotToken:      '',
         telegramChatId:        '',
       },
@@ -290,7 +291,7 @@ const useStore = create(
     }),
     {
       name: 'balok-storage',
-      version: 26,
+      version: 27,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState) => {
         // v12: launcherName/launcherTagline become null when still at the
@@ -346,6 +347,7 @@ const useStore = create(
             notificationEnabled:    persistedState.settings?.notificationEnabled    ?? true,
             notifyGameLaunches:     persistedState.settings?.notifyGameLaunches     ?? true,
             pcName:                 persistedState.settings?.pcName                 ?? '',
+            pcMappings:             Array.isArray(persistedState.settings?.pcMappings) ? persistedState.settings.pcMappings : [],
             telegramBotToken:       persistedState.settings?.telegramBotToken       ?? '',
             telegramChatId:         persistedState.settings?.telegramChatId         ?? '',
           },

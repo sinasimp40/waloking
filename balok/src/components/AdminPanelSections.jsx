@@ -1348,13 +1348,34 @@ export function EventsSection() {
 
 export function NotificationsSection() {
   const { settings, updateSettings } = useStore()
+  const [newPc, setNewPc] = useState({ name: '', ip: '' })
+  const pcMappings = Array.isArray(settings.pcMappings) ? settings.pcMappings : []
+
+  const addPcMapping = () => {
+    const name = newPc.name.trim()
+    const ip = newPc.ip.trim()
+    if (!name || !ip) return toast.error('Enter both a PC name and IP address')
+    if (pcMappings.some(entry => String(entry.ip || '').trim() === ip)) {
+      return toast.error('That IP address already has a PC name')
+    }
+    updateSettings({ pcMappings: [...pcMappings, { name, ip }] })
+    setNewPc({ name: '', ip: '' })
+  }
+
+  const updatePcMapping = (index, field, value) => {
+    updateSettings({
+      pcMappings: pcMappings.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, [field]: value } : entry
+      ),
+    })
+  }
 
   return (
     <div className="space-y-8">
       <SectionTitle title="Game Launch Alerts" />
 
       <Panel title="Telegram Connection" subtitle="Sends game-open alerts directly from this BALOK launcher">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Field label="Telegram Bot Token" hint="From @BotFather. Stored on this computer only.">
             <Input
               type="password"
@@ -1372,16 +1393,44 @@ export function NotificationsSection() {
               autoComplete="off"
             />
           </Field>
-          <Field label="This Computer's Name" hint="Use a unique name, such as PC 1, on each computer.">
-            <Input
-              value={settings.pcName || ''}
-              onChange={e => updateSettings({ pcName: e.target.value })}
-              placeholder="PC 1"
-            />
+        </div>
+      </Panel>
+
+      <Panel title="PC Name & IP Map" subtitle="The launcher matches its detected local IP to the PC name below">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+          <Field label="PC Name">
+            <Input value={newPc.name} onChange={e => setNewPc({ ...newPc, name: e.target.value })} placeholder="PC 1" />
           </Field>
+          <Field label="IP Address">
+            <Input value={newPc.ip} onChange={e => setNewPc({ ...newPc, ip: e.target.value })} placeholder="10.10.10.1" />
+          </Field>
+          <PrimaryBtn onClick={addPcMapping} className="h-[42px]">
+            <Plus size={15} /> Add PC
+          </PrimaryBtn>
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {pcMappings.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-zinc-800 px-4 py-3 text-xs text-zinc-500">
+              Add every diskless PC here. When a game opens, this launcher uses the name assigned to its current IP.
+            </p>
+          ) : pcMappings.map((entry, index) => (
+            <div key={`${entry.ip || 'pc'}-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-center rounded-xl border border-zinc-800/60 bg-[#0A0A0B] p-3">
+              <Input value={entry.name || ''} onChange={e => updatePcMapping(index, 'name', e.target.value)} placeholder="PC 1" />
+              <Input value={entry.ip || ''} onChange={e => updatePcMapping(index, 'ip', e.target.value)} placeholder="10.10.10.1" />
+              <button
+                type="button"
+                onClick={() => updateSettings({ pcMappings: pcMappings.filter((_, entryIndex) => entryIndex !== index) })}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-red-900/40 text-red-400 transition-colors hover:bg-red-950/40"
+                title={`Delete ${entry.name || 'PC mapping'}`}
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
         </div>
         <p className="mt-4 text-xs text-zinc-500">
-          When a game opens, this computer sends Telegram directly with its name and detected local IP. No monitor server, heartbeat, or PC-status alert is used. OTA updates never send Telegram alerts.
+          Game alerts go directly to Telegram. The message uses the matching PC name and includes the detected local IP. No monitor server, heartbeat, or PC-status alert is used.
         </p>
       </Panel>
 

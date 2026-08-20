@@ -27,13 +27,29 @@ function readOtaConfig(configPath) {
   }
 }
 
-function getLocalIp() {
+function getLocalIps() {
+  const ips = []
   for (const adapters of Object.values(os.networkInterfaces())) {
     for (const adapter of adapters || []) {
-      if (adapter.family === 'IPv4' && !adapter.internal) return adapter.address
+      if (adapter.family === 'IPv4' && !adapter.internal && !ips.includes(adapter.address)) {
+        ips.push(adapter.address)
+      }
     }
   }
-  return ''
+  return ips
+}
+
+function resolvePc(settings, localIps) {
+  const mappings = Array.isArray(settings.pcMappings) ? settings.pcMappings : []
+  const matchedIp = localIps.find(localIp => mappings.some(entry => {
+    const ip = String(entry?.ip || '').trim()
+    return ip === localIp && String(entry?.name || '').trim()
+  }))
+  const match = mappings.find(entry => String(entry?.ip || '').trim() === matchedIp)
+  return {
+    name: String(match?.name || settings.pcName || os.hostname()).trim(),
+    ip: matchedIp || localIps[0] || '',
+  }
 }
 
 function escapeHtml(value) {
@@ -72,15 +88,15 @@ function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}) {
     if (!botToken || !chatId) return
 
     const config = readOtaConfig(otaConfigPath)
-    const pcName = String(settings.pcName || os.hostname()).trim()
+    const computer = resolvePc(settings, getLocalIps())
     const game = [gameInfo.gameName || 'Unknown Game', gameInfo.variation].filter(Boolean).join(' — ')
     const ip = getLocalIp()
     const brand = config.launcherName || config.brand || 'Game Launcher'
     const lines = [
       '🎮 <b>' + escapeHtml(brand) + '</b>',
-      '<b>' + escapeHtml(pcName) + '</b> opened <b>' + escapeHtml(game) + '</b>',
+      '<b>' + escapeHtml(computer.name) + '</b> opened <b>' + escapeHtml(game) + '</b>',
     ]
-    if (ip) lines.push('IP: <code>' + escapeHtml(ip) + '</code>')
+    if (computer.ip) lines.push('IP: <code>' + escapeHtml(computer.ip) + '</code>')
     lines.push('Time: ' + new Date().toLocaleString())
 
     sendTelegram(botToken, chatId, lines.join('\n'))
@@ -90,4 +106,4 @@ function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}) {
   }
 }
 
-module.exports = { reportGameLaunch }
+module.exports = { reportGameLaunch, resolvePc }

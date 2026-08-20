@@ -94,6 +94,7 @@ const useStore = create(
         notificationEnabled:    true,
         notifyGameLaunches:     true,
         pcName:                 '',
+        pcMappings:             [],
         telegramBotToken:       '',
         telegramChatId:         '',
       },
@@ -174,7 +175,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 35,
+      version: 36,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -219,10 +220,11 @@ const useStore = create(
             telegramBotToken: persistedState.settings?.telegramBotToken ?? '',
             telegramChatId: persistedState.settings?.telegramChatId ?? '',
             showIPTV: persistedState.settings?.showIPTV ?? true,
-            // v35: direct Telegram game-launch alert settings
+            // v36: direct Telegram game-launch alert settings with IP mapping
             notificationEnabled:    persistedState.settings?.notificationEnabled    ?? true,
             notifyGameLaunches:     persistedState.settings?.notifyGameLaunches     ?? true,
             pcName:                 persistedState.settings?.pcName                 ?? '',
+            pcMappings:             Array.isArray(persistedState.settings?.pcMappings) ? persistedState.settings.pcMappings : [],
           },
         }
       },
