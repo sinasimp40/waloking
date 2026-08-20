@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "T1CqdABM7ns2jHkhVbbiI"
+uri = "file://screenshots/telegram-alert-sample.png"
+type = "image"
+title = "Telegram game alert sample"
+description = "Preview of the BALOK/WALOK Telegram game-launch card using Counter-Strike 2 artwork on the right and the PC/game/time details on the left."
+logical_id = "34d348f1-48ce-4151-94e5-67180b049faa"
+content_hash = "sha256:0f1d772c8d1a323448e491c4b2698903ffb690cae27308dcf3ad357ea03c9cc6"
+size = 249378
+mtime_ms = 1787195510348
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/34d348f1-48ce-4151-94e5-67180b049faa/f7a3215d-6f44-4fda-bc54-edc45971ebaa"
+storage_version_token = "1787195517319527"
+content_type = "image/png"
