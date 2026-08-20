@@ -149,6 +149,23 @@ function sendTelegramPhoto(botToken, chatId, caption, image) {
   )
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function sendTelegramPhotoWithRetry(botToken, chatId, caption, image) {
+  let lastError
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await sendTelegramPhoto(botToken, chatId, caption, image)
+    } catch (error) {
+      lastError = error
+      if (attempt === 0) await wait(750)
+    }
+  }
+  throw lastError
+}
+
 function downloadImage(url, redirects = 0) {
   if (redirects > 3) return Promise.reject(new Error('Game artwork redirected too many times.'))
   return new Promise((resolve, reject) => {
@@ -318,7 +335,6 @@ async function createAlertCard(imagePath, cardDetails) {
 }
 
 async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDetails) {
-  const developerCaption = '<a href="https://www.facebook.com/aym.ralph">Developed by: Rap Rap Thurston</a>'
   try {
     let card
     try {
@@ -327,15 +343,20 @@ async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDeta
       console.warn('[telegram] artwork could not be loaded; using the card icon fallback:', error.message)
       card = await createAlertCard(null, cardDetails)
     }
-    if (!card) return sendTelegramMessage(botToken, chatId, text)
-    return await sendTelegramPhoto(botToken, chatId, developerCaption, {
+    if (!card) {
+      const fallback = await sendTelegramMessage(botToken, chatId, text)
+      return { ...fallback, usedTextFallback: true }
+    }
+    const delivered = await sendTelegramPhotoWithRetry(botToken, chatId, '', {
       kind: 'buffer',
       value: card,
       filename: 'game-launch-alert.png',
     })
+    return { ...delivered, usedCard: true }
   } catch (error) {
-    console.warn('[telegram] alert card could not be rendered or delivered; sending text fallback:', error.message)
-    return sendTelegramMessage(botToken, chatId, text)
+    console.warn('[telegram] alert card could not be rendered or delivered; sending text fallback after retry:', error.message)
+    const fallback = await sendTelegramMessage(botToken, chatId, text)
+    return { ...fallback, usedTextFallback: true }
   }
 }
 
@@ -371,7 +392,7 @@ function buildAlertText(details) {
     'Opened <b>' + escapeHtml(details.itemName || details.gameName) + '</b>',
     '🕒 ' + escapeHtml(details.timestamp),
   ]
-  return `${lines.join('\n')}\n\n<a href="https://www.facebook.com/aym.ralph">Developed by: Rap Rap Thurston</a>`
+  return lines.join('\n')
 }
 
 function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}, settingsOverride = null) {
