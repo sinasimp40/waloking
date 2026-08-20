@@ -57,15 +57,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
-  // PC Monitor & Telegram notification controls.
-  // No Telegram credentials are stored or passed through here.
-  monitor: {
-    // Returns { monitorEnabled, notificationEnabled, notifyGameLaunches,
-    //           notifyPcMonitoring, pcName, updateServerUrl, serverConfigured,
-    //           telegramNote }
-    getStatus: () => ipcRenderer.invoke('monitor:get-status'),
-    // Calls the update-server's /api/monitor/test endpoint.
-    // Returns { success, message, reason? }
-    testNotification: () => ipcRenderer.invoke('monitor:test-notification'),
-  },
 })

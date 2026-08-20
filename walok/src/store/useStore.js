@@ -90,14 +90,10 @@ const useStore = create(
         showIPTV: true,
 
         // ── Telegram / PC-monitor notification settings ──────────────────
-        // Telegram credentials are stored locally for this launcher only.
+        // Direct Telegram game-launch alert settings for this launcher only.
         notificationEnabled:    true,
         notifyGameLaunches:     true,
-        notifyPcMonitoring:     true,
-        monitorEnabled:         false,
         pcName:                 '',
-        monitorIntervalSeconds: 30,
-        updateServerUrl:        '',
         telegramBotToken:       '',
         telegramChatId:         '',
       },
@@ -178,7 +174,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 34,
+      version: 35,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -223,14 +219,10 @@ const useStore = create(
             telegramBotToken: persistedState.settings?.telegramBotToken ?? '',
             telegramChatId: persistedState.settings?.telegramChatId ?? '',
             showIPTV: persistedState.settings?.showIPTV ?? true,
-            // v33: notification & monitor settings defaults
+            // v35: direct Telegram game-launch alert settings
             notificationEnabled:    persistedState.settings?.notificationEnabled    ?? true,
             notifyGameLaunches:     persistedState.settings?.notifyGameLaunches     ?? true,
-            notifyPcMonitoring:     persistedState.settings?.notifyPcMonitoring     ?? true,
-            monitorEnabled:         persistedState.settings?.monitorEnabled         ?? false,
             pcName:                 persistedState.settings?.pcName                 ?? '',
-            monitorIntervalSeconds: persistedState.settings?.monitorIntervalSeconds ?? 30,
-            updateServerUrl:        persistedState.settings?.updateServerUrl        ?? '',
           },
         }
       },

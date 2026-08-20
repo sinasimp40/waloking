@@ -125,14 +125,10 @@ const useStore = create(
         showIPTV: true,
 
         // ── Telegram / PC-monitor notification settings ──────────────────
-        // Telegram credentials are stored locally for this launcher only.
+        // Direct Telegram game-launch alert settings for this launcher only.
         notificationEnabled:   true,
         notifyGameLaunches:    true,
-        notifyPcMonitoring:    true,
-        monitorEnabled:        false,
         pcName:                '',
-        monitorIntervalSeconds: 30,
-        updateServerUrl:       '',
         telegramBotToken:      '',
         telegramChatId:        '',
       },
@@ -294,7 +290,7 @@ const useStore = create(
     }),
     {
       name: 'balok-storage',
-      version: 25,
+      version: 26,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState) => {
         // v12: launcherName/launcherTagline become null when still at the
@@ -346,14 +342,10 @@ const useStore = create(
             igdbClientSecret: persistedState.settings?.igdbClientSecret || 'eulj0ebeyc9uh6gtatamg63l6gdknj',
             announcementsList: Array.isArray(persistedState.settings?.announcementsList) ? persistedState.settings.announcementsList : [],
             upcomingEventsList: Array.isArray(persistedState.settings?.upcomingEventsList) ? persistedState.settings.upcomingEventsList : [],
-            // v24: notification & monitor settings defaults
+            // v26: direct Telegram game-launch alert settings
             notificationEnabled:    persistedState.settings?.notificationEnabled    ?? true,
             notifyGameLaunches:     persistedState.settings?.notifyGameLaunches     ?? true,
-            notifyPcMonitoring:     persistedState.settings?.notifyPcMonitoring     ?? true,
-            monitorEnabled:         persistedState.settings?.monitorEnabled         ?? false,
             pcName:                 persistedState.settings?.pcName                 ?? '',
-            monitorIntervalSeconds: persistedState.settings?.monitorIntervalSeconds ?? 30,
-            updateServerUrl:        persistedState.settings?.updateServerUrl        ?? '',
             telegramBotToken:       persistedState.settings?.telegramBotToken       ?? '',
             telegramChatId:         persistedState.settings?.telegramChatId         ?? '',
           },

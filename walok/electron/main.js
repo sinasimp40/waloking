@@ -268,10 +268,8 @@ try {
   console.error('[OTA] init failed:', e.message)
 }
 
-/* ── PC Monitor helper ───────────────────────────────────────────────────────
-   Posts heartbeat pings to the update server for Telegram alerts.
-   No Telegram credentials live here — the server holds the bot token. */
-const monitorHelper = require('./monitor')
+/* ── Direct Telegram game-launch notifier ─────────────────────────────────── */
+const telegramNotifier = require('./monitor')
 const { resolveOtaConfigPath } = require('./ota-config-path')
 function getOtaConfigPath() {
   return resolveOtaConfigPath({
@@ -280,40 +278,6 @@ function getOtaConfigPath() {
     sourceDir: __dirname,
   })
 }
-let detachedMonitorStarted = false
-function startMonitorService() {
-  if (!app.isPackaged || process.platform !== 'win32') {
-    monitorHelper.start(getSettingsPath(), getOtaConfigPath())
-    return
-  }
-  if (detachedMonitorStarted) return
-  try {
-    // Run Electron as Node so this helper survives launcher auto-close and
-    // game sessions. Keep its entry point outside app.asar for reliability.
-    const helperPath = path.join(app.getPath('userData'), 'pc-monitor.js')
-    const monitorDataDir = app.getPath('userData')
-    const lockPath = path.join(monitorDataDir, '.pc-monitor.lock')
-    try {
-      const pid = Number(fs.readFileSync(lockPath, 'utf-8'))
-      if (pid > 0) process.kill(pid, 'SIGTERM')
-    } catch (_) {}
-    // Always refresh the helper from the installed app so OTA updates do not
-    // leave a previous monitor implementation running indefinitely.
-    fs.copyFileSync(path.join(__dirname, 'monitor.js'), helperPath)
-    const child = spawn(process.execPath, [helperPath, getSettingsPath(), getOtaConfigPath()], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    })
-    child.unref()
-    detachedMonitorStarted = true
-  } catch (e) {
-    console.warn('[monitor] detached helper unavailable; using launcher process:', e.message)
-    monitorHelper.start(getSettingsPath(), getOtaConfigPath())
-  }
-}
-
 function getSettingsPath() {
   return path.join(appRoot, SETTINGS_FILE)
 }
@@ -666,7 +630,7 @@ function createWindow(splash) {
       // Report game launch to update server (for Telegram notifications).
       // Fire-and-forget; never blocks the launch.
       try {
-        monitorHelper.reportGameLaunch(getSettingsPath(), getOtaConfigPath(), {
+        telegramNotifier.reportGameLaunch(getSettingsPath(), getOtaConfigPath(), {
           gameName:  gameName  || path.basename(filePath, path.extname(filePath)),
           variation: variation || null,
         })
@@ -1277,124 +1241,12 @@ function createWindow(splash) {
       fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8')
       fs.renameSync(tmpPath, settingsPath)
       cachedSettings = data
-      // Update Windows startup registration whenever monitorEnabled changes.
-      try {
-        if (app.isPackaged && process.platform === 'win32') {
-          const s = (data && data.state && data.state.settings) ? data.state.settings : (data && data.settings) ? data.settings : {}
-          const shouldRegister = !!s.monitorEnabled
-          const loginItemSettings = app.getLoginItemSettings()
-          if (shouldRegister && !loginItemSettings.openAtLogin) {
-            app.setLoginItemSettings({ openAtLogin: true, name: 'Launcher Monitor' })
-          } else if (!shouldRegister && loginItemSettings.openAtLogin) {
-            app.setLoginItemSettings({ openAtLogin: false })
-          }
-        }
-      } catch (_) {}
       return { success: true }
     } catch (err) {
       console.error('Failed to save settings:', err.message)
       return { success: false, error: err.message }
     }
   })
-
-  /* ── Monitor IPC ── */
-  ipcMain.handle('monitor:get-status', () => {
-    try {
-      const settings = readCurrentSettings()
-      const otaCfg   = readOtaConfigSafe()
-      const updateServer = (settings.updateServerUrl || otaCfg.updateServer || otaCfg.updateServerUrl || '').trim()
-      return {
-        monitorEnabled:      !!settings.monitorEnabled,
-        notificationEnabled: settings.notificationEnabled !== false,
-        notifyGameLaunches:  settings.notifyGameLaunches  !== false,
-        notifyPcMonitoring:  settings.notifyPcMonitoring  !== false,
-        pcName:              settings.pcName || os.hostname(),
-        updateServerUrl:     updateServer,
-        serverConfigured:    !!updateServer,
-      telegramConfigured:  !!(settings.telegramBotToken && settings.telegramChatId),
-      telegramNote: 'Telegram credentials are stored in this launcher’s local settings.',
-      }
-    } catch (e) {
-      return { error: e.message }
-    }
-  })
-
-  // Connection check validates the monitor server and this launcher's local
-  // Telegram settings. It never sends an alert.
-  ipcMain.handle('monitor:test-notification', async () => {
-    try {
-      const settings     = readCurrentSettings()
-      const otaCfg       = readOtaConfigSafe()
-      const updateServer = (settings.updateServerUrl || otaCfg.updateServer || otaCfg.updateServerUrl || '').trim().replace(/\/$/, '')
-      if (!updateServer) {
-        return { success: false, reason: 'not_configured', message: 'Update server URL is not set. Configure it in Admin → Notifications.' }
-      }
-      const { getOrCreateDeviceId } = monitorHelper
-      const deviceId = getOrCreateDeviceId(path.join(appRoot, USER_DATA_DIR))
-      const pcName   = (settings.pcName || os.hostname()).trim()
-      const channel  = otaCfg.channel || BRAND_SLUG
-
-      const body = JSON.stringify({
-        type: 'test', deviceId, deviceName: pcName, channel, timestamp: new Date().toISOString(),
-        telegram: {
-          botToken: String(settings.telegramBotToken || '').trim(),
-          chatId: String(settings.telegramChatId || '').trim(),
-        },
-      })
-      const result = await new Promise((resolve) => {
-        try {
-          const u   = new URL(updateServer + '/api/monitor/test')
-          const mod = u.protocol === 'https:' ? require('https') : require('http')
-          const req = mod.request({
-            hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80),
-            path: u.pathname, method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-            timeout: 8000,
-          }, (res) => {
-            let d = ''; res.on('data', c => d += c)
-            res.on('end', () => resolve({ status: res.statusCode, body: d }))
-          })
-          req.on('error', e => resolve({ status: 0, error: e.message }))
-          req.on('timeout', () => { req.destroy(); resolve({ status: 0, error: 'timeout' }) })
-          req.write(body); req.end()
-        } catch (e) { resolve({ status: 0, error: e.message }) }
-      })
-    let serverMessage = ''
-    try { serverMessage = JSON.parse(result.body || '{}').message || '' } catch (_) {}
-    if (result.status >= 200 && result.status < 300) {
-      return { success: true, message: serverMessage || 'Update server is reachable.' }
-      }
-      if (result.status === 404) {
-        return { success: false, reason: 'not_supported', message: 'Test endpoint not found on this server version. Server may need updating.' }
-      }
-      if (result.status === 0) {
-        return { success: false, reason: 'unreachable', message: 'Could not reach update server: ' + (result.error || 'connection refused') }
-      }
-    return { success: false, reason: 'server_error', message: serverMessage || 'Server returned HTTP ' + result.status }
-    } catch (e) {
-      return { success: false, reason: 'error', message: e.message }
-    }
-  })
-
-  function readCurrentSettings() {
-    try {
-      const sp = getSettingsPath()
-      if (fs.existsSync(sp)) {
-        const raw = JSON.parse(fs.readFileSync(sp, 'utf-8'))
-        return (raw && raw.state && raw.state.settings) ? raw.state.settings
-             : (raw && raw.settings) ? raw.settings : {}
-      }
-    } catch (_) {}
-    return {}
-  }
-
-  function readOtaConfigSafe() {
-    try {
-      const p = getOtaConfigPath()
-      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8'))
-    } catch (_) {}
-    return {}
-  }
 
   // Read a file from the assets directory and return it as base64.
   // Used by the backup export to embed file:/// images into the JSON.
@@ -1737,26 +1589,6 @@ app.whenReady().then(() => {
     }
   })
 
-  // Start background PC monitor (reads its own settings; works independently
-  // of the renderer window so it survives auto-close-on-launch).
-  try {
-    // The helper checks the persisted enabled switch itself, so starting it
-    // here makes a later Admin Panel toggle take effect without a restart.
-    startMonitorService()
-    // Register Windows startup for monitor when packaged and monitor is enabled
-    if (app.isPackaged && process.platform === 'win32') {
-      const startupSettings = cachedSettings?.state?.settings || cachedSettings?.settings || {}
-      const loginItemSettings = app.getLoginItemSettings()
-      const shouldRegister = !!startupSettings.monitorEnabled
-      if (shouldRegister && !loginItemSettings.openAtLogin) {
-        app.setLoginItemSettings({ openAtLogin: true, name: 'Launcher Monitor' })
-      } else if (!shouldRegister && loginItemSettings.openAtLogin) {
-        app.setLoginItemSettings({ openAtLogin: false })
-      }
-    }
-  } catch (e) {
-    console.warn('[monitor] startup error:', e.message)
-  }
 })
 
 app.on('window-all-closed', () => {
@@ -1766,10 +1598,6 @@ app.on('window-all-closed', () => {
 // Always release any kiosk-time globalShortcut registration on quit so
 // Ctrl+Shift+Alt+K doesn't linger after the launcher exits.
 app.on('will-quit', () => {
-  // Keep the detached Windows monitor running after launcher auto-close.
-  if (!app.isPackaged || process.platform !== 'win32') {
-    try { monitorHelper.stop() } catch (_) {}
-  }
   try { globalShortcut.unregisterAll() } catch (_) {}
   // CRITICAL: if kiosk hid the taskbar, we MUST show it again on every
   // exit path. Without this the cafe's machine boots into a desktop
