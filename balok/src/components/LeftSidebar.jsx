@@ -21,6 +21,7 @@ const CATEGORY_META = {
 // Notched "console" corner, matching the Control Deck admin panel's button
 // language, so the brand mark and the admin surface feel like one product.
 const CLIP_SM = 'polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px)'
+const DEVELOPER_URL = 'https://www.facebook.com/aym.ralph'
 
 /* Live "My Rig" telemetry. In the packaged desktop app, electronAPI.getSystemStats()
    reads real CPU/RAM/disk/GPU usage from the PC. Browsers can't read hardware
@@ -311,6 +312,15 @@ export default function LeftSidebar() {
     }
   }
 
+  const openDeveloperPage = (event) => {
+    event.preventDefault()
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(DEVELOPER_URL, '')
+      return
+    }
+    window.open(DEVELOPER_URL, '_blank', 'noopener')
+  }
+
   return (
     <div
       className="flex flex-col flex-shrink-0 overflow-hidden"
@@ -457,7 +467,7 @@ export default function LeftSidebar() {
 
       {/* ── Powered by footer ── */}
       <div
-        className="py-3 flex-shrink-0 border-t flex flex-col items-center justify-center gap-1"
+        className="py-2.5 flex-shrink-0 border-t flex flex-col items-center justify-center gap-1.5"
         style={{ borderColor: 'var(--border)', background: 'rgba(0,0,0,0.25)' }}
       >
         <span className="text-[8px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>
@@ -469,8 +479,26 @@ export default function LeftSidebar() {
             {settings.poweredBy || 'BALOK'}
           </span>
         </div>
+        <a
+          href={DEVELOPER_URL}
+          onClick={openDeveloperPage}
+          title="Developed by aym.ralph — open Facebook"
+          className="flex items-center gap-1.5 text-[9px] font-semibold tracking-wide text-white/40 hover:text-white/85 transition-colors"
+        >
+          <FacebookMark />
+          <span>Developed by: <span style={{ color: accent }}>aym.ralph</span></span>
+        </a>
       </div>
     </div>
+  )
+}
+
+function FacebookMark() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" className="flex-shrink-0">
+      <circle cx="12" cy="12" r="11" fill="#1877F2" />
+      <path d="M13.45 19v-6.05h2.03l.3-2.35h-2.33V9.1c0-.68.19-1.14 1.17-1.14h1.25V5.86c-.22-.03-.96-.09-1.83-.09-1.81 0-3.05 1.1-3.05 3.14v1.69H9v2.35h1.99V19h2.46Z" fill="#fff" />
+    </svg>
   )
 }
 
