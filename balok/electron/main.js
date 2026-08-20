@@ -146,6 +146,38 @@ function getOtaConfigPath() {
     : path.join(__dirname, '..', 'branding', 'ota-config.json')
 }
 
+// An auto-closing launcher must not terminate the first cold Telegram request
+// before it completes. Keep the main process alive until active alerts settle.
+let pendingTelegramNotifications = 0
+let quitAfterTelegramNotifications = false
+
+function reportTelegramGameLaunch(gameInfo, settingsOverride) {
+  let delivery
+  try {
+    delivery = Promise.resolve(telegramNotifier.reportGameLaunch(
+      settingsPath,
+      getOtaConfigPath(),
+      gameInfo,
+      settingsOverride
+    ))
+  } catch (error) {
+    console.warn('[telegram] could not start game-launch notification:', error.message)
+    return Promise.resolve({ success: false, error: error.message })
+  }
+
+  pendingTelegramNotifications += 1
+  delivery
+    .catch(error => console.warn('[telegram] game-launch notification failed:', error.message))
+    .finally(() => {
+      pendingTelegramNotifications = Math.max(0, pendingTelegramNotifications - 1)
+      if (quitAfterTelegramNotifications && pendingTelegramNotifications === 0) {
+        app.quit()
+      }
+    })
+
+  return delivery
+}
+
 let win = null
 
 
@@ -291,6 +323,7 @@ function applyKiosk(enabled) {
 }
 
 function createWindow() {
+  quitAfterTelegramNotifications = false
   // Persisted kiosk intent → constructor options (see cachedSettings note).
   let bootKiosk = false
   try {
@@ -357,7 +390,12 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform === 'darwin') return
+  if (pendingTelegramNotifications > 0) {
+    quitAfterTelegramNotifications = true
+    return
+  }
+  app.quit()
 })
 
 app.on('will-quit', () => {
@@ -422,17 +460,19 @@ ipcMain.on('close-window', () => {
 // launch-game accepts either a plain exePath string (legacy) or an object
 // { exePath, gameName, variation, iconPath } for notification-aware launches.
 ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
-  let exePath, gameName, variation, iconPath
+  let exePath, gameName, variation, iconPath, notificationSettings
   if (exePathOrInfo && typeof exePathOrInfo === 'object') {
     exePath   = exePathOrInfo.exePath
     gameName  = exePathOrInfo.gameName  || ''
     variation = exePathOrInfo.variation || null
     iconPath  = exePathOrInfo.iconPath  || null
+    notificationSettings = exePathOrInfo.notificationSettings || null
   } else {
     exePath   = exePathOrInfo
     gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
     variation = (gameInfoExtra && gameInfoExtra.variation) || null
     iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
+    notificationSettings = (gameInfoExtra && gameInfoExtra.notificationSettings) || null
   }
   if (!exePath) return { success: false, error: 'No path provided' }
   try {
@@ -467,14 +507,13 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
       if (err) return { success: false, error: err }
     }
 
-    // Send the game-open alert directly to Telegram; never block the launch.
-    try {
-      telegramNotifier.reportGameLaunch(settingsPath, getOtaConfigPath(), {
-        gameName:  gameName  || path.basename(exePath, path.extname(exePath)),
-        variation: variation || null,
-        iconPath:  iconPath  || null,
-      })
-    } catch (_) {}
+    // Prefer live renderer settings over a file that could still be settling
+    // immediately after an OTA update.
+    reportTelegramGameLaunch({
+      gameName:  gameName  || path.basename(exePath, path.extname(exePath)),
+      variation: variation || null,
+      iconPath:  iconPath  || null,
+    }, notificationSettings)
 
     return { success: true }
   } catch (err) {

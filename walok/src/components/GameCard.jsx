@@ -13,9 +13,10 @@ const categoryConfig = {
 
 const GameCard = memo(function GameCard({ game }) {
   const incrementLaunchCount = useStore(s => s.incrementLaunchCount)
-  const accentColor = useStore(s => s.settings.accentColor)
-  const showNames = useStore(s => s.settings.showGameNames) !== false
-  const autoCloseOnLaunch = useStore(s => s.settings.autoCloseOnLaunch || s.settings.kioskMode)
+  const settings = useStore(s => s.settings)
+  const accentColor = settings.accentColor
+  const showNames = settings.showGameNames !== false
+  const autoCloseOnLaunch = settings.autoCloseOnLaunch || settings.kioskMode
   const [isHovered, setIsHovered] = useState(false)
   const [imgError, setImgError] = useState(false)
   const [isPressed, setIsPressed] = useState(false)
@@ -48,6 +49,14 @@ const GameCard = memo(function GameCard({ game }) {
         gameName: game.name,
         variation: label !== game.name ? label : null,
         iconPath: game.icon || game.wallpaper || null,
+          notificationSettings: {
+            notificationEnabled: settings.notificationEnabled,
+            notifyGameLaunches: settings.notifyGameLaunches,
+            pcName: settings.pcName,
+            pcMappings: settings.pcMappings,
+            telegramBotToken: settings.telegramBotToken,
+            telegramChatId: settings.telegramChatId,
+          },
       })
       if (result.success) {
         toast.success(`Launching ${label}...`)

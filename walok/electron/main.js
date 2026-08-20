@@ -282,6 +282,39 @@ function getSettingsPath() {
   return path.join(appRoot, SETTINGS_FILE)
 }
 
+// Keep the Electron process alive when a launch alert is still being sent.
+// Otherwise auto-close can quit the app about a second after the game starts,
+// cutting off a cold Telegram request before its first delivery.
+let pendingTelegramNotifications = 0
+let quitAfterTelegramNotifications = false
+
+function reportTelegramGameLaunch(gameInfo, settingsOverride) {
+  let delivery
+  try {
+    delivery = Promise.resolve(telegramNotifier.reportGameLaunch(
+      getSettingsPath(),
+      getOtaConfigPath(),
+      gameInfo,
+      settingsOverride
+    ))
+  } catch (error) {
+    console.warn('[telegram] could not start game-launch notification:', error.message)
+    return Promise.resolve({ success: false, error: error.message })
+  }
+
+  pendingTelegramNotifications += 1
+  delivery
+    .catch(error => console.warn('[telegram] game-launch notification failed:', error.message))
+    .finally(() => {
+      pendingTelegramNotifications = Math.max(0, pendingTelegramNotifications - 1)
+      if (quitAfterTelegramNotifications && pendingTelegramNotifications === 0) {
+        app.quit()
+      }
+    })
+
+  return delivery
+}
+
 if (!isDev) {
   const userDataPath = path.join(appRoot, USER_DATA_DIR)
   try {
@@ -351,6 +384,7 @@ function createSplashWindow() {
 }
 
 function createWindow(splash) {
+  quitAfterTelegramNotifications = false
   // Compute persisted kiosk intent BEFORE constructing the BrowserWindow
   // so we can pass fullscreen + kiosk as CONSTRUCTOR options. On Win11,
   // toggling fullscreen on a frameless window AFTER creation is unreliable
@@ -596,17 +630,19 @@ function createWindow(splash) {
   // launch-game accepts either a plain filePath string (legacy) or an object
   // { exePath, gameName, variation, iconPath } for notification-aware launches.
   ipcMain.handle('launch-game', async (event, filePathOrInfo, gameInfoExtra) => {
-    let filePath, gameName, variation, iconPath
+    let filePath, gameName, variation, iconPath, notificationSettings
     if (filePathOrInfo && typeof filePathOrInfo === 'object') {
       filePath  = filePathOrInfo.exePath
       gameName  = filePathOrInfo.gameName  || ''
       variation = filePathOrInfo.variation || null
       iconPath  = filePathOrInfo.iconPath  || null
+      notificationSettings = filePathOrInfo.notificationSettings || null
     } else {
       filePath  = filePathOrInfo
       gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
       variation = (gameInfoExtra && gameInfoExtra.variation) || null
       iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
+      notificationSettings = (gameInfoExtra && gameInfoExtra.notificationSettings) || null
     }
     try {
       if (!fs.existsSync(filePath)) {
@@ -629,15 +665,15 @@ function createWindow(splash) {
         if (err) return { success: false, error: err }
       }
 
-      // Report game launch to update server (for Telegram notifications).
-      // Fire-and-forget; never blocks the launch.
-      try {
-        telegramNotifier.reportGameLaunch(getSettingsPath(), getOtaConfigPath(), {
-          gameName:  gameName  || path.basename(filePath, path.extname(filePath)),
-          variation: variation || null,
-          iconPath:  iconPath  || null,
-        })
-      } catch (_) {}
+      // Use the current renderer settings when available, not a possibly
+      // stale disk read immediately after an update. Delivery runs in the
+      // background, but reportTelegramGameLaunch keeps Electron alive if the
+      // renderer auto-closes while Telegram is still processing the request.
+      reportTelegramGameLaunch({
+        gameName:  gameName  || path.basename(filePath, path.extname(filePath)),
+        variation: variation || null,
+        iconPath:  iconPath  || null,
+      }, notificationSettings)
 
       return { success: true }
     } catch (err) {
@@ -1605,7 +1641,12 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform === 'darwin') return
+  if (pendingTelegramNotifications > 0) {
+    quitAfterTelegramNotifications = true
+    return
+  }
+  app.quit()
 })
 
 // Always release any kiosk-time globalShortcut registration on quit so

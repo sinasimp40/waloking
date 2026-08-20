@@ -293,8 +293,10 @@ async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDeta
   }
 }
 
-function getTelegramSettings(settingsPath) {
-  const settings = readSettings(settingsPath)
+function getTelegramSettings(settingsPath, settingsOverride = null) {
+  const settings = settingsOverride && typeof settingsOverride === 'object'
+    ? settingsOverride
+    : readSettings(settingsPath)
   const botToken = String(settings.telegramBotToken || '').trim()
   const chatId = String(settings.telegramChatId || '').trim()
   if (!botToken) throw new Error('Enter a Telegram bot token first.')
@@ -321,9 +323,9 @@ function buildAlertText(details) {
   return lines.join('\n')
 }
 
-function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}) {
+function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}, settingsOverride = null) {
   try {
-    const { settings, botToken, chatId } = getTelegramSettings(settingsPath)
+    const { settings, botToken, chatId } = getTelegramSettings(settingsPath, settingsOverride)
     if (settings.notificationEnabled === false || settings.notifyGameLaunches === false) return
     const details = buildAlertDetails(settings, gameInfo.gameName, gameInfo.variation)
     return sendTelegramGameAlert(
