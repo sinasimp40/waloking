@@ -1349,6 +1349,7 @@ export function EventsSection() {
 export function NotificationsSection() {
   const { settings, updateSettings } = useStore()
   const [newPc, setNewPc] = useState({ name: '', ip: '' })
+  const [isSendingTest, setIsSendingTest] = useState(false)
   const pcMappings = Array.isArray(settings.pcMappings) ? settings.pcMappings : []
 
   const addPcMapping = () => {
@@ -1368,6 +1369,23 @@ export function NotificationsSection() {
         entryIndex === index ? { ...entry, [field]: value } : entry
       ),
     })
+  }
+
+  const sendTestAlert = async () => {
+    if (!window.electronAPI?.testTelegramAlert) {
+      toast.error('Test alerts are available in the installed launcher')
+      return
+    }
+    setIsSendingTest(true)
+    try {
+      const result = await window.electronAPI.testTelegramAlert()
+      if (result?.success) toast.success('Test alert sent to Telegram')
+      else toast.error(result?.error || 'Telegram could not send the test alert')
+    } catch (error) {
+      toast.error(error.message || 'Telegram could not send the test alert')
+    } finally {
+      setIsSendingTest(false)
+    }
   }
 
   return (
@@ -1393,6 +1411,16 @@ export function NotificationsSection() {
               autoComplete="off"
             />
           </Field>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-4">
+          <PrimaryBtn
+            onClick={sendTestAlert}
+            disabled={isSendingTest || !settings.telegramBotToken?.trim() || !settings.telegramChatId?.trim()}
+            className="h-[40px]"
+          >
+            {isSendingTest ? <><Loader2 size={14} className="animate-spin" /> Sending test...</> : <><Bell size={14} /> Send test alert</>}
+          </PrimaryBtn>
+          <p className="text-xs text-zinc-500">Sends a test message and shows Telegram errors here.</p>
         </div>
       </Panel>
 

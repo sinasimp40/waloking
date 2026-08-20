@@ -479,6 +479,16 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
   }
 })
 
+ipcMain.handle('test-telegram-alert', async () => {
+  try {
+    await telegramNotifier.sendTestAlert(settingsPath, getOtaConfigPath())
+    return { success: true }
+  } catch (error) {
+    console.warn('[telegram] test alert failed:', error.message)
+    return { success: false, error: error.message }
+  }
+})
+
 
 /* ── File / folder / image pickers ── */
 ipcMain.handle('select-file', async (_e, filters) => {

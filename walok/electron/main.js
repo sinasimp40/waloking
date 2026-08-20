@@ -642,6 +642,16 @@ function createWindow(splash) {
     }
   })
 
+  ipcMain.handle('test-telegram-alert', async () => {
+    try {
+      await telegramNotifier.sendTestAlert(getSettingsPath(), getOtaConfigPath())
+      return { success: true }
+    } catch (error) {
+      console.warn('[telegram] test alert failed:', error.message)
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('select-file', async (event, filters) => {
     const result = await dialog.showOpenDialog(win, {
       properties: ['openFile'],

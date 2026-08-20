@@ -68,8 +68,23 @@ function sendTelegram(botToken, chatId, text) {
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
       timeout: 8000,
     }, response => {
-      response.resume()
-      response.on('end', () => resolve(response.statusCode))
+      const chunks = []
+      response.on('data', chunk => chunks.push(chunk))
+      response.on('end', () => {
+        const responseBody = Buffer.concat(chunks).toString('utf8')
+        let payload = null
+        try { payload = JSON.parse(responseBody) } catch (_) {}
+
+        if (response.statusCode >= 200 && response.statusCode < 300 && payload?.ok !== false) {
+          resolve({ success: true })
+          return
+        }
+
+        reject(new Error(
+          payload?.description ||
+          `Telegram rejected the request (HTTP ${response.statusCode || 'unknown'}).`
+        ))
+      })
     })
     request.on('error', reject)
     request.on('timeout', () => { request.destroy(new Error('Telegram request timed out')) })
@@ -78,32 +93,54 @@ function sendTelegram(botToken, chatId, text) {
   })
 }
 
+function getTelegramSettings(settingsPath) {
+  const settings = readSettings(settingsPath)
+  const botToken = String(settings.telegramBotToken || '').trim()
+  const chatId = String(settings.telegramChatId || '').trim()
+  if (!botToken) throw new Error('Enter a Telegram bot token first.')
+  if (!chatId) throw new Error('Enter a Telegram channel ID first.')
+  return { settings, botToken, chatId }
+}
+
+function buildAlertText(settings, otaConfigPath, gameName, variation) {
+  const config = readOtaConfig(otaConfigPath)
+  const computer = resolvePc(settings, getLocalIps())
+  const game = [gameName || 'Unknown Game', variation].filter(Boolean).join(' — ')
+  const brand = config.launcherName || config.brand || 'Game Launcher'
+  const lines = [
+    '🎮 <b>' + escapeHtml(brand) + '</b>',
+    '<b>' + escapeHtml(computer.name) + '</b> opened <b>' + escapeHtml(game) + '</b>',
+  ]
+  if (computer.ip) lines.push('IP: <code>' + escapeHtml(computer.ip) + '</code>')
+  lines.push('Time: ' + new Date().toLocaleString())
+  return lines.join('\n')
+}
+
 function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}) {
   try {
-    const settings = readSettings(settingsPath)
+    const { settings, botToken, chatId } = getTelegramSettings(settingsPath)
     if (settings.notificationEnabled === false || settings.notifyGameLaunches === false) return
-
-    const botToken = String(settings.telegramBotToken || '').trim()
-    const chatId = String(settings.telegramChatId || '').trim()
-    if (!botToken || !chatId) return
-
-    const config = readOtaConfig(otaConfigPath)
-    const computer = resolvePc(settings, getLocalIps())
-    const game = [gameInfo.gameName || 'Unknown Game', gameInfo.variation].filter(Boolean).join(' — ')
-    const ip = getLocalIp()
-    const brand = config.launcherName || config.brand || 'Game Launcher'
-    const lines = [
-      '🎮 <b>' + escapeHtml(brand) + '</b>',
-      '<b>' + escapeHtml(computer.name) + '</b> opened <b>' + escapeHtml(game) + '</b>',
-    ]
-    if (computer.ip) lines.push('IP: <code>' + escapeHtml(computer.ip) + '</code>')
-    lines.push('Time: ' + new Date().toLocaleString())
-
-    sendTelegram(botToken, chatId, lines.join('\n'))
-      .catch(error => console.warn('[telegram] game-launch notification failed:', error.message))
+    return sendTelegram(
+      botToken,
+      chatId,
+      buildAlertText(settings, otaConfigPath, gameInfo.gameName, gameInfo.variation)
+    ).catch(error => {
+      console.warn('[telegram] game-launch notification failed:', error.message)
+      return { success: false, error: error.message }
+    })
   } catch (error) {
     console.warn('[telegram] could not report game launch:', error.message)
+    return Promise.resolve({ success: false, error: error.message })
   }
 }
 
-module.exports = { reportGameLaunch, resolvePc }
+function sendTestAlert(settingsPath, otaConfigPath) {
+  const { settings, botToken, chatId } = getTelegramSettings(settingsPath)
+  return sendTelegram(
+    botToken,
+    chatId,
+    buildAlertText(settings, otaConfigPath, 'Telegram test alert', null)
+  )
+}
+
+module.exports = { reportGameLaunch, resolvePc, sendTestAlert }

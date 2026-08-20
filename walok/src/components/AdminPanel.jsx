@@ -1534,6 +1534,7 @@ function NotificationsSection() {
   const { settings, updateSettings } = useStore()
   const accentColor = useStore(s => s.settings.accentColor) || getDefaultAccent()
   const [newPc, setNewPc] = useState({ name: '', ip: '' })
+  const [isSendingTest, setIsSendingTest] = useState(false)
   const pcMappings = Array.isArray(settings.pcMappings) ? settings.pcMappings : []
 
   const addPcMapping = () => {
@@ -1553,6 +1554,23 @@ function NotificationsSection() {
         entryIndex === index ? { ...entry, [field]: value } : entry
       ),
     })
+  }
+
+  const sendTestAlert = async () => {
+    if (!window.electronAPI?.testTelegramAlert) {
+      toast.error('Test alerts are available in the installed launcher')
+      return
+    }
+    setIsSendingTest(true)
+    try {
+      const result = await window.electronAPI.testTelegramAlert()
+      if (result?.success) toast.success('Test alert sent to Telegram')
+      else toast.error(result?.error || 'Telegram could not send the test alert')
+    } catch (error) {
+      toast.error(error.message || 'Telegram could not send the test alert')
+    } finally {
+      setIsSendingTest(false)
+    }
   }
 
   const Row = ({ title, hint, checked, onChange, disabled }) => (
@@ -1593,6 +1611,16 @@ function NotificationsSection() {
             />
             <p className="mt-1 text-[9px] text-white/25 font-rajdhani">Use the channel ID, usually starting with -100. Add the bot as a channel administrator.</p>
           </div>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <AccentButton
+            onClick={sendTestAlert}
+            disabled={isSendingTest || !settings.telegramBotToken?.trim() || !settings.telegramChatId?.trim()}
+            className="h-[36px] px-3 text-[10px]"
+          >
+            {isSendingTest ? <><Loader2 size={13} className="animate-spin" /> SENDING TEST...</> : <><Bell size={13} /> SEND TEST ALERT</>}
+          </AccentButton>
+          <p className="text-[10px] text-white/30 font-rajdhani">Sends a test message and shows Telegram errors here.</p>
         </div>
       </CardBox>
 
