@@ -231,9 +231,9 @@ function createCardSvg({ pcName, gameName, itemName, alertType, timestamp, trans
       <rect x="646" y="28" width="350" height="456" rx="22" fill="#080706"/>
       <rect x="646" y="28" width="350" height="456" rx="22" fill="none" stroke="#d4af37" stroke-opacity=".66"/>`
   const facebookCredit = `
-    <circle cx="360" cy="433" r="9" fill="#1877F2"/>
-    <path d="M13.45 19v-6.05h2.03l.3-2.35h-2.33V9.1c0-.68.19-1.14 1.17-1.14h1.25V5.86c-.22-.03-.96-.09-1.83-.09-1.81 0-3.05 1.1-3.05 3.14v1.69H9v2.35h1.99V19h2.46Z" transform="translate(352 425) scale(.62)" fill="#fff"/>
-    <text x="376" y="438" fill="#d8c58f" font-family="Arial, sans-serif" font-size="13" font-weight="700">Developed by: aym.ralph</text>`
+    <circle cx="68" cy="400" r="11" fill="#1877F2"/>
+    <path d="M13.45 19v-6.05h2.03l.3-2.35h-2.33V9.1c0-.68.19-1.14 1.17-1.14h1.25V5.86c-.22-.03-.96-.09-1.83-.09-1.81 0-3.05 1.1-3.05 3.14v1.69H9v2.35h1.99V19h2.46Z" transform="translate(59 389) scale(.75)" fill="#fff"/>
+    <text x="88" y="406" fill="#e5c477" font-family="Arial, sans-serif" font-size="16" font-weight="700">Developed by: https://www.facebook.com/aym.ralph</text>`
 
   return `<svg width="1024" height="512" viewBox="0 0 1024 512" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -259,8 +259,8 @@ function createCardSvg({ pcName, gameName, itemName, alertType, timestamp, trans
     <rect x="58" y="176" width="542" height="1" fill="#d4af37" fill-opacity=".28"/>
     <text x="58" y="221" fill="#d4af37" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.4">OPENED</text>
     ${itemText}
-    <circle cx="66" cy="433" r="6" fill="#e4b94b"/>
-    <text x="82" y="439" fill="#d8c58f" font-family="Arial, sans-serif" font-size="20">${escapeHtml(timestamp)}</text>
+    <circle cx="66" cy="462" r="6" fill="#e4b94b"/>
+    <text x="82" y="469" fill="#d8c58f" font-family="Arial, sans-serif" font-size="20">${escapeHtml(timestamp)}</text>
     ${facebookCredit}
     <path d="M482 484 L650 316 L650 484 Z" fill="url(#artGlow)" opacity=".44"/>
     ${artworkFrame}
@@ -318,7 +318,7 @@ async function createAlertCard(imagePath, cardDetails) {
 }
 
 async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDetails) {
-  const developerCaption = '<a href="https://www.facebook.com/aym.ralph">Developed by: aym.ralph</a>'
+  const developerCaption = '<a href="https://www.facebook.com/aym.ralph">https://www.facebook.com/aym.ralph</a>'
   try {
     let card
     try {
@@ -371,7 +371,7 @@ function buildAlertText(details) {
     'Opened <b>' + escapeHtml(details.itemName || details.gameName) + '</b>',
     '🕒 ' + escapeHtml(details.timestamp),
   ]
-  return `${lines.join('\n')}\n\n<a href="https://www.facebook.com/aym.ralph">Developed by: aym.ralph</a>`
+  return `${lines.join('\n')}\n\n<a href="https://www.facebook.com/aym.ralph">https://www.facebook.com/aym.ralph</a>`
 }
 
 function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}, settingsOverride = null) {
