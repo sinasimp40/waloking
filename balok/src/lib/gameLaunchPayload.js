@@ -13,20 +13,22 @@ export function createNotificationSettings(settings) {
 // `launch-game` IPC handler. Keeping this in one place prevents secondary
 // launch surfaces (featured, shelves, events) from falling back to a plain
 // text Telegram alert because they only supplied an executable path.
-export function createGameLaunchPayload(game, exePath, settings, variation = null) {
+export function createGameLaunchPayload(game, exePath, settings, variation = null, alertType = 'Game Launch') {
   return {
     exePath,
     gameName: game?.name || '',
     variation: variation || null,
     iconPath: game?.image || game?.icon || game?.wallpaper || null,
+    alertType,
     notificationSettings: createNotificationSettings(settings),
   }
 }
 
-export function createLaunchAlertPayload(item, settings) {
+export function createLaunchAlertPayload(item, settings, alertType = 'Social Link') {
   return {
     gameName: item?.name || '',
     iconPath: item?.image || item?.icon || item?.wallpaper || null,
+    alertType,
     notificationSettings: createNotificationSettings(settings),
   }
 }

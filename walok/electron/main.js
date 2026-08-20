@@ -303,7 +303,8 @@ function quitWhenLaunchWorkSettles() {
 function reserveLaunchNotification(gameInfo = {}) {
   const gameName = String(gameInfo.gameName || '').trim().toLowerCase()
   const variation = String(gameInfo.variation || '').trim().toLowerCase()
-  const key = `${gameName}\u0000${variation}`
+  const alertType = String(gameInfo.alertType || 'Game Launch').trim().toLowerCase()
+  const key = `${alertType}\u0000${gameName}\u0000${variation}`
   const now = Date.now()
 
   for (const [existingKey, timestamp] of recentLaunchNotifications) {
@@ -673,18 +674,20 @@ function createWindow(splash) {
   ipcMain.handle('launch-game', async (event, filePathOrInfo, gameInfoExtra) => {
     pendingGameLaunches += 1
     try {
-    let filePath, gameName, variation, iconPath, notificationSettings
+    let filePath, gameName, variation, iconPath, alertType, notificationSettings
     if (filePathOrInfo && typeof filePathOrInfo === 'object') {
       filePath  = filePathOrInfo.exePath
       gameName  = filePathOrInfo.gameName  || ''
       variation = filePathOrInfo.variation || null
       iconPath  = filePathOrInfo.iconPath  || null
+      alertType = filePathOrInfo.alertType || 'Game Launch'
       notificationSettings = filePathOrInfo.notificationSettings || null
     } else {
       filePath  = filePathOrInfo
       gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
       variation = (gameInfoExtra && gameInfoExtra.variation) || null
       iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
+      alertType = (gameInfoExtra && gameInfoExtra.alertType) || 'Game Launch'
       notificationSettings = (gameInfoExtra && gameInfoExtra.notificationSettings) || null
     }
     try {
@@ -716,6 +719,7 @@ function createWindow(splash) {
         gameName:  gameName  || path.basename(filePath, path.extname(filePath)),
         variation: variation || null,
         iconPath:  iconPath  || null,
+        alertType,
       }, notificationSettings)
 
       return { success: true }
@@ -735,6 +739,7 @@ function createWindow(splash) {
         gameName: launchInfo.gameName || '',
         variation: launchInfo.variation || null,
         iconPath: launchInfo.iconPath || null,
+        alertType: launchInfo.alertType || 'Game Launch',
       }, launchInfo.notificationSettings || null)
       return { success: true }
     } catch (err) {

@@ -328,6 +328,7 @@ function SocialMedia() {
       window.electronAPI.reportLaunch?.({
         gameName: social.name || '',
         iconPath: social.image || social.icon || null,
+        alertType: 'Social Link',
         notificationSettings: {
           notificationEnabled: settings.notificationEnabled,
           notifyGameLaunches: settings.notifyGameLaunches,
@@ -385,6 +386,7 @@ function OfficeApps() {
         exePath: app.exePath,
         gameName: app.name,
         iconPath: app.image || app.icon || null,
+        alertType: 'Top App',
         notificationSettings: {
           notificationEnabled: settings.notificationEnabled,
           notifyGameLaunches: settings.notifyGameLaunches,

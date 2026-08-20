@@ -346,39 +346,6 @@
   </div>
 </div>
 
-<div id="notification-modal" class="modal hidden">
-  <div class="modal-card notification-modal-card">
-    <h3 id="notif-modal-title">Telegram &amp; PC Monitoring</h3>
-    <p class="muted small">Alerts cover game launches and PC online/offline status only. OTA builds never send Telegram alerts.</p>
-    <div id="notif-service-status" class="notification-service-status">Checking Telegram setup…</div>
-    <form id="notification-form">
-      <div class="notification-toggles">
-        <label class="check-row"><input type="checkbox" id="notif-enabled" /> Enable alerts for this channel</label>
-        <label class="check-row"><input type="checkbox" id="notif-game-launches" /> Game launch alerts</label>
-        <label class="check-row"><input type="checkbox" id="notif-pc-monitoring" /> PC online/offline alerts</label>
-      </div>
-      <div class="notification-roster-head">
-        <div>
-          <strong>Enrolled PCs</strong>
-          <p class="muted small">Add every PC that can send alerts. The name and IP must match the computer’s LAN address.</p>
-        </div>
-        <button type="button" id="notif-add-pc" class="btn-secondary small">+ Add PC</button>
-      </div>
-      <div id="notification-roster" class="notification-roster"></div>
-      <div class="notification-secret-note">
-        Telegram credentials stay outside the launchers. In Replit Secrets for this update server, add
-        <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code>, then restart the server.
-      </div>
-      <div class="modal-actions">
-        <button type="button" id="notif-cancel" class="btn-ghost">Cancel</button>
-        <button type="submit" id="notif-save" class="btn-primary">Save Alert Setup</button>
-        <button type="button" id="notif-test" class="btn-secondary">Send Telegram Test</button>
-      </div>
-    </form>
-    <div id="notif-error" class="error"></div>
-  </div>
-</div>
-
 <div id="release-notes-modal" class="modal hidden">
   <div class="modal-card">
     <h3 id="rn-title">Release notes</h3>

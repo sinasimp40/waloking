@@ -769,33 +769,6 @@ button:disabled {
   overflow: hidden;
 }
 
-/* ── Telegram & PC roster modal ─────────────────────────────────────────── */
-.notification-modal-card { width: min(720px, calc(100vw - 32px)); }
-.notification-service-status {
-  margin: 14px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  background: var(--bg-elev-2);
-  font-size: 13px;
-}
-.notification-service-status.is-ready { color: #6ee7b7; border-color: rgba(52,211,153,.35); }
-.notification-service-status.is-missing { color: #fcd34d; border-color: rgba(251,191,36,.35); }
-.notification-toggles { display: grid; gap: 8px; margin: 14px 0 18px; }
-.check-row { display: flex; gap: 9px; align-items: center; font-size: 14px; color: var(--text-primary); }
-.check-row input { width: auto; margin: 0; accent-color: var(--accent); }
-.notification-roster-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-top: 12px; }
-.notification-roster-head p { margin: 4px 0 0; }
-.notification-roster { display: grid; gap: 8px; margin: 12px 0; }
-.notification-roster-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; gap: 8px; }
-.notification-roster-row input { min-width: 0; }
-.notification-secret-note { padding: 11px 12px; border-radius: 8px; background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2); color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
-.notification-secret-note code { color: #93c5fd; }
-@media (max-width: 560px) {
-  .notification-roster-row { grid-template-columns: 1fr; }
-  .notification-roster-row .btn-danger { width: 100%; }
-}
 .customer-card::before {
   /* Status accent strip across the top of the card. Color is tied to state:
    *   default                  → accent (orange)

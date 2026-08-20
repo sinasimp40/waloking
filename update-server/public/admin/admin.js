@@ -861,7 +861,6 @@ function renderCustomer(c) {
     </div>
     <div class="cc-action-bar">
       <button class="btn-secondary small" data-action="edit" title="Edit this customer's brand, subtitle, logo, and update-server URL.">Edit</button>
-      <button class="btn-secondary small" data-action="alerts" title="Configure Telegram game alerts and enrolled PC names/IP addresses.">Alerts</button>
       <button class="btn-primary" data-action="build" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship BOTH launcher and server for this customer using the master source on disk.">⚡ Build</button>
       <button class="btn-secondary small" data-action="build-launcher" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the launcher (skips the server electron-builder substep).">Launcher</button>
       <button class="btn-secondary small" data-action="build-server" ${state.buildsAvailable ? '' : 'disabled'} title="Rebuild + ship ONLY the server (skips the vite + launcher electron-builder substep).">Server</button>
@@ -915,8 +914,6 @@ function bindCustomerActions() {
 async function handleCustomerAction(channel, action, srcEl) {
   if (action === 'edit') {
     openCustomerModal(state.customers.find(c => c.channel === channel))
-  } else if (action === 'alerts') {
-    openNotificationModal(channel)
   } else if (action === 'build') {
     promptReleaseNotes({ scope: channel, role: 'full' }, (notes) => triggerBuild({ channel, releaseNotes: notes }))
   } else if (action === 'build-launcher') {
@@ -2451,7 +2448,6 @@ function renderBalokCustomer(c) {
     </div>
     <div class="cc-action-bar">
       <button class="btn-secondary small" data-action="edit">Edit</button>
-      <button class="btn-secondary small" data-action="alerts">Alerts</button>
       <button class="btn-primary" data-action="build">⚡ Build</button>
       <button class="btn-danger" data-action="delete">Delete</button>
     </div>
@@ -2477,8 +2473,6 @@ function bindBalokCustomerActions() {
 async function handleBalokCustomerAction(channel, action, srcEl) {
   if (action === 'edit') {
     openBalokCustomerModal(state.balokCustomers.find(c => c.channel === channel))
-  } else if (action === 'alerts') {
-    openNotificationModal(channel)
   } else if (action === 'build') {
     const verEl = $('#balok-current-version')
     const ver = verEl ? verEl.textContent.trim() : '?'
@@ -2562,123 +2556,6 @@ function closeBalokCustomerModal() {
   const m = $('#balok-customer-modal'); if (m) m.classList.add('hidden')
 }
 
-// ── Telegram & PC monitoring setup ──────────────────────────────────────────
-let notificationChannel = null
-let notificationRoster = []
-
-function renderNotificationRoster() {
-  const holder = $('#notification-roster')
-  if (!holder) return
-  if (!notificationRoster.length) {
-    holder.innerHTML = '<div class="muted small">No PCs enrolled yet. Add each computer before enabling its monitor.</div>'
-    return
-  }
-  holder.innerHTML = notificationRoster.map((pc, index) => `
-    <div class="notification-roster-row" data-roster-index="${index}">
-      <input type="text" data-roster-name placeholder="PC name (e.g. PC-01)" value="${escapeHtml(pc.name || '')}" maxlength="128" />
-      <input type="text" data-roster-ip placeholder="LAN IP (e.g. 10.10.10.1)" value="${escapeHtml(pc.ip || '')}" maxlength="128" />
-      <button type="button" class="btn-danger small" data-roster-remove="${index}">Remove</button>
-    </div>`).join('')
-  $$('#notification-roster [data-roster-remove]').forEach(button => {
-    button.onclick = () => {
-      notificationRoster = readNotificationRoster()
-      notificationRoster.splice(Number(button.dataset.rosterRemove), 1)
-      renderNotificationRoster()
-    }
-  })
-}
-
-function closeNotificationModal() {
-  const modal = $('#notification-modal')
-  if (modal) modal.classList.add('hidden')
-  notificationChannel = null
-  notificationRoster = []
-}
-
-async function openNotificationModal(channel) {
-  const modal = $('#notification-modal')
-  if (!modal) return
-  notificationChannel = channel
-  $('#notif-modal-title').textContent = 'Telegram & PC Monitoring — ' + channel
-  $('#notif-error').textContent = ''
-  $('#notif-service-status').className = 'notification-service-status'
-  $('#notif-service-status').textContent = 'Loading alert setup…'
-  modal.classList.remove('hidden')
-  try {
-    const data = await api('GET', '/api/admin/notifications/' + encodeURIComponent(channel))
-    const cfg = data.config || {}
-    notificationRoster = Array.isArray(cfg.roster) ? cfg.roster.map(pc => ({ name: pc.name || '', ip: pc.ip || '' })) : []
-    $('#notif-enabled').checked = cfg.enabled !== false
-    $('#notif-game-launches').checked = cfg.gameLaunches !== false
-    $('#notif-pc-monitoring').checked = cfg.pcMonitoring !== false
-    const service = data.service || {}
-    const ready = !!service.configured
-    $('#notif-service-status').className = 'notification-service-status ' + (ready ? 'is-ready' : 'is-missing')
-    $('#notif-service-status').textContent = ready
-      ? 'Telegram is configured on this update server.'
-      : 'Telegram is not configured yet. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Replit Secrets, then restart the server.'
-    renderNotificationRoster()
-  } catch (e) {
-    $('#notif-error').textContent = 'Could not load alert setup: ' + e.message
-  }
-}
-
-function readNotificationRoster() {
-  const rows = $$('#notification-roster .notification-roster-row')
-  if (!rows.length && !notificationRoster.length) return []
-  return rows.map(row => ({
-    name: row.querySelector('[data-roster-name]').value.trim(),
-    ip: row.querySelector('[data-roster-ip]').value.trim(),
-  }))
-}
-
-async function saveNotificationSetup(e) {
-  e.preventDefault()
-  if (!notificationChannel) return
-  const roster = readNotificationRoster()
-  if (roster.some(pc => !pc.name || !pc.ip)) {
-    $('#notif-error').textContent = 'Every enrolled PC needs both a name and a LAN IP address.'
-    return
-  }
-  const save = $('#notif-save')
-  save.disabled = true
-  $('#notif-error').textContent = ''
-  try {
-    await api('PUT', '/api/admin/notifications/' + encodeURIComponent(notificationChannel), {
-      enabled: $('#notif-enabled').checked,
-      gameLaunches: $('#notif-game-launches').checked,
-      pcMonitoring: $('#notif-pc-monitoring').checked,
-      roster,
-    })
-    notificationRoster = roster
-    $('#notif-error').textContent = 'Saved. Enter each PC name in that PC’s launcher Admin Panel and turn on its background monitor.'
-    $('#notif-error').style.color = '#6ee7b7'
-  } catch (e) {
-    $('#notif-error').style.color = ''
-    $('#notif-error').textContent = 'Could not save alert setup: ' + e.message
-  } finally {
-    save.disabled = false
-  }
-}
-
-async function sendNotificationTest() {
-  if (!notificationChannel) return
-  const button = $('#notif-test')
-  button.disabled = true
-  $('#notif-error').textContent = ''
-  try {
-    const data = await api('POST', '/api/admin/notifications/' + encodeURIComponent(notificationChannel) + '/test', {})
-    $('#notif-error').style.color = data.ok ? '#6ee7b7' : ''
-    $('#notif-error').textContent = data.ok
-      ? 'Telegram test sent successfully.'
-      : (data.reason || 'Telegram test could not be sent.')
-  } catch (e) {
-    $('#notif-error').style.color = ''
-    $('#notif-error').textContent = 'Telegram test failed: ' + e.message
-  } finally {
-    button.disabled = false
-  }
-}
 async function saveBalokCustomer(e) {
   e.preventDefault()
   const channel = $('#bcm-channel').value.trim()

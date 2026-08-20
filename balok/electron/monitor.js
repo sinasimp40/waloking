@@ -209,11 +209,19 @@ function wrapCardText(value, maxLength = 28, maxLines = 2) {
   return lines.slice(0, maxLines)
 }
 
-function createCardSvg({ pcName, gameName, timestamp }) {
-  const gameLines = wrapCardText(gameName)
-  const gameText = gameLines.map((line, index) =>
+function createCardSvg({ pcName, gameName, itemName, alertType, timestamp, transparentIcon = false }) {
+  const displayName = itemName || gameName || 'Unknown item'
+  const itemLines = wrapCardText(displayName)
+  const itemText = itemLines.map((line, index) =>
     `<text x="58" y="${263 + (index * 43)}" fill="#f7fbff" font-family="Arial, sans-serif" font-size="34" font-weight="700">${escapeHtml(line)}</text>`
   ).join('')
+  const badgeLabel = String(alertType || 'GAME LAUNCH').trim().toUpperCase().slice(0, 24)
+  const artworkFrame = transparentIcon
+    ? ''
+    : `
+      <rect x="646" y="28" width="350" height="456" rx="22" fill="#04070d"/>
+      <rect x="646" y="28" width="350" height="456" rx="22" fill="#080706"/>
+      <rect x="646" y="28" width="350" height="456" rx="22" fill="none" stroke="#d4af37" stroke-opacity=".66"/>`
 
   return `<svg width="1024" height="512" viewBox="0 0 1024 512" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -234,17 +242,15 @@ function createCardSvg({ pcName, gameName, timestamp }) {
     <rect x="24" y="24" width="976" height="464" rx="20" fill="none" stroke="#d4af37" stroke-opacity=".34"/>
     <rect x="58" y="58" width="238" height="36" rx="18" fill="#d4af37" fill-opacity=".18" stroke="#e4c15a" stroke-opacity=".72"/>
     <circle cx="80" cy="76" r="7" fill="#f5d47a"/>
-    <text x="98" y="81" fill="#f5d47a" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.45">GAME LAUNCH</text>
+    <text x="98" y="81" fill="#f5d47a" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.45">${escapeHtml(badgeLabel)}</text>
     <text x="58" y="148" fill="#f8f0d0" font-family="Arial, sans-serif" font-size="42" font-weight="700">${escapeHtml(pcName)}</text>
     <rect x="58" y="176" width="542" height="1" fill="#d4af37" fill-opacity=".28"/>
     <text x="58" y="221" fill="#d4af37" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.4">OPENED</text>
-    ${gameText}
+    ${itemText}
     <circle cx="66" cy="433" r="6" fill="#e4b94b"/>
     <text x="82" y="439" fill="#d8c58f" font-family="Arial, sans-serif" font-size="20">${escapeHtml(timestamp)}</text>
     <path d="M482 484 L650 316 L650 484 Z" fill="url(#artGlow)" opacity=".44"/>
-    <rect x="646" y="28" width="350" height="456" rx="22" fill="#04070d"/>
-    <rect x="646" y="28" width="350" height="456" rx="22" fill="#080706"/>
-    <rect x="646" y="28" width="350" height="456" rx="22" fill="none" stroke="#d4af37" stroke-opacity=".66"/>
+    ${artworkFrame}
   </svg>`
 }
 
@@ -256,30 +262,41 @@ async function createAlertCard(imagePath, cardDetails) {
     ? await downloadImage(image.value)
     : await fs.promises.readFile(image.value)
   const sharp = require('sharp')
+  const normalizedSource = await sharp(source).rotate().png().toBuffer()
+  const sourceMetadata = await sharp(normalizedSource).metadata()
+  const sourceStats = sourceMetadata.hasAlpha ? await sharp(normalizedSource).stats() : null
+  const transparentIcon = Boolean(sourceStats?.channels?.[3]?.min < 255)
   const artWidth = 350
   const artHeight = 456
   const artMask = Buffer.from(
     `<svg width="${artWidth}" height="${artHeight}" xmlns="http://www.w3.org/2000/svg"><rect width="${artWidth}" height="${artHeight}" rx="22" fill="#fff"/></svg>`
   )
-  const artwork = await sharp(source)
-    .rotate()
-    .resize(artWidth, artHeight, { fit: 'cover', position: 'attention' })
-    .composite([{ input: artMask, blend: 'dest-in' }])
+  const artwork = await sharp(normalizedSource)
+    .resize(
+      transparentIcon ? 310 : artWidth,
+      transparentIcon ? 390 : artHeight,
+      {
+        fit: transparentIcon ? 'contain' : 'cover',
+        position: 'attention',
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      }
+    )
+    .composite(transparentIcon ? [] : [{ input: artMask, blend: 'dest-in' }])
     .png()
     .toBuffer()
 
-  return sharp(Buffer.from(createCardSvg(cardDetails)))
-    .composite([{ input: artwork, left: 646, top: 28 }])
+  return sharp(Buffer.from(createCardSvg({ ...cardDetails, transparentIcon })))
+    .composite([{
+      input: artwork,
+      left: transparentIcon ? 666 : 646,
+      top: transparentIcon ? 61 : 28,
+    }])
     .png()
     .toBuffer()
 }
 
 async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDetails) {
   try {
-    const image = resolvePhoto(imagePath)
-    if (image?.kind === 'url') {
-      return sendTelegramMessage(botToken, chatId, text, image.value)
-    }
     const card = await createAlertCard(imagePath, cardDetails)
     if (!card) return sendTelegramMessage(botToken, chatId, text)
     return await sendTelegramPhoto(botToken, chatId, '', {
@@ -304,20 +321,24 @@ function getTelegramSettings(settingsPath, settingsOverride = null) {
   return { settings, botToken, chatId }
 }
 
-function buildAlertDetails(settings, gameName, variation) {
+function buildAlertDetails(settings, gameInfo = {}) {
   const computer = resolvePc(settings, getLocalIps())
-  const game = [gameName || 'Unknown Game', variation].filter(Boolean).join(' — ')
+  const itemName = [gameInfo.gameName || 'Unknown item', gameInfo.variation].filter(Boolean).join(' — ')
   return {
     pcName: computer.name,
-    gameName: game,
+    gameName: itemName,
+    itemName,
+    alertType: String(gameInfo.alertType || 'Game Launch').trim() || 'Game Launch',
     timestamp: new Date().toLocaleString(),
   }
 }
 
 function buildAlertText(details) {
+  const type = String(details.alertType || 'Game Launch').toUpperCase()
+  const icon = type === 'SOCIAL LINK' ? '🔗' : type === 'TOP APP' ? '📱' : '🎮'
   const lines = [
-    '🎮 <b>' + escapeHtml(details.pcName) + '</b>',
-    'Opened <b>' + escapeHtml(details.gameName) + '</b>',
+    icon + ' <b>' + escapeHtml(details.pcName) + '</b>',
+    'Opened <b>' + escapeHtml(details.itemName || details.gameName) + '</b>',
     '🕒 ' + escapeHtml(details.timestamp),
   ]
   return lines.join('\n')
@@ -327,7 +348,7 @@ function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}, settingsOv
   try {
     const { settings, botToken, chatId } = getTelegramSettings(settingsPath, settingsOverride)
     if (settings.notificationEnabled === false || settings.notifyGameLaunches === false) return
-    const details = buildAlertDetails(settings, gameInfo.gameName, gameInfo.variation)
+    const details = buildAlertDetails(settings, gameInfo)
     return sendTelegramGameAlert(
       botToken,
       chatId,
@@ -346,7 +367,11 @@ function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}, settingsOv
 
 function sendTestAlert(settingsPath, otaConfigPath) {
   const { settings, botToken, chatId } = getTelegramSettings(settingsPath)
-  return sendTelegramMessage(botToken, chatId, buildAlertText(buildAlertDetails(settings, 'Telegram test alert', null)))
+  return sendTelegramMessage(
+    botToken,
+    chatId,
+    buildAlertText(buildAlertDetails(settings, { gameName: 'Telegram test alert' }))
+  )
 }
 
 module.exports = { reportGameLaunch, resolvePc, sendTestAlert, createAlertCard }

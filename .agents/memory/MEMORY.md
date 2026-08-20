@@ -1,0 +1,1 @@
+- [Launch card imagery](launch-card-imagery.md) — Preserve opaque icon backgrounds; only transparent artwork renders without the added card panel.

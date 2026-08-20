@@ -302,7 +302,7 @@ export default function LeftSidebar() {
       if (!item.exePath) return
       if (window.electronAPI) {
         const launchRequest = window.electronAPI.launchGame(
-          createGameLaunchPayload(item, item.exePath, settings)
+          createGameLaunchPayload(item, item.exePath, settings, null, 'Top App')
         )
         afterGameLaunch(settings)
         const res = await launchRequest

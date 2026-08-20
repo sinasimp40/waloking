@@ -167,7 +167,8 @@ function quitWhenLaunchWorkSettles() {
 function reserveLaunchNotification(gameInfo = {}) {
   const gameName = String(gameInfo.gameName || '').trim().toLowerCase()
   const variation = String(gameInfo.variation || '').trim().toLowerCase()
-  const key = `${gameName}\u0000${variation}`
+  const alertType = String(gameInfo.alertType || 'Game Launch').trim().toLowerCase()
+  const key = `${alertType}\u0000${gameName}\u0000${variation}`
   const now = Date.now()
 
   for (const [existingKey, timestamp] of recentLaunchNotifications) {
@@ -504,18 +505,20 @@ ipcMain.on('close-window', () => {
 ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
   pendingGameLaunches += 1
   try {
-  let exePath, gameName, variation, iconPath, notificationSettings
+  let exePath, gameName, variation, iconPath, alertType, notificationSettings
   if (exePathOrInfo && typeof exePathOrInfo === 'object') {
     exePath   = exePathOrInfo.exePath
     gameName  = exePathOrInfo.gameName  || ''
     variation = exePathOrInfo.variation || null
     iconPath  = exePathOrInfo.iconPath  || null
+    alertType = exePathOrInfo.alertType || 'Game Launch'
     notificationSettings = exePathOrInfo.notificationSettings || null
   } else {
     exePath   = exePathOrInfo
     gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
     variation = (gameInfoExtra && gameInfoExtra.variation) || null
     iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
+    alertType = (gameInfoExtra && gameInfoExtra.alertType) || 'Game Launch'
     notificationSettings = (gameInfoExtra && gameInfoExtra.notificationSettings) || null
   }
   if (!exePath) return { success: false, error: 'No path provided' }
@@ -557,6 +560,7 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
       gameName:  gameName  || path.basename(exePath, path.extname(exePath)),
       variation: variation || null,
       iconPath:  iconPath  || null,
+      alertType,
     }, notificationSettings)
 
     return { success: true }
@@ -576,6 +580,7 @@ ipcMain.handle('report-launch', async (_e, launchInfo = {}) => {
       gameName: launchInfo.gameName || '',
       variation: launchInfo.variation || null,
       iconPath: launchInfo.iconPath || null,
+      alertType: launchInfo.alertType || 'Game Launch',
     }, launchInfo.notificationSettings || null)
     return { success: true }
   } catch (err) {

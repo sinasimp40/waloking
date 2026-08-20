@@ -30,7 +30,7 @@ export default function BottomBar() {
     if (!app.exePath) { toast.error(`No path for ${app.name}`); return }
     if (window.electronAPI) {
       const launchRequest = window.electronAPI.launchGame(
-        createGameLaunchPayload(app, app.exePath, settings)
+        createGameLaunchPayload(app, app.exePath, settings, null, 'Top App')
       )
       afterGameLaunch(settings)
       const r = await launchRequest
