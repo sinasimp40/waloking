@@ -151,6 +151,8 @@ function getOtaConfigPath() {
 let pendingTelegramNotifications = 0
 let pendingGameLaunches = 0
 let quitAfterTelegramNotifications = false
+const recentLaunchNotifications = new Map()
+const DUPLICATE_LAUNCH_NOTIFICATION_WINDOW_MS = 8_000
 
 function quitWhenLaunchWorkSettles() {
   if (
@@ -162,7 +164,30 @@ function quitWhenLaunchWorkSettles() {
   }
 }
 
+function reserveLaunchNotification(gameInfo = {}) {
+  const gameName = String(gameInfo.gameName || '').trim().toLowerCase()
+  const variation = String(gameInfo.variation || '').trim().toLowerCase()
+  const key = `${gameName}\u0000${variation}`
+  const now = Date.now()
+
+  for (const [existingKey, timestamp] of recentLaunchNotifications) {
+    if (now - timestamp >= DUPLICATE_LAUNCH_NOTIFICATION_WINDOW_MS) {
+      recentLaunchNotifications.delete(existingKey)
+    }
+  }
+
+  if (recentLaunchNotifications.has(key)) return null
+  recentLaunchNotifications.set(key, now)
+  return { key, timestamp: now }
+}
+
 function reportTelegramGameLaunch(gameInfo, settingsOverride) {
+  const reservation = reserveLaunchNotification(gameInfo)
+  if (!reservation) {
+    console.warn('[telegram] duplicate game-launch notification ignored')
+    return Promise.resolve({ success: true, skipped: true })
+  }
+
   let delivery
   try {
     delivery = Promise.resolve(telegramNotifier.reportGameLaunch(
@@ -178,6 +203,14 @@ function reportTelegramGameLaunch(gameInfo, settingsOverride) {
 
   pendingTelegramNotifications += 1
   delivery
+    .then(result => {
+      // reportGameLaunch returns nothing when alerts are disabled, so do not
+      // let that non-delivery block a later real launch of the same game.
+      if (result === undefined && recentLaunchNotifications.get(reservation.key) === reservation.timestamp) {
+        recentLaunchNotifications.delete(reservation.key)
+      }
+      return result
+    })
     .catch(error => console.warn('[telegram] game-launch notification failed:', error.message))
     .finally(() => {
       pendingTelegramNotifications = Math.max(0, pendingTelegramNotifications - 1)
