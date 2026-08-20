@@ -8,6 +8,7 @@ import LiveTVCard from './LiveTVCard'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
+import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 
 // Static gradient per name
 const GRADIENTS = [
@@ -228,7 +229,10 @@ export default function RightPanel() {
     const exePath = game.exePath || game.variations?.[0]?.exePath || ''
     if (window.electronAPI) {
       if (!exePath) { toast.error(`No exe for ${game.name}`); return }
-      const r = await window.electronAPI.launchGame(exePath)
+      const variation = game.exePath ? null : (game.variations?.[0]?.name || null)
+      const r = await window.electronAPI.launchGame(
+        createGameLaunchPayload(game, exePath, settings, variation)
+      )
       if (r.success) {
         toast.success(`Launching ${game.name}…`); incrementLaunchCount(game.id)
         afterGameLaunch(settings)

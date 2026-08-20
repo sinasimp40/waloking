@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
+import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 
 export default function FeaturedBanner() {
   const { games, settings, incrementLaunchCount } = useStore()
@@ -70,7 +71,10 @@ export default function FeaturedBanner() {
     const label = game.exePath ? game.name : (game.variations?.length > 0 ? game.variations[0].name : game.name)
     if (window.electronAPI) {
       if (!exePath) { toast.error(`No executable for ${game.name}`); return }
-      const result = await window.electronAPI.launchGame(exePath)
+      const variation = game.exePath ? null : (game.variations?.[0]?.name || null)
+      const result = await window.electronAPI.launchGame(
+        createGameLaunchPayload(game, exePath, settings, variation)
+      )
       if (result.success) {
         toast.success(`Launching ${label}…`)
         incrementLaunchCount(game.id)

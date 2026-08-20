@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
+import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 import VariationPicker from './VariationPicker'
 
 const categoryConfig = {
@@ -40,20 +41,9 @@ const GameCard = memo(function GameCard({ game }) {
   const launchExe = async (exePath, label) => {
     if (!exePath) { toast.error(`No executable set for ${label}`); return }
     if (window.electronAPI) {
-      const result = await window.electronAPI.launchGame({
-        exePath,
-        gameName: game.name,
-        variation: label !== game.name ? label : null,
-        iconPath: game.icon || game.wallpaper || null,
-          notificationSettings: {
-            notificationEnabled: settings.notificationEnabled,
-            notifyGameLaunches: settings.notifyGameLaunches,
-            pcName: settings.pcName,
-            pcMappings: settings.pcMappings,
-            telegramBotToken: settings.telegramBotToken,
-            telegramChatId: settings.telegramChatId,
-          },
-      })
+      const result = await window.electronAPI.launchGame(
+        createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
+      )
       if (result.success) {
         toast.success(`Launching ${label}…`)
         incrementLaunchCount(game.id)

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
+import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 
 export default function BottomBar() {
   const { settings, openIPTV } = useStore()
@@ -27,7 +28,9 @@ export default function BottomBar() {
   const handleAppClick = async (app) => {
     if (!app.exePath) { toast.error(`No path for ${app.name}`); return }
     if (window.electronAPI) {
-      const r = await window.electronAPI.launchGame(app.exePath)
+      const r = await window.electronAPI.launchGame(
+        createGameLaunchPayload(app, app.exePath, settings)
+      )
       if (r.success) {
         toast.success(`Opening ${app.name}…`)
         afterGameLaunch(settings)

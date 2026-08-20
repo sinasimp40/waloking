@@ -6,6 +6,7 @@ import {
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
+import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 
 /* A game counts as "new" if it was added within this window, so category
    nav items can show a NEW dot when they contain fresh additions. */
@@ -297,7 +298,9 @@ export default function LeftSidebar() {
     } else {
       if (!item.exePath) return
       if (window.electronAPI) {
-        const res = await window.electronAPI.launchGame(item.exePath)
+        const res = await window.electronAPI.launchGame(
+          createGameLaunchPayload(item, item.exePath, settings)
+        )
         // Same post-launch rule as every other launch path.
         if (res?.success) afterGameLaunch(settings)
       }

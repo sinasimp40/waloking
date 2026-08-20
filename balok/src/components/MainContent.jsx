@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
+import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 import FeaturedBanner from './FeaturedBanner'
 import VariationPicker from './VariationPicker'
 
@@ -42,7 +43,9 @@ function ShelfCard({ game, fill }) {
   const launch = async (exePath, label) => {
     if (!exePath) { toast.error(`No exe set for ${label}`); return }
     if (window.electronAPI) {
-      const r = await window.electronAPI.launchGame(exePath)
+      const r = await window.electronAPI.launchGame(
+        createGameLaunchPayload(game, exePath, settings, label !== game.name ? label : null)
+      )
       if (r.success) {
         toast.success(`Launching ${label}…`)
         incrementLaunchCount(game.id)
