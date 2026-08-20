@@ -6,7 +6,7 @@ import {
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
-import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
+import { createGameLaunchPayload, createLaunchAlertPayload } from '../lib/gameLaunchPayload'
 
 /* A game counts as "new" if it was added within this window, so category
    nav items can show a NEW dot when they contain fresh additions. */
@@ -291,7 +291,10 @@ export default function LeftSidebar() {
   const handleQuickLaunch = async (item) => {
     if (item._type === 'social') {
       if (!item.url || item.url === '#') return
-      if (window.electronAPI?.openExternal) window.electronAPI.openExternal(item.url, '')
+      if (window.electronAPI?.openExternal) {
+        window.electronAPI.reportLaunch?.(createLaunchAlertPayload(item, settings))
+        window.electronAPI.openExternal(item.url, '')
+      }
       else window.open(item.url, '_blank', 'noopener')
       // Same post-launch rule as every other launch path (auto-close/minimize).
       afterGameLaunch(settings)

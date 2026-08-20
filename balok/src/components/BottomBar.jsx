@@ -5,7 +5,7 @@ import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
-import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
+import { createGameLaunchPayload, createLaunchAlertPayload } from '../lib/gameLaunchPayload'
 
 export default function BottomBar() {
   const { settings, openIPTV } = useStore()
@@ -18,6 +18,7 @@ export default function BottomBar() {
     if (!s.url || s.url === '#') return
     if (window.electronAPI?.openExternal) {
       const browser = settings.customBrowserEnabled ? (settings.customBrowserPath || '') : ''
+      window.electronAPI.reportLaunch?.(createLaunchAlertPayload(s, settings))
       window.electronAPI.openExternal(s.url, browser)
     } else {
       window.open(s.url, '_blank', 'noopener')

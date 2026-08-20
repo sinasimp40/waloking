@@ -569,6 +569,23 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
   }
 })
 
+ipcMain.handle('report-launch', async (_e, launchInfo = {}) => {
+  pendingGameLaunches += 1
+  try {
+    await reportTelegramGameLaunch({
+      gameName: launchInfo.gameName || '',
+      variation: launchInfo.variation || null,
+      iconPath: launchInfo.iconPath || null,
+    }, launchInfo.notificationSettings || null)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message }
+  } finally {
+    pendingGameLaunches = Math.max(0, pendingGameLaunches - 1)
+    quitWhenLaunchWorkSettles()
+  }
+})
+
 ipcMain.handle('test-telegram-alert', async () => {
   try {
     await telegramNotifier.sendTestAlert(settingsPath, getOtaConfigPath())

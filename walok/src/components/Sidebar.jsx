@@ -112,7 +112,20 @@ function TopPicks({ featuredGames }) {
         toast.error(`No executable set for ${game.name}`)
         return
       }
-      const launchRequest = window.electronAPI.launchGame(exePath)
+      const launchRequest = window.electronAPI.launchGame({
+        exePath,
+        gameName: game.name,
+        variation: label !== game.name ? label : null,
+        iconPath: game.image || game.icon || game.wallpaper || null,
+        notificationSettings: {
+          notificationEnabled: settings.notificationEnabled,
+          notifyGameLaunches: settings.notifyGameLaunches,
+          pcName: settings.pcName,
+          pcMappings: settings.pcMappings,
+          telegramBotToken: settings.telegramBotToken,
+          telegramChatId: settings.telegramChatId,
+        },
+      })
       if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
         window.electronAPI.closeWindow()
       }
@@ -306,15 +319,27 @@ function SocialMedia() {
   const { settings } = useStore()
   const socials = settings.socialLinks || []
 
-  const handleClick = (url) => {
-    if (!url || url === '#') return
+  const handleClick = (social) => {
+    if (!social.url || social.url === '#') return
     if (window.electronAPI?.openExternal) {
       // Pass the admin-configured custom browser path (if any) so the
       // main process spawns that browser instead of the OS default.
       const browserPath = settings.customBrowserEnabled ? (settings.customBrowserPath || '') : ''
-      window.electronAPI.openExternal(url, browserPath)
+      window.electronAPI.reportLaunch?.({
+        gameName: social.name || '',
+        iconPath: social.image || social.icon || null,
+        notificationSettings: {
+          notificationEnabled: settings.notificationEnabled,
+          notifyGameLaunches: settings.notifyGameLaunches,
+          pcName: settings.pcName,
+          pcMappings: settings.pcMappings,
+          telegramBotToken: settings.telegramBotToken,
+          telegramChatId: settings.telegramChatId,
+        },
+      })
+      window.electronAPI.openExternal(social.url, browserPath)
     } else {
-      window.open(url, '_blank', 'noopener')
+      window.open(social.url, '_blank', 'noopener')
     }
     // Mirror the auto-close behavior used by Top Picks / GameCard so the
     // launcher gets out of the way after the user opens an external link.
@@ -334,7 +359,7 @@ function SocialMedia() {
             key={s.id}
             whileHover={{ scale: 1.15, y: -2 }}
             whileTap={{ scale: 0.9 }}
-            onClick={() => handleClick(s.url)}
+            onClick={() => handleClick(s)}
             title={s.name}
             className={`w-8 h-8 rounded-full bg-gradient-to-br ${s.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white text-xs shadow-lg cursor-pointer overflow-hidden`}
           >
@@ -356,7 +381,19 @@ function OfficeApps() {
       return
     }
     if (window.electronAPI) {
-      const launchRequest = window.electronAPI.launchGame(app.exePath)
+      const launchRequest = window.electronAPI.launchGame({
+        exePath: app.exePath,
+        gameName: app.name,
+        iconPath: app.image || app.icon || null,
+        notificationSettings: {
+          notificationEnabled: settings.notificationEnabled,
+          notifyGameLaunches: settings.notifyGameLaunches,
+          pcName: settings.pcName,
+          pcMappings: settings.pcMappings,
+          telegramBotToken: settings.telegramBotToken,
+          telegramChatId: settings.telegramChatId,
+        },
+      })
       if ((settings.autoCloseOnLaunch || settings.kioskMode) && window.electronAPI.closeWindow) {
         window.electronAPI.closeWindow()
       }

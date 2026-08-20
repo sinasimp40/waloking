@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.send('close-window'),
 
   launchGame: (exePath) => ipcRenderer.invoke('launch-game', exePath),
+  reportLaunch: (launchInfo) => ipcRenderer.invoke('report-launch', launchInfo),
   testTelegramAlert: () => ipcRenderer.invoke('test-telegram-alert'),
   selectFile: (filters) => ipcRenderer.invoke('select-file', filters),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
