@@ -42,3 +42,17 @@ mtime_ms = 1787196431375
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/8c6417fb-a61d-499e-a00f-6181e78eda4d/2ea18e7d-0adc-4b49-aec9-0f850a3f4197"
 storage_version_token = "1787196461779200"
 content_type = "image/png"
+
+[[outputs]]
+id = "mIHDKf13MH8K7eF9scz_x"
+uri = "file://screenshots/dragonaworld-social-alert.png"
+type = "image"
+title = "Dragonaworld.com social alert sample"
+description = "Sample WALOK/BALOK Telegram social-link card using the current VIP card renderer."
+logical_id = "d31a2ff6-d94c-4874-beca-7a3c2d65c402"
+content_hash = "sha256:e0b0331bf20e37369db96e5248c2475140e7e26c7f2ad601d544737b54f5965c"
+size = 54545
+mtime_ms = 1787231329795
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/d31a2ff6-d94c-4874-beca-7a3c2d65c402/81b9952b-246a-4c77-81cd-3270198a34de"
+storage_version_token = "1787231337267547"
+content_type = "image/png"
