@@ -7,4 +7,4 @@ Preserve the configured source artwork when it is opaque. Only omit the card's a
 
 **Why:** This preserves intentional icon backgrounds while allowing transparent logos and icons to blend naturally into the VIP card.
 
-**How to apply:** Check image alpha values rather than assuming all PNGs are transparent; do not automatically remove white or opaque artwork backgrounds.
+**How to apply:** Check image alpha values rather than assuming all PNGs are transparent; do not automatically remove white or opaque artwork backgrounds. When a configured item has only a text or emoji icon, render it into card artwork instead of falling back to a plain Telegram message.

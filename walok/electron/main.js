@@ -674,12 +674,13 @@ function createWindow(splash) {
   ipcMain.handle('launch-game', async (event, filePathOrInfo, gameInfoExtra) => {
     pendingGameLaunches += 1
     try {
-    let filePath, gameName, variation, iconPath, alertType, notificationSettings
+    let filePath, gameName, variation, iconPath, iconText, alertType, notificationSettings
     if (filePathOrInfo && typeof filePathOrInfo === 'object') {
       filePath  = filePathOrInfo.exePath
       gameName  = filePathOrInfo.gameName  || ''
       variation = filePathOrInfo.variation || null
       iconPath  = filePathOrInfo.iconPath  || null
+      iconText  = filePathOrInfo.iconText  || null
       alertType = filePathOrInfo.alertType || 'Game Launch'
       notificationSettings = filePathOrInfo.notificationSettings || null
     } else {
@@ -687,6 +688,7 @@ function createWindow(splash) {
       gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
       variation = (gameInfoExtra && gameInfoExtra.variation) || null
       iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
+      iconText  = (gameInfoExtra && gameInfoExtra.iconText)  || null
       alertType = (gameInfoExtra && gameInfoExtra.alertType) || 'Game Launch'
       notificationSettings = (gameInfoExtra && gameInfoExtra.notificationSettings) || null
     }
@@ -719,6 +721,7 @@ function createWindow(splash) {
         gameName:  gameName  || path.basename(filePath, path.extname(filePath)),
         variation: variation || null,
         iconPath:  iconPath  || null,
+        iconText:  iconText  || null,
         alertType,
       }, notificationSettings)
 
@@ -739,6 +742,7 @@ function createWindow(splash) {
         gameName: launchInfo.gameName || '',
         variation: launchInfo.variation || null,
         iconPath: launchInfo.iconPath || null,
+        iconText: launchInfo.iconText || null,
         alertType: launchInfo.alertType || 'Game Launch',
       }, launchInfo.notificationSettings || null)
       return { success: true }

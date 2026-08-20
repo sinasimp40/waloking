@@ -505,12 +505,13 @@ ipcMain.on('close-window', () => {
 ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
   pendingGameLaunches += 1
   try {
-  let exePath, gameName, variation, iconPath, alertType, notificationSettings
+  let exePath, gameName, variation, iconPath, iconText, alertType, notificationSettings
   if (exePathOrInfo && typeof exePathOrInfo === 'object') {
     exePath   = exePathOrInfo.exePath
     gameName  = exePathOrInfo.gameName  || ''
     variation = exePathOrInfo.variation || null
     iconPath  = exePathOrInfo.iconPath  || null
+    iconText  = exePathOrInfo.iconText  || null
     alertType = exePathOrInfo.alertType || 'Game Launch'
     notificationSettings = exePathOrInfo.notificationSettings || null
   } else {
@@ -518,6 +519,7 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
     gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
     variation = (gameInfoExtra && gameInfoExtra.variation) || null
     iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
+    iconText  = (gameInfoExtra && gameInfoExtra.iconText)  || null
     alertType = (gameInfoExtra && gameInfoExtra.alertType) || 'Game Launch'
     notificationSettings = (gameInfoExtra && gameInfoExtra.notificationSettings) || null
   }
@@ -560,6 +562,7 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
       gameName:  gameName  || path.basename(exePath, path.extname(exePath)),
       variation: variation || null,
       iconPath:  iconPath  || null,
+      iconText:  iconText  || null,
       alertType,
     }, notificationSettings)
 
@@ -580,6 +583,7 @@ ipcMain.handle('report-launch', async (_e, launchInfo = {}) => {
       gameName: launchInfo.gameName || '',
       variation: launchInfo.variation || null,
       iconPath: launchInfo.iconPath || null,
+      iconText: launchInfo.iconText || null,
       alertType: launchInfo.alertType || 'Game Launch',
     }, launchInfo.notificationSettings || null)
     return { success: true }

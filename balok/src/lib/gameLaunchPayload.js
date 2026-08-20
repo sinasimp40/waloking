@@ -19,6 +19,7 @@ export function createGameLaunchPayload(game, exePath, settings, variation = nul
     gameName: game?.name || '',
     variation: variation || null,
     iconPath: game?.image || game?.icon || game?.wallpaper || null,
+    iconText: alertType === 'Game Launch' ? null : (game?.icon || null),
     alertType,
     notificationSettings: createNotificationSettings(settings),
   }
@@ -28,6 +29,7 @@ export function createLaunchAlertPayload(item, settings, alertType = 'Social Lin
   return {
     gameName: item?.name || '',
     iconPath: item?.image || item?.icon || item?.wallpaper || null,
+    iconText: item?.icon || null,
     alertType,
     notificationSettings: createNotificationSettings(settings),
   }

@@ -209,6 +209,14 @@ function wrapCardText(value, maxLength = 28, maxLines = 2) {
   return lines.slice(0, maxLines)
 }
 
+function createTextIconSvg(iconText) {
+  const text = String(iconText || '').trim()
+  if (!text) return null
+  return Buffer.from(`<svg width="350" height="456" xmlns="http://www.w3.org/2000/svg">
+    <text x="175" y="275" text-anchor="middle" fill="#f7fbff" font-family="Arial, sans-serif" font-size="180" font-weight="700">${escapeHtml(text.slice(0, 3))}</text>
+  </svg>`)
+}
+
 function createCardSvg({ pcName, gameName, itemName, alertType, timestamp, transparentIcon = false }) {
   const displayName = itemName || gameName || 'Unknown item'
   const itemLines = wrapCardText(displayName)
@@ -255,13 +263,22 @@ function createCardSvg({ pcName, gameName, itemName, alertType, timestamp, trans
 }
 
 async function createAlertCard(imagePath, cardDetails) {
-  const image = resolvePhoto(imagePath)
-  if (!image) return null
-
-  const source = image.kind === 'url'
-    ? await downloadImage(image.value)
-    : await fs.promises.readFile(image.value)
   const sharp = require('sharp')
+  const image = resolvePhoto(imagePath)
+  let source = null
+  if (image) {
+    source = image.kind === 'url'
+      ? await downloadImage(image.value)
+      : await fs.promises.readFile(image.value)
+  } else {
+    source = createTextIconSvg(cardDetails.iconText)
+  }
+
+  // A launch without usable artwork still gets the same VIP card layout.
+  if (!source) {
+    return sharp(Buffer.from(createCardSvg(cardDetails))).png().toBuffer()
+  }
+
   const normalizedSource = await sharp(source).rotate().png().toBuffer()
   const sourceMetadata = await sharp(normalizedSource).metadata()
   const sourceStats = sourceMetadata.hasAlpha ? await sharp(normalizedSource).stats() : null
@@ -297,7 +314,13 @@ async function createAlertCard(imagePath, cardDetails) {
 
 async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDetails) {
   try {
-    const card = await createAlertCard(imagePath, cardDetails)
+    let card
+    try {
+      card = await createAlertCard(imagePath, cardDetails)
+    } catch (error) {
+      console.warn('[telegram] artwork could not be loaded; using the card icon fallback:', error.message)
+      card = await createAlertCard(null, cardDetails)
+    }
     if (!card) return sendTelegramMessage(botToken, chatId, text)
     return await sendTelegramPhoto(botToken, chatId, '', {
       kind: 'buffer',
@@ -328,6 +351,7 @@ function buildAlertDetails(settings, gameInfo = {}) {
     pcName: computer.name,
     gameName: itemName,
     itemName,
+    iconText: gameInfo.iconText || null,
     alertType: String(gameInfo.alertType || 'Game Launch').trim() || 'Game Launch',
     timestamp: new Date().toLocaleString(),
   }
