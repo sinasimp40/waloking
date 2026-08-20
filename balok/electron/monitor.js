@@ -218,32 +218,33 @@ function createCardSvg({ pcName, gameName, timestamp }) {
   return `<svg width="1024" height="512" viewBox="0 0 1024 512" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="cardBg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#14223a"/>
-        <stop offset="56%" stop-color="#0d1422"/>
-        <stop offset="100%" stop-color="#080c14"/>
+        <stop offset="0%" stop-color="#241a0d"/>
+        <stop offset="46%" stop-color="#100e0b"/>
+        <stop offset="100%" stop-color="#050505"/>
       </linearGradient>
       <linearGradient id="artGlow" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#1d4ed8" stop-opacity=".64"/>
-        <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0"/>
+        <stop offset="0%" stop-color="#d4a437" stop-opacity=".58"/>
+        <stop offset="100%" stop-color="#d4a437" stop-opacity="0"/>
       </linearGradient>
     </defs>
-    <!-- Keep the entire PNG opaque. Telegram otherwise shows white through
-         the transparent pixels left by a rounded outer SVG rectangle. -->
-    <rect width="1024" height="512" fill="#080c14"/>
+    <!-- Keep the entire PNG opaque so Telegram cannot show white through the
+         rounded outer edges. -->
+    <rect width="1024" height="512" fill="#050505"/>
     <rect width="1024" height="512" fill="url(#cardBg)"/>
-    <rect x="24" y="24" width="976" height="464" rx="20" fill="none" stroke="#8cb6ff" stroke-opacity=".17"/>
-    <rect x="58" y="58" width="150" height="34" rx="17" fill="#2563eb" fill-opacity=".20" stroke="#7db2ff" stroke-opacity=".38"/>
-    <circle cx="79" cy="75" r="7" fill="#8cc8ff"/>
-    <text x="96" y="80" fill="#b9d8ff" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.6">GAME LAUNCH</text>
-    <text x="58" y="148" fill="#dce9fb" font-family="Arial, sans-serif" font-size="42" font-weight="700">${escapeHtml(pcName)}</text>
-    <rect x="58" y="176" width="542" height="1" fill="#b9d8ff" fill-opacity=".18"/>
-    <text x="58" y="221" fill="#8cb6ff" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.4">OPENED</text>
+    <rect x="24" y="24" width="976" height="464" rx="20" fill="none" stroke="#d4af37" stroke-opacity=".34"/>
+    <rect x="58" y="58" width="238" height="36" rx="18" fill="#d4af37" fill-opacity=".18" stroke="#e4c15a" stroke-opacity=".72"/>
+    <circle cx="80" cy="76" r="7" fill="#f5d47a"/>
+    <text x="98" y="81" fill="#f5d47a" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.45">GAME LAUNCH</text>
+    <text x="58" y="148" fill="#f8f0d0" font-family="Arial, sans-serif" font-size="42" font-weight="700">${escapeHtml(pcName)}</text>
+    <rect x="58" y="176" width="542" height="1" fill="#d4af37" fill-opacity=".28"/>
+    <text x="58" y="221" fill="#d4af37" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.4">OPENED</text>
     ${gameText}
-    <circle cx="66" cy="433" r="6" fill="#78a8ed"/>
-    <text x="82" y="439" fill="#adc0da" font-family="Arial, sans-serif" font-size="20">${escapeHtml(timestamp)}</text>
+    <circle cx="66" cy="433" r="6" fill="#e4b94b"/>
+    <text x="82" y="439" fill="#d8c58f" font-family="Arial, sans-serif" font-size="20">${escapeHtml(timestamp)}</text>
     <path d="M482 484 L650 316 L650 484 Z" fill="url(#artGlow)" opacity=".44"/>
     <rect x="646" y="28" width="350" height="456" rx="22" fill="#04070d"/>
-    <rect x="646" y="28" width="350" height="456" rx="22" fill="none" stroke="#b8d6ff" stroke-opacity=".23"/>
+    <rect x="646" y="28" width="350" height="456" rx="22" fill="#080706"/>
+    <rect x="646" y="28" width="350" height="456" rx="22" fill="none" stroke="#d4af37" stroke-opacity=".66"/>
   </svg>`
 }
 

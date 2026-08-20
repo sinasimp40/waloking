@@ -28,3 +28,17 @@ mtime_ms = 1787196300651
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/59a66820-41d0-4a7e-b50c-5b8942eef015/9fd88b90-0814-47de-9170-14f2cf9c4619"
 storage_version_token = "1787196327495089"
 content_type = "image/png"
+
+[[outputs]]
+id = "-GYBom9McpvvBychkd63q"
+uri = "file://screenshots/balok-telegram-alert-vip.png"
+type = "image"
+title = "Black-and-gold VIP Telegram alert"
+description = "The updated game-launch card used by both BALOK and WALOK, with the widened GAME LAUNCH badge and a fully opaque black-and-gold frame."
+logical_id = "8c6417fb-a61d-499e-a00f-6181e78eda4d"
+content_hash = "sha256:81cbdf62009f30bb6ca98d635df62516af2e025aee35d8c5c068372e2fb6291d"
+size = 247036
+mtime_ms = 1787196431375
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/8c6417fb-a61d-499e-a00f-6181e78eda4d/2ea18e7d-0adc-4b49-aec9-0f850a3f4197"
+storage_version_token = "1787196461779200"
+content_type = "image/png"
