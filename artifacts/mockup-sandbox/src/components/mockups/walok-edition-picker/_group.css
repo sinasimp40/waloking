@@ -1,0 +1,121 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+.walok-picker-stage {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: #f7f7fb;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 106, 0, 0.11), transparent 27%),
+    radial-gradient(circle at 50% 55%, rgba(255, 106, 0, 0.045), transparent 42%),
+    #050506;
+  font-family: "Rajdhani", sans-serif;
+}
+
+.walok-picker-stage * {
+  box-sizing: border-box;
+}
+
+.walok-modal {
+  width: min(100%, 430px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 115, 27, 0.22);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(28, 28, 35, 0.98), rgba(10, 10, 14, 0.99));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.82), 0 0 55px rgba(255, 106, 0, 0.08);
+}
+
+.walok-title-font {
+  font-family: "Orbitron", sans-serif;
+}
+
+.walok-game-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #ff711a;
+  background:
+    linear-gradient(145deg, rgba(255, 106, 0, 0.22), transparent 58%),
+    #151319;
+}
+
+.walok-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+
+.walok-option:hover {
+  transform: translateX(3px);
+  border-color: rgba(255, 115, 27, 0.27);
+  background: rgba(255, 255, 255, 0.042);
+}
+
+.walok-play {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  color: #ff741c;
+  background: rgba(255, 106, 0, 0.12);
+}
+
+.walok-meta {
+  display: block;
+  margin-top: 3px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.walok-option-title {
+  display: block;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.walok-option-tag {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 5px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 115, 27, 0.22);
+  border-radius: 5px;
+  color: #ff8c46;
+  background: rgba(255, 106, 0, 0.08);
+  font-family: "Orbitron", sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.walok-option-tag--variation {
+  color: #a5b8ff;
+  border-color: rgba(132, 151, 255, 0.25);
+  background: rgba(103, 123, 255, 0.1);
+}
+
+.walok-chevron {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.25);
+}
