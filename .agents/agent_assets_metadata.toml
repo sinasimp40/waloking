@@ -56,17 +56,3 @@ mtime_ms = 1787231329795
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/d31a2ff6-d94c-4874-beca-7a3c2d65c402/81b9952b-246a-4c77-81cd-3270198a34de"
 storage_version_token = "1787231337267547"
 content_type = "image/png"
-
-[[outputs]]
-id = "A_Y5wvz97Ufnpn_-IUp9l"
-uri = "file://screenshots/developer-credit-preview.png"
-type = "image"
-title = "WALOK and BALOK developer-credit preview"
-description = "Preview of the clickable Facebook developer credit added to both launcher footers."
-logical_id = "19bb83b1-4308-40ef-b55f-44ecc430abb7"
-content_hash = "sha256:f581a15d9fc7469571a3843c324f70c6d958b7b3981593b25ddbdb6d354a13b2"
-size = 76257
-mtime_ms = 1787231896748
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/19bb83b1-4308-40ef-b55f-44ecc430abb7/4781aaa5-d7c8-46f7-a7ca-ecd65428edb9"
-storage_version_token = "1787231924309813"
-content_type = "image/png"

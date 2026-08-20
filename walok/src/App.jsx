@@ -215,7 +215,6 @@ export default function App() {
 }
 
 function BottomBar() {
-  const developerUrl = 'https://www.facebook.com/aym.ralph'
   const brands = [
     'APEX LEGENDS', 'PUBG', 'LEAGUE OF LEGENDS', 'VALORANT', 'DOTA 2',
     'ROBLOX', 'WARZONE', 'OVERWATCH 2', 'CS2', 'ROCKET LEAGUE',
@@ -224,19 +223,11 @@ function BottomBar() {
   ]
 
   const allBrands = [...brands, ...brands, ...brands]
-  const openDeveloperPage = (event) => {
-    event.preventDefault()
-    if (window.electronAPI?.openExternal) {
-      window.electronAPI.openExternal(developerUrl, '')
-      return
-    }
-    window.open(developerUrl, '_blank', 'noopener')
-  }
 
   return (
     <div className="relative h-7 bg-dark-400/95 border-t border-neon-orange/20 flex items-center overflow-hidden flex-shrink-0">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon-orange/30 to-transparent" />
-      <div className="marquee-container pr-[190px]">
+      <div className="marquee-container">
         <div className="marquee-content">
           {allBrands.map((name, i) => (
             <span key={i} className="flex items-center gap-3 whitespace-nowrap">
@@ -248,15 +239,6 @@ function BottomBar() {
           ))}
         </div>
       </div>
-      <a
-        href={developerUrl}
-        onClick={openDeveloperPage}
-        title="Developed by aym.ralph — open Facebook"
-        className="absolute right-0 top-0 z-10 h-full px-3 flex items-center gap-1.5 border-l border-neon-orange/20 bg-dark-400/95 text-[9px] font-orbitron font-bold tracking-[0.08em] text-white/65 hover:text-white transition-colors"
-      >
-        <FacebookMark />
-        <span className="whitespace-nowrap">Developed by: <span className="text-neon-orange">aym.ralph</span></span>
-      </a>
       <style>{`
         .marquee-container {
           width: 100%;
@@ -275,14 +257,5 @@ function BottomBar() {
         }
       `}</style>
     </div>
-  )
-}
-
-function FacebookMark() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" className="flex-shrink-0">
-      <circle cx="12" cy="12" r="11" fill="#1877F2" />
-      <path d="M13.45 19v-6.05h2.03l.3-2.35h-2.33V9.1c0-.68.19-1.14 1.17-1.14h1.25V5.86c-.22-.03-.96-.09-1.83-.09-1.81 0-3.05 1.1-3.05 3.14v1.69H9v2.35h1.99V19h2.46Z" fill="#fff" />
-    </svg>
   )
 }
