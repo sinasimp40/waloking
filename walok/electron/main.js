@@ -594,17 +594,19 @@ function createWindow(splash) {
   })
 
   // launch-game accepts either a plain filePath string (legacy) or an object
-  // { exePath, gameName, variation } for notification-aware launches.
+  // { exePath, gameName, variation, iconPath } for notification-aware launches.
   ipcMain.handle('launch-game', async (event, filePathOrInfo, gameInfoExtra) => {
-    let filePath, gameName, variation
+    let filePath, gameName, variation, iconPath
     if (filePathOrInfo && typeof filePathOrInfo === 'object') {
       filePath  = filePathOrInfo.exePath
       gameName  = filePathOrInfo.gameName  || ''
       variation = filePathOrInfo.variation || null
+      iconPath  = filePathOrInfo.iconPath  || null
     } else {
       filePath  = filePathOrInfo
       gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
       variation = (gameInfoExtra && gameInfoExtra.variation) || null
+      iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
     }
     try {
       if (!fs.existsSync(filePath)) {
@@ -633,6 +635,7 @@ function createWindow(splash) {
         telegramNotifier.reportGameLaunch(getSettingsPath(), getOtaConfigPath(), {
           gameName:  gameName  || path.basename(filePath, path.extname(filePath)),
           variation: variation || null,
+          iconPath:  iconPath  || null,
         })
       } catch (_) {}
 

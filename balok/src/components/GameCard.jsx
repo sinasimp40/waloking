@@ -43,6 +43,7 @@ const GameCard = memo(function GameCard({ game }) {
         exePath,
         gameName: game.name,
         variation: label !== game.name ? label : null,
+        iconPath: game.icon || game.wallpaper || null,
       })
       if (result.success) {
         toast.success(`Launching ${label}…`)

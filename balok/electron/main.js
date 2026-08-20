@@ -420,17 +420,19 @@ ipcMain.on('close-window', () => {
 
 /* ── Game launching ── */
 // launch-game accepts either a plain exePath string (legacy) or an object
-// { exePath, gameName, variation } for notification-aware launches.
+// { exePath, gameName, variation, iconPath } for notification-aware launches.
 ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
-  let exePath, gameName, variation
+  let exePath, gameName, variation, iconPath
   if (exePathOrInfo && typeof exePathOrInfo === 'object') {
     exePath   = exePathOrInfo.exePath
     gameName  = exePathOrInfo.gameName  || ''
     variation = exePathOrInfo.variation || null
+    iconPath  = exePathOrInfo.iconPath  || null
   } else {
     exePath   = exePathOrInfo
     gameName  = (gameInfoExtra && gameInfoExtra.gameName)  || ''
     variation = (gameInfoExtra && gameInfoExtra.variation) || null
+    iconPath  = (gameInfoExtra && gameInfoExtra.iconPath)  || null
   }
   if (!exePath) return { success: false, error: 'No path provided' }
   try {
@@ -470,6 +472,7 @@ ipcMain.handle('launch-game', async (_e, exePathOrInfo, gameInfoExtra) => {
       telegramNotifier.reportGameLaunch(settingsPath, getOtaConfigPath(), {
         gameName:  gameName  || path.basename(exePath, path.extname(exePath)),
         variation: variation || null,
+        iconPath:  iconPath  || null,
       })
     } catch (_) {}
 

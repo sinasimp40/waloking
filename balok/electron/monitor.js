@@ -9,19 +9,12 @@
 const fs = require('fs')
 const os = require('os')
 const https = require('https')
+const { fileURLToPath } = require('url')
 
 function readSettings(settingsPath) {
   try {
     const raw = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
     return raw?.state?.settings || raw?.settings || {}
-  } catch (_) {
-    return {}
-  }
-}
-
-function readOtaConfig(configPath) {
-  try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf-8'))
   } catch (_) {
     return {}
   }
@@ -58,38 +51,98 @@ function escapeHtml(value) {
   }[char]))
 }
 
-function sendTelegram(botToken, chatId, text) {
+function handleTelegramResponse(response, resolve, reject) {
+  const chunks = []
+  response.on('data', chunk => chunks.push(chunk))
+  response.on('end', () => {
+    const responseBody = Buffer.concat(chunks).toString('utf8')
+    let payload = null
+    try { payload = JSON.parse(responseBody) } catch (_) {}
+
+    if (response.statusCode >= 200 && response.statusCode < 300 && payload?.ok !== false) {
+      resolve({ success: true })
+      return
+    }
+
+    reject(new Error(
+      payload?.description ||
+      `Telegram rejected the request (HTTP ${response.statusCode || 'unknown'}).`
+    ))
+  })
+}
+
+function requestTelegram(botToken, method, body, contentType) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
     const request = https.request({
       hostname: 'api.telegram.org',
-      path: '/bot' + botToken + '/sendMessage',
+      path: '/bot' + botToken + '/' + method,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      headers: { 'Content-Type': contentType, 'Content-Length': body.length },
       timeout: 8000,
-    }, response => {
-      const chunks = []
-      response.on('data', chunk => chunks.push(chunk))
-      response.on('end', () => {
-        const responseBody = Buffer.concat(chunks).toString('utf8')
-        let payload = null
-        try { payload = JSON.parse(responseBody) } catch (_) {}
-
-        if (response.statusCode >= 200 && response.statusCode < 300 && payload?.ok !== false) {
-          resolve({ success: true })
-          return
-        }
-
-        reject(new Error(
-          payload?.description ||
-          `Telegram rejected the request (HTTP ${response.statusCode || 'unknown'}).`
-        ))
-      })
-    })
+    }, response => handleTelegramResponse(response, resolve, reject))
     request.on('error', reject)
     request.on('timeout', () => { request.destroy(new Error('Telegram request timed out')) })
     request.write(body)
     request.end()
+  })
+}
+
+function resolvePhoto(imagePath) {
+  const raw = String(imagePath || '').trim()
+  if (!raw) return null
+  if (/^https?:\/\//i.test(raw)) return { kind: 'url', value: raw }
+
+  let localPath = raw
+  if (/^file:\/\//i.test(raw)) {
+    try { localPath = fileURLToPath(raw) } catch (_) {
+      localPath = raw.replace(/^file:\/\/\/?/i, '')
+    }
+  }
+  return fs.existsSync(localPath) ? { kind: 'file', value: localPath } : null
+}
+
+function sendTelegramMessage(botToken, chatId, text) {
+  const body = Buffer.from(JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }))
+  return requestTelegram(botToken, 'sendMessage', body, 'application/json')
+}
+
+function sendTelegramPhoto(botToken, chatId, caption, image) {
+  const boundary = '----BalokTelegram' + Date.now().toString(36)
+  const parts = []
+  const field = (name, value) => {
+    parts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
+    ))
+  }
+
+  field('chat_id', chatId)
+  field('caption', caption)
+  field('parse_mode', 'HTML')
+  if (image.kind === 'url') {
+    field('photo', image.value)
+  } else {
+    parts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="game-icon"\r\nContent-Type: application/octet-stream\r\n\r\n`
+    ))
+    parts.push(fs.readFileSync(image.value))
+    parts.push(Buffer.from('\r\n'))
+  }
+  parts.push(Buffer.from(`--${boundary}--\r\n`))
+
+  return requestTelegram(
+    botToken,
+    'sendPhoto',
+    Buffer.concat(parts),
+    `multipart/form-data; boundary=${boundary}`
+  )
+}
+
+function sendTelegram(botToken, chatId, text, imagePath = '') {
+  const image = resolvePhoto(imagePath)
+  if (!image) return sendTelegramMessage(botToken, chatId, text)
+  return sendTelegramPhoto(botToken, chatId, text, image).catch(error => {
+    console.warn('[telegram] game icon could not be embedded; sending text fallback:', error.message)
+    return sendTelegramMessage(botToken, chatId, text)
   })
 }
 
@@ -102,17 +155,14 @@ function getTelegramSettings(settingsPath) {
   return { settings, botToken, chatId }
 }
 
-function buildAlertText(settings, otaConfigPath, gameName, variation) {
-  const config = readOtaConfig(otaConfigPath)
+function buildAlertText(settings, gameName, variation) {
   const computer = resolvePc(settings, getLocalIps())
   const game = [gameName || 'Unknown Game', variation].filter(Boolean).join(' — ')
-  const brand = config.launcherName || config.brand || 'Game Launcher'
   const lines = [
-    '🎮 <b>' + escapeHtml(brand) + '</b>',
-    '<b>' + escapeHtml(computer.name) + '</b> opened <b>' + escapeHtml(game) + '</b>',
+    '🎮 <b>' + escapeHtml(computer.name) + '</b>',
+    'Opened <b>' + escapeHtml(game) + '</b>',
+    '🕒 ' + escapeHtml(new Date().toLocaleString()),
   ]
-  if (computer.ip) lines.push('IP: <code>' + escapeHtml(computer.ip) + '</code>')
-  lines.push('Time: ' + new Date().toLocaleString())
   return lines.join('\n')
 }
 
@@ -123,7 +173,8 @@ function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}) {
     return sendTelegram(
       botToken,
       chatId,
-      buildAlertText(settings, otaConfigPath, gameInfo.gameName, gameInfo.variation)
+      buildAlertText(settings, gameInfo.gameName, gameInfo.variation),
+      gameInfo.iconPath
     ).catch(error => {
       console.warn('[telegram] game-launch notification failed:', error.message)
       return { success: false, error: error.message }
@@ -139,7 +190,7 @@ function sendTestAlert(settingsPath, otaConfigPath) {
   return sendTelegram(
     botToken,
     chatId,
-    buildAlertText(settings, otaConfigPath, 'Telegram test alert', null)
+    buildAlertText(settings, 'Telegram test alert', null)
   )
 }
 
