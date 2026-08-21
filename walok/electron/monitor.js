@@ -72,14 +72,14 @@ function handleTelegramResponse(response, resolve, reject) {
   })
 }
 
-function requestTelegram(botToken, method, body, contentType) {
+function requestTelegram(botToken, method, body, contentType, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const request = https.request({
       hostname: 'api.telegram.org',
       path: '/bot' + botToken + '/' + method,
       method: 'POST',
       headers: { 'Content-Type': contentType, 'Content-Length': body.length },
-      timeout: 8000,
+      timeout: timeoutMs,
     }, response => handleTelegramResponse(response, resolve, reject))
     request.on('error', reject)
     request.on('timeout', () => { request.destroy(new Error('Telegram request timed out')) })
@@ -145,25 +145,9 @@ function sendTelegramPhoto(botToken, chatId, caption, image) {
     botToken,
     'sendPhoto',
     Buffer.concat(parts),
-    `multipart/form-data; boundary=${boundary}`
+    `multipart/form-data; boundary=${boundary}`,
+    25000
   )
-}
-
-function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-async function sendTelegramPhotoWithRetry(botToken, chatId, caption, image) {
-  let lastError
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      return await sendTelegramPhoto(botToken, chatId, caption, image)
-    } catch (error) {
-      lastError = error
-      if (attempt === 0) await wait(750)
-    }
-  }
-  throw lastError
 }
 
 function downloadImage(url, redirects = 0) {
@@ -334,29 +318,27 @@ async function createAlertCard(imagePath, cardDetails) {
     .toBuffer()
 }
 
-async function sendTelegramGameAlert(botToken, chatId, text, imagePath, cardDetails) {
+async function sendTelegramGameAlert(botToken, chatId, imagePath, cardDetails) {
   try {
     let card
     try {
       card = await createAlertCard(imagePath, cardDetails)
     } catch (error) {
-      console.warn('[telegram] artwork could not be loaded; using the card icon fallback:', error.message)
-      card = await createAlertCard(null, cardDetails)
+      console.warn('[telegram] artwork could not be loaded; using icon fallback:', error.message)
+      try { card = await createAlertCard(null, cardDetails) } catch (_) {}
     }
     if (!card) {
-      const fallback = await sendTelegramMessage(botToken, chatId, text)
-      return { ...fallback, usedTextFallback: true }
+      console.warn('[telegram] card could not be rendered; notification skipped')
+      return { success: false, error: 'card render failed' }
     }
-    const delivered = await sendTelegramPhotoWithRetry(botToken, chatId, '', {
+    return await sendTelegramPhoto(botToken, chatId, '', {
       kind: 'buffer',
       value: card,
       filename: 'game-launch-alert.png',
     })
-    return { ...delivered, usedCard: true }
   } catch (error) {
-    console.warn('[telegram] alert card could not be rendered or delivered; sending text fallback after retry:', error.message)
-    const fallback = await sendTelegramMessage(botToken, chatId, text)
-    return { ...fallback, usedTextFallback: true }
+    console.warn('[telegram] card could not be delivered; notification skipped:', error.message)
+    return { success: false, error: error.message }
   }
 }
 
@@ -403,7 +385,6 @@ function reportGameLaunch(settingsPath, otaConfigPath, gameInfo = {}, settingsOv
     return sendTelegramGameAlert(
       botToken,
       chatId,
-      buildAlertText(details),
       gameInfo.iconPath,
       details
     ).catch(error => {

@@ -341,11 +341,9 @@ function reportTelegramGameLaunch(gameInfo, settingsOverride) {
   pendingTelegramNotifications += 1
   delivery
     .then(result => {
-      // reportGameLaunch returns nothing when alerts are disabled, so do not
-      // let that non-delivery or a cardless fallback block a later real launch.
-      // A subsequent open should be allowed to retry the VIP card immediately.
-      const shouldAllowRetry = result === undefined || result?.usedTextFallback || result?.success === false
-      if (shouldAllowRetry && recentLaunchNotifications.get(reservation.key) === reservation.timestamp) {
+      // reportGameLaunch returns nothing when alerts are disabled; release the
+      // dedup key so a later real launch of the same item is not suppressed.
+      if (result === undefined && recentLaunchNotifications.get(reservation.key) === reservation.timestamp) {
         recentLaunchNotifications.delete(reservation.key)
       }
       return result
