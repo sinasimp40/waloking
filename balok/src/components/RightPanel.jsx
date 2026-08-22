@@ -73,6 +73,8 @@ function CountUnit({ value, label }) {
 function NextEventCard({ ev, onClick, accent }) {
   const color = ev.color || accent
   const countdown = useCountdown(ev.date)
+  const eventName = ev.title || ev.name || 'Untitled Event'
+  const eventDateLabel = ev.dateLabel || ev.date || ''
 
   return (
     <motion.div
@@ -125,8 +127,23 @@ function NextEventCard({ ev, onClick, accent }) {
         {/* Event name */}
         <p className="text-[12px] font-black uppercase tracking-wide leading-snug mb-2"
           style={{ color, textShadow: `0 0 12px ${color}60` }}>
-          {ev.name}
+          {eventName}
         </p>
+
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Calendar size={9} style={{ color: `${color}90` }} />
+          <span className="text-[9px] font-semibold uppercase tracking-wider"
+            style={{ color: 'rgba(255,255,255,0.58)' }}>
+            {eventDateLabel}
+          </span>
+        </div>
+
+        {ev.description && (
+          <p className="text-[10px] leading-snug mb-2 line-clamp-2"
+            style={{ color: 'rgba(255,255,255,0.48)' }}>
+            {ev.description}
+          </p>
+        )}
 
         {/* Divider */}
         <div className="mb-2.5" style={{ height: 1, background: `${color}25` }} />
@@ -158,7 +175,7 @@ function NextEventCard({ ev, onClick, accent }) {
 // Approximate item heights in px
 const H = {
   banner: 90, rate: 44, sectionHeader: 42,
-  announceItem: 76, nextCard: 112, eventRow: 44,
+  announceItem: 76, nextCard: 166, eventRow: 60,
   liveTV: 70, moreBtn: 28, padding: 16,
 }
 
@@ -189,7 +206,12 @@ export default function RightPanel() {
     : postedAnnouncements
 
   // Admin-managed events (Admin Panel → Events).
-  const upcomingEvents = settings.upcomingEventsList || []
+  const upcomingEvents = useMemo(() =>
+    [...(settings.upcomingEventsList || [])]
+      .filter(Boolean)
+      .sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))),
+    [settings.upcomingEventsList]
+  )
 
   useEffect(() => {
     const el = containerRef.current
@@ -376,9 +398,11 @@ export default function RightPanel() {
               }
               const hasGame = ev.game
               const thumbBg = hasGame ? gameGradient(ev.name) : (ev.color ? `linear-gradient(135deg, ${ev.color}33, ${ev.color}11)` : 'rgba(255,255,255,0.05)')
+              const eventName = ev.title || ev.name || 'Untitled Event'
+              const eventDateLabel = ev.dateLabel || ev.date || ''
               return (
                 <motion.div key={ev.id} whileHover={{ x: 2 }}
-                  className="flex gap-2.5 px-3 py-2 cursor-pointer border-b transition-all"
+                  className="flex gap-2.5 px-3 py-2.5 cursor-pointer border-b transition-all"
                   style={{ borderColor: 'rgba(255,255,255,0.04)' }}
                   onClick={() => hasGame && launchGame(ev.game)}>
                   <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
@@ -389,8 +413,12 @@ export default function RightPanel() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-bold leading-tight uppercase tracking-wide truncate"
-                      style={{ color: ev.color || 'rgba(255,255,255,0.75)' }}>{ev.name}</p>
-                    <p className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.32)' }}>{ev.date}</p>
+                      style={{ color: ev.color || 'rgba(255,255,255,0.75)' }}>{eventName}</p>
+                    <p className="text-[9px] mt-0.5" style={{ color: 'rgba(255,255,255,0.42)' }}>{eventDateLabel}</p>
+                    {ev.description && (
+                      <p className="text-[9px] mt-0.5 leading-tight line-clamp-2"
+                        style={{ color: 'rgba(255,255,255,0.3)' }}>{ev.description}</p>
+                    )}
                   </div>
                 </motion.div>
               )
