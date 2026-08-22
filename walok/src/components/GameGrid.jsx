@@ -2,6 +2,15 @@ import React from 'react'
 import useStore from '../store/useStore'
 import GameCard from './GameCard'
 
+function shuffleGames(games) {
+  const shuffled = [...games]
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
+}
+
 export default function GameGrid() {
   const games = useStore(s => s.games)
   const activeCategory = useStore(s => s.activeCategory)
@@ -10,6 +19,7 @@ export default function GameGrid() {
   const localIPs = useStore(s => s.localIPs)
   const uiZoom = useStore(s => s.settings.uiZoom)
   const showGameNames = useStore(s => s.settings.showGameNames)
+  const shuffleGameCards = useStore(s => s.settings.shuffleGameCards)
 
   const filteredGames = React.useMemo(() => {
     const groups = pcGroups || []
@@ -28,11 +38,12 @@ export default function GameGrid() {
       }
       return matchesCategory && matchesSearch && matchesPCGroup
     })
-    return filtered.sort((a, b) => {
+    const ordered = filtered.sort((a, b) => {
       if ((b.pinned ? 1 : 0) !== (a.pinned ? 1 : 0)) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)
       return a.name.localeCompare(b.name)
     })
-  }, [games, activeCategory, searchQuery, pcGroups, localIPs])
+    return shuffleGameCards ? shuffleGames(ordered) : ordered
+  }, [games, activeCategory, searchQuery, pcGroups, localIPs, shuffleGameCards])
 
   const zoom = uiZoom || 100
   const minCardWidth = Math.round(130 * (zoom / 100))

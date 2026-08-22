@@ -115,6 +115,7 @@ const useStore = create(
         // Shown in the right panel's Upcoming Events list.
         upcomingEventsList: [],
         showGameNames: true,
+        shuffleGameCards: false,
         pcGroups: [],
         igdbClientId: '10v1tjvitc8rlqrzwlprsjgk1ukogy',
         igdbClientSecret: 'eulj0ebeyc9uh6gtatamg63l6gdknj',
@@ -291,7 +292,7 @@ const useStore = create(
     }),
     {
       name: 'balok-storage',
-      version: 27,
+       version: 28,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState) => {
         // v12: launcherName/launcherTagline become null when still at the
@@ -339,6 +340,8 @@ const useStore = create(
             uiZoom: Math.max(100, Math.min(200, persistedState.settings?.uiZoom || 100)),
             autoCloseOnLaunch: persistedState.settings?.autoCloseOnLaunch || false,
             kioskMode: !!persistedState.settings?.kioskMode,
+            // v28: random card ordering is opt-in for existing launchers.
+            shuffleGameCards: persistedState.settings?.shuffleGameCards ?? false,
             igdbClientId: persistedState.settings?.igdbClientId || '10v1tjvitc8rlqrzwlprsjgk1ukogy',
             igdbClientSecret: persistedState.settings?.igdbClientSecret || 'eulj0ebeyc9uh6gtatamg63l6gdknj',
             announcementsList: Array.isArray(persistedState.settings?.announcementsList) ? persistedState.settings.announcementsList : [],

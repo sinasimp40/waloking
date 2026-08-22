@@ -1319,6 +1319,10 @@ function SettingsSection() {
           <div><p className="font-rajdhani text-white/50 text-sm font-semibold">Show game names on cards</p><p className="font-rajdhani text-white/30 text-xs">Toggle game name labels under each card.</p></div>
           <ToggleSwitch checked={settings.showGameNames !== false} onChange={() => updateSettings({ showGameNames: settings.showGameNames === false ? true : false })} />
         </div>
+        <div className="flex items-center justify-between">
+          <div><p className="font-rajdhani text-white/50 text-sm font-semibold">Shuffle game cards</p><p className="font-rajdhani text-white/30 text-xs">Randomize the order of cards in the game list.</p></div>
+          <ToggleSwitch checked={!!settings.shuffleGameCards} onChange={() => updateSettings({ shuffleGameCards: !settings.shuffleGameCards })} />
+        </div>
       </CardBox>
 
       <CardBox>

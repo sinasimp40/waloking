@@ -478,6 +478,16 @@ export function SettingsSection() {
               onChange={v => updateSettings({ autoCloseOnLaunch: v })} 
             />
           </div>
+          <div className="flex items-center justify-between p-6 bg-[#0A0A0B] border border-zinc-800/50 rounded-2xl">
+            <div>
+              <h5 className="text-[10px] font-black text-white uppercase tracking-widest">Shuffle Game Cards</h5>
+              <p className="text-[10px] text-zinc-500 uppercase font-medium mt-1">Randomize the regular game list</p>
+            </div>
+            <Toggle
+              checked={!!settings.shuffleGameCards}
+              onChange={v => updateSettings({ shuffleGameCards: v })}
+            />
+          </div>
         </div>
       </Panel>
     </div>

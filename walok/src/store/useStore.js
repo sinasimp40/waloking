@@ -73,6 +73,7 @@ const useStore = create(
         announcementImages: [],
         announcementSlideInterval: 5,
         showGameNames: true,
+        shuffleGameCards: false,
         pcGroups: [],
         igdbClientId: '10v1tjvitc8rlqrzwlprsjgk1ukogy',
         igdbClientSecret: 'eulj0ebeyc9uh6gtatamg63l6gdknj',
@@ -175,7 +176,7 @@ const useStore = create(
     }),
     {
       name: 'example-cafe-storage',
-      version: 36,
+      version: 37,
       storage: createJSONStorage(() => fileBackedStorage),
       migrate: (persistedState, version) => {
         const oldDefaultIds = ['1','2','3','4','5','6','7','8','9','10','11','12']
@@ -192,6 +193,8 @@ const useStore = create(
             uiZoom: Math.max(100, Math.min(200, persistedState.settings?.uiZoom || 100)),
             autoCloseOnLaunch: persistedState.settings?.autoCloseOnLaunch || false,
             kioskMode: !!persistedState.settings?.kioskMode,
+            // v37: random card ordering is opt-in for existing launchers.
+            shuffleGameCards: persistedState.settings?.shuffleGameCards ?? false,
             poweredBy: persistedState.settings?.poweredBy ?? 'EXAMPLE CAFE',
             socialLinks: Array.isArray(persistedState.settings?.socialLinks) ? persistedState.settings.socialLinks : [
               { id: '1', name: 'Facebook', icon: 'f', url: 'https://facebook.com', color: 'from-blue-500 to-blue-600' },

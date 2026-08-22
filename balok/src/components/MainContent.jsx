@@ -9,6 +9,15 @@ import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
 import FeaturedBanner from './FeaturedBanner'
 import VariationPicker from './VariationPicker'
 
+function shuffleGames(games) {
+  const shuffled = [...games]
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
+}
+
 /* ─────────────────────────────────────────────
    Utility: deterministic gradient for a game
 ───────────────────────────────────────────── */
@@ -314,6 +323,10 @@ export default function MainContent() {
     [...filteredGames].filter(g => g.isFavorite),
     [filteredGames]
   )
+  const displayGames = useMemo(() =>
+    settings.shuffleGameCards ? shuffleGames(filteredGames) : filteredGames,
+    [filteredGames, settings.shuffleGameCards]
+  )
 
   // Search results view
   if (searchQuery) {
@@ -334,7 +347,7 @@ export default function MainContent() {
           </div>
         ) : (
           <div className="shelf-scroll px-4 pb-4" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, overflowX: 'unset', overflowY: 'unset' }}>
-            {filteredGames.map(g => <ShelfCard key={g.id} game={g} />)}
+            {displayGames.map(g => <ShelfCard key={g.id} game={g} />)}
           </div>
         )}
       </div>
@@ -393,7 +406,7 @@ export default function MainContent() {
 
           <GameList
             title={activeCategory === 'all' ? 'Game List' : `${activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Games`}
-            games={filteredGames}
+            games={displayGames}
           />
         )}
       </div>
