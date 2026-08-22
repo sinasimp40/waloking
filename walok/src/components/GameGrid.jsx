@@ -11,6 +11,12 @@ function shuffleGames(games) {
   return shuffled
 }
 
+function shuffleUnpinnedGames(games) {
+  const pinned = games.filter(game => game.pinned)
+  const unpinned = games.filter(game => !game.pinned)
+  return [...pinned, ...shuffleGames(unpinned)]
+}
+
 export default function GameGrid() {
   const games = useStore(s => s.games)
   const activeCategory = useStore(s => s.activeCategory)
@@ -42,7 +48,7 @@ export default function GameGrid() {
       if ((b.pinned ? 1 : 0) !== (a.pinned ? 1 : 0)) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)
       return a.name.localeCompare(b.name)
     })
-    return shuffleGameCards ? shuffleGames(ordered) : ordered
+    return shuffleGameCards ? shuffleUnpinnedGames(ordered) : ordered
   }, [games, activeCategory, searchQuery, pcGroups, localIPs, shuffleGameCards])
 
   const zoom = uiZoom || 100

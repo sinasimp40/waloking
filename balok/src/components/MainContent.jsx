@@ -18,6 +18,12 @@ function shuffleGames(games) {
   return shuffled
 }
 
+function shuffleUnpinnedGames(games) {
+  const pinned = games.filter(game => game.pinned)
+  const unpinned = games.filter(game => !game.pinned)
+  return [...pinned, ...shuffleGames(unpinned)]
+}
+
 /* ─────────────────────────────────────────────
    Utility: deterministic gradient for a game
 ───────────────────────────────────────────── */
@@ -324,7 +330,7 @@ export default function MainContent() {
     [filteredGames]
   )
   const displayGames = useMemo(() =>
-    settings.shuffleGameCards ? shuffleGames(filteredGames) : filteredGames,
+    settings.shuffleGameCards ? shuffleUnpinnedGames(filteredGames) : filteredGames,
     [filteredGames, settings.shuffleGameCards]
   )
 
