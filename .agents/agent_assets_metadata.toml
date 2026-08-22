@@ -70,3 +70,17 @@ mtime_ms = 1787233112754
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/804bcf07-c79b-4b88-9b9e-b47cc3c55978/aa2a8b9b-41ee-465f-ab6a-e50d942e24f7"
 storage_version_token = "1787233153933647"
 content_type = "image/png"
+
+[[outputs]]
+id = "YJLIZKQ9RSWQ23E8_X3be"
+uri = "file://screenshots/youtube-telegram-card-sample.png"
+type = "image"
+title = "YouTube Telegram notification preview"
+description = "Sample of the BALOK/WALOK Social Link Telegram card for https://youtube.com, using the URL-aware YouTube icon fallback."
+logical_id = "a3299778-eee8-4bef-982c-9d316d50a872"
+content_hash = "sha256:f1f33785c5c5dd73aa13efc100481db62eca39dfab3347cfa98729d2a5f2ff70"
+size = 59722
+mtime_ms = 1787376787426
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:55d71ca0-7e48-4915-a171-31570df14e99/a3299778-eee8-4bef-982c-9d316d50a872/5258b28b-2672-4560-8175-a160b27dc88f"
+storage_version_token = "1787376804944375"
+content_type = "image/png"

@@ -1,0 +1,39 @@
+<svg width="1024" height="512" viewBox="0 0 1024 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cardBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#241a0d"/>
+      <stop offset="46%" stop-color="#100e0b"/>
+      <stop offset="100%" stop-color="#050505"/>
+    </linearGradient>
+    <linearGradient id="artGlow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#d4a437" stop-opacity=".58"/>
+      <stop offset="100%" stop-color="#d4a437" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="512" fill="#050505"/>
+  <rect width="1024" height="512" fill="url(#cardBg)"/>
+  <rect x="24" y="24" width="976" height="464" rx="20" fill="none" stroke="#d4af37" stroke-opacity=".34"/>
+
+  <rect x="58" y="58" width="238" height="36" rx="18" fill="#d4af37" fill-opacity=".18" stroke="#e4c15a" stroke-opacity=".72"/>
+  <circle cx="80" cy="76" r="7" fill="#f5d47a"/>
+  <text x="98" y="81" fill="#f5d47a" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.45">SOCIAL LINK</text>
+
+  <text x="58" y="148" fill="#f8f0d0" font-family="Arial, sans-serif" font-size="42" font-weight="700">BALOK TEST PC</text>
+  <rect x="58" y="176" width="542" height="1" fill="#d4af37" fill-opacity=".28"/>
+  <text x="58" y="221" fill="#d4af37" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2.4">OPENED</text>
+  <text x="58" y="263" fill="#f7fbff" font-family="Arial, sans-serif" font-size="34" font-weight="700">YouTube</text>
+
+  <circle cx="68" cy="400" r="11" fill="#1877F2"/>
+  <path d="M13.45 19v-6.05h2.03l.3-2.35h-2.33V9.1c0-.68.19-1.14 1.17-1.14h1.25V5.86c-.22-.03-.96-.09-1.83-.09-1.81 0-3.05 1.1-3.05 3.14v1.69H9v2.35h1.99V19h2.46Z" transform="translate(59 389) scale(.75)" fill="#fff"/>
+  <text x="88" y="407" fill="#e5c477" font-family="Arial, sans-serif" font-size="18" font-weight="700">Developed by: Rap Rap Thurston</text>
+
+  <circle cx="66" cy="462" r="6" fill="#e4b94b"/>
+  <text x="82" y="469" fill="#d8c58f" font-family="Arial, sans-serif" font-size="20">8/22/2026, 10:30:00 AM</text>
+
+  <path d="M482 484 L650 316 L650 484 Z" fill="url(#artGlow)" opacity=".44"/>
+
+  <!-- URL-aware YouTube fallback artwork -->
+  <rect x="681" y="164" width="280" height="184" rx="48" fill="#ff0033"/>
+  <path d="M791 212 791 300 878 256Z" fill="#fff"/>
+</svg>
