@@ -210,9 +210,22 @@ function wrapCardText(value, maxLength = 28, maxLines = 2) {
   return lines.slice(0, maxLines)
 }
 
+const BRAND_ICON_SVGS = {
+  youtube: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><rect x="35" y="136" width="280" height="184" rx="48" fill="#ff0033"/><path d="M145 184 145 272 232 228Z" fill="#fff"/></svg>`,
+  facebook: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><circle cx="175" cy="228" r="105" fill="#1877f2"/><path d="M194 326v-87h29l4-34h-33v-22c0-10 3-17 17-17h18v-30c-4-1-16-2-29-2-29 0-49 18-49 50v21h-29v34h29v87Z" fill="#fff"/></svg>`,
+  x: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><path d="M93 124h48l41 57 48-57h28l-63 75 69 101h-48l-48-67-57 67H83l70-83Z" fill="#f7fbff"/></svg>`,
+  instagram: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ig" x1="0" y1="456" x2="350" y2="0"><stop stop-color="#ffd600"/><stop offset=".48" stop-color="#ff0069"/><stop offset="1" stop-color="#7638fa"/></linearGradient></defs><rect x="58" y="111" width="234" height="234" rx="68" fill="url(#ig)"/><rect x="111" y="164" width="128" height="128" rx="42" fill="none" stroke="#fff" stroke-width="17"/><circle cx="175" cy="228" r="30" fill="none" stroke="#fff" stroke-width="17"/><circle cx="245" cy="160" r="12" fill="#fff"/></svg>`,
+  discord: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><path d="M68 151c34-25 66-30 107-30s73 5 107 30c14 36 20 76 16 121-29 24-59 38-92 45l-16-22c9-3 18-7 26-12-49 22-105 22-154 0 8 5 17 9 26 12l-16 22c-33-7-63-21-92-45-4-45 2-85 16-121Zm76 100c11 0 20-11 20-25s-9-25-20-25-20 11-20 25 9 25 20 25Zm62 0c11 0 20-11 20-25s-9-25-20-25-20 11-20 25 9 25 20 25Z" fill="#5865f2"/></svg>`,
+  tiktok: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><path d="M213 114v118c0 48-31 78-74 78-35 0-63-25-63-61 0-39 32-68 73-61v39c-17-7-36 5-36 24 0 17 13 28 28 28 20 0 35-15 35-42V114Z" fill="#25f4ee"/><path d="M226 114v118c0 48-31 78-74 78-35 0-63-25-63-61 0-39 32-68 73-61v39c-17-7-36 5-36 24 0 17 13 28 28 28 20 0 35-15 35-42V114Z" fill="#fe2c55" fill-opacity=".8"/><path d="M219 114v118c0 48-31 78-74 78-35 0-63-25-63-61 0-39 32-68 73-61v39c-17-7-36 5-36 24 0 17 13 28 28 28 20 0 35-15 35-42V114Z" fill="#fff"/></svg>`,
+  twitch: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><path d="M75 119h222v149l-59 59h-46l-34 34h-42v-34H75Zm37 36v79h43l26 26 26-26h43v-79Zm64 16h19v48h-19Zm38 0h19v48h-19Z" fill="#9146ff"/></svg>`,
+  telegram: `<svg width="350" height="456" viewBox="0 0 350 456" xmlns="http://www.w3.org/2000/svg"><circle cx="175" cy="228" r="109" fill="#29a9ea"/><path d="m94 216 160-62c7-3 13 2 11 10l-27 139c-2 10-12 12-19 7l-45-33-24 23c-3 3-6 3-6-2l2-46 85-77c4-4-1-6-6-3l-106 67-46-14c-10-3-10-10 1-14Z" fill="#fff"/></svg>`,
+}
+
 function createTextIconSvg(iconText) {
   const text = String(iconText || '').trim()
   if (!text) return null
+  const brandIcon = BRAND_ICON_SVGS[text.toLowerCase()]
+  if (brandIcon) return Buffer.from(brandIcon)
   return Buffer.from(`<svg width="350" height="456" xmlns="http://www.w3.org/2000/svg">
     <text x="175" y="275" text-anchor="middle" fill="#f7fbff" font-family="Arial, sans-serif" font-size="180" font-weight="700">${escapeHtml(text.slice(0, 3))}</text>
   </svg>`)
@@ -406,4 +419,4 @@ function sendTestAlert(settingsPath, otaConfigPath) {
   )
 }
 
-module.exports = { reportGameLaunch, resolvePc, sendTestAlert, createAlertCard }
+module.exports = { reportGameLaunch, resolvePc, sendTestAlert, createAlertCard, createTextIconSvg }

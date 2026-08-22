@@ -4,6 +4,7 @@ import { Crown, Gamepad2, Clock, BarChart3, ZoomIn, ZoomOut, Megaphone, ChevronL
 import toast from 'react-hot-toast'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
+import { createSocialLaunchAlertPayload } from '../lib/socialLaunchAlert'
 
 export default function Sidebar() {
   const { settings, games, localIPs } = useStore()
@@ -325,20 +326,7 @@ function SocialMedia() {
       // Pass the admin-configured custom browser path (if any) so the
       // main process spawns that browser instead of the OS default.
       const browserPath = settings.customBrowserEnabled ? (settings.customBrowserPath || '') : ''
-      window.electronAPI.reportLaunch?.({
-        gameName: social.name || '',
-        iconPath: social.image || social.icon || null,
-        iconText: social.icon || null,
-        alertType: 'Social Link',
-        notificationSettings: {
-          notificationEnabled: settings.notificationEnabled,
-          notifyGameLaunches: settings.notifyGameLaunches,
-          pcName: settings.pcName,
-          pcMappings: settings.pcMappings,
-          telegramBotToken: settings.telegramBotToken,
-          telegramChatId: settings.telegramChatId,
-        },
-      })
+      window.electronAPI.reportLaunch?.(createSocialLaunchAlertPayload(social, settings))
       window.electronAPI.openExternal(social.url, browserPath)
     } else {
       window.open(social.url, '_blank', 'noopener')
