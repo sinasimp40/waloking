@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const crypto = require('crypto')
+const { readEmbeddedSecret, writeManifest } = require('./integrity-artifact')
 
 exports.default = async function (context) {
   if (context.electronPlatformName !== 'win32') {
@@ -29,39 +29,24 @@ exports.default = async function (context) {
     throw new Error('[integrity] FATAL: INTEGRITY_BUILD_SECRET not set in env — beforePack hook must run first to inject the secret into app.asar. Aborting build.')
   }
 
-  // Sanity check: confirm the secret is actually inside app.asar (read-only).
-  // This guarantees the secret we'll HMAC with matches what the runtime check reads.
-  let asar
+  // Confirm that the secret used here is exactly the one that runtime code
+  // will read from app.asar. The finalizer repeats this after every build
+  // path completes, after any code-signing mutation of the executable.
+  let packed
   try {
-    asar = require('@electron/asar')
-  } catch (e) {
-    try { asar = require('asar') } catch (e2) { asar = null }
+    packed = readEmbeddedSecret(asarPath)
+  } catch (error) {
+    throw new Error('[integrity] FATAL: ' + error.message + '. Aborting.')
   }
-  if (asar) {
-    let packed = null
-    try {
-      const buf = asar.extractFile(asarPath, 'electron/_integrity_secret.json')
-      packed = JSON.parse(buf.toString('utf-8')).k
-    } catch (e) {
-      throw new Error('[integrity] FATAL: app.asar does not contain electron/_integrity_secret.json — beforePack hook did not run or did not write the secret to source. Aborting.')
-    }
-    if (packed !== secret) {
-      throw new Error('[integrity] FATAL: secret in app.asar does not match INTEGRITY_BUILD_SECRET env var — secret was rotated mid-build. Aborting.')
-    }
-  } else {
-    console.log('[integrity] WARN: asar package not available, cannot sanity-check secret embedding')
+  if (packed !== secret) {
+    throw new Error('[integrity] FATAL: secret in app.asar does not match INTEGRITY_BUILD_SECRET env var — secret was rotated mid-build. Aborting.')
   }
 
-  const exeBuf = fs.readFileSync(exePath)
-  const hash = crypto.createHash('sha256').update(exeBuf).digest('hex')
-  const sig = crypto.createHmac('sha256', Buffer.from(secret, 'hex')).update(hash).digest('hex')
-
-  const manifest = { v: 1, alg: 'sha256-hmac', hash: hash, sig: sig }
   const manifestPath = path.join(resourcesDir, 'integrity.dat')
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest))
+  const manifest = writeManifest(exePath, manifestPath, secret)
 
   console.log('[integrity] Manifest written to resources/integrity.dat')
-  console.log('[integrity] EXE hash: ' + hash.slice(0, 16) + '...' + hash.slice(-8))
+  console.log('[integrity] EXE hash: ' + manifest.hash.slice(0, 16) + '...' + manifest.hash.slice(-8))
 
   // Best-effort cleanup of source-tree secret file. It was packed into
   // app.asar already, so removing the source copy keeps the working tree

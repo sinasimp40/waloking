@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const { verifyIntegrityArtifact } = require('./integrity-artifact')
 
 const repoRoot = path.join(__dirname, '..')
 const launcherDir = path.join(repoRoot, 'dist-electron')
@@ -24,45 +25,11 @@ function readBrandTitleHyphen() {
 const brandTitle = readBrandTitleHyphen()
 const outputDir = path.join(repoRoot, brandTitle + '-Release')
 
-function tryRequireAsar() {
-  try { return require('@electron/asar') } catch (e) {}
-  try { return require('asar') } catch (e2) {}
-  return null
-}
-
 function verifyIntegrity(unpackedDir, label) {
-  const resourcesDir = path.join(unpackedDir, 'resources')
-  const manifestPath = path.join(resourcesDir, 'integrity.dat')
-  const asarPath = path.join(resourcesDir, 'app.asar')
-
-  if (!fs.existsSync(unpackedDir)) {
-    return { ok: false, reason: label + ' unpacked dir not found at ' + unpackedDir }
-  }
-  if (!fs.existsSync(manifestPath)) {
-    return { ok: false, reason: label + ' is missing tamper-protection manifest at ' + manifestPath + ' (integrity hook did not run)' }
-  }
-  if (!fs.existsSync(asarPath)) {
-    return { ok: false, reason: label + ' is missing app.asar at ' + asarPath }
-  }
-
-  const asar = tryRequireAsar()
-  if (!asar) {
-    return { ok: false, reason: 'neither @electron/asar nor asar is installed; cannot verify embedded secret in ' + label }
-  }
-
-  let hasSecret = false
-  try {
-    const buf = asar.extractFile(asarPath, 'electron/_integrity_secret.json')
-    hasSecret = !!(buf && buf.length > 0)
-  } catch (e) {
-    hasSecret = false
-  }
-
-  if (!hasSecret) {
-    return { ok: false, reason: label + ' app.asar does not contain electron/_integrity_secret.json (tamper protection not embedded)' }
-  }
-
-  return { ok: true }
+  const result = verifyIntegrityArtifact(unpackedDir)
+  return result.ok
+    ? result
+    : { ok: false, reason: label + ' integrity verification failed: ' + result.reason }
 }
 
 function copyExeFiles(srcDir, label) {

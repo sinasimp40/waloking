@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execSync } = require('child_process')
+const { verifyIntegrityArtifact } = require('./integrity-artifact')
 
 const ROOT = path.join(__dirname, '..')
 const RELEASES_DIR = path.join(ROOT, 'releases')
@@ -144,6 +145,15 @@ function copyDir(src, dest) {
   }
 }
 
+function assertPayloadIntegrity(unpackedDir, label) {
+  const result = verifyIntegrityArtifact(unpackedDir)
+  if (!result.ok) {
+    throw new Error(label + ' payload integrity verification failed: ' + result.reason)
+  }
+  log(label + ' payload integrity verified: ' + result.exeName +
+    ' (sha256=' + result.manifest.hash.slice(0, 12) + '...)')
+}
+
 function buildPayload(unpackedDir, outZipPath) {
   log('Packing payload zip from: ' + path.relative(ROOT, unpackedDir))
   const t0 = Date.now()
@@ -227,6 +237,7 @@ function publishChannel(channel, version, multi) {
   let serverInfo = null
 
   if (fs.existsSync(launcherUnpacked)) {
+    assertPayloadIntegrity(launcherUnpacked, 'Launcher')
     const launcherZip = path.join(targetChannelDir, 'launcher-payload.zip')
     buildPayload(launcherUnpacked, launcherZip)
     launcherInfo = {
@@ -240,6 +251,7 @@ function publishChannel(channel, version, multi) {
   }
 
   if (fs.existsSync(serverUnpacked)) {
+    assertPayloadIntegrity(serverUnpacked, 'Server')
     const serverZip = path.join(targetChannelDir, 'server-payload.zip')
     buildPayload(serverUnpacked, serverZip)
     serverInfo = {

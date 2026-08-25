@@ -31,6 +31,7 @@ const IS_WIN = process.platform === 'win32'
 const NPM_CMD = IS_WIN ? 'npm.cmd' : 'npm'
 const NPX_CMD = IS_WIN ? 'npx.cmd' : 'npx'
 const NODE_CMD = process.execPath
+const INTEGRITY_FINALIZER_SOURCE = path.join(__dirname, '..', 'walok', 'scripts', 'integrity-artifact.js')
 
 // Per-entry size cap. Real source zips can include large prebuilt binaries
 // (electron itself is ~100 MB; certain native modules + assets can push a
@@ -500,6 +501,37 @@ function findWinUnpacked(searchRoot) {
   return null
 }
 
+// Source uploads are built in an isolated workspace, so their integrity
+// finalizer must run from that workspace to resolve the Electron builder's
+// bundled @electron/asar dependency. Copy the trusted server-side script in
+// only for this check, then remove it before the payload is packed.
+async function finalizeSourceBuildIntegrity(buildCwd, unpackedDir, job, kind) {
+  if (!fs.existsSync(INTEGRITY_FINALIZER_SOURCE)) {
+    throw new Error('OTA integrity finalizer is missing at ' + INTEGRITY_FINALIZER_SOURCE)
+  }
+  const runnerPath = path.join(buildCwd, '.ota-integrity-finalizer.js')
+  await fs.promises.copyFile(INTEGRITY_FINALIZER_SOURCE, runnerPath)
+  try {
+    jobAppend(job, '== Finalizing ' + kind + ' integrity manifest against the final executable…')
+    let exit = await runStep(job, NODE_CMD, [runnerPath, '--finalize', unpackedDir], {
+      cwd: buildCwd,
+      shell: false,
+      minimalEnv: true,
+    })
+    if (exit !== 0) throw new Error(kind + ' integrity finalization failed with exit ' + exit)
+
+    jobAppend(job, '== Verifying final ' + kind + ' integrity artifact…')
+    exit = await runStep(job, NODE_CMD, [runnerPath, '--verify', unpackedDir], {
+      cwd: buildCwd,
+      shell: false,
+      minimalEnv: true,
+    })
+    if (exit !== 0) throw new Error(kind + ' final integrity verification failed with exit ' + exit)
+  } finally {
+    try { await fs.promises.unlink(runnerPath) } catch (_) {}
+  }
+}
+
 // MAIN ENTRY. Build one (kind, channel) pair from one uploaded source zip.
 // Caller (server.js) wraps this with writePayloadAndManifest for publish.
 //
@@ -674,6 +706,7 @@ async function buildOneFromSource({
     throw new Error('build succeeded but win-unpacked/ was not found under ' + outDir +
       ' — electron-builder may have produced a different layout. Check the build log above.')
   }
+  await finalizeSourceBuildIntegrity(buildCwd, winUnpacked, job, kind)
   jobAppend(job, '== Packing payload from ' + winUnpacked)
   const payloadBuffer = await packDirToBuffer(winUnpacked, job, kind)
   jobAppend(job, '   payload bytes: ' + payloadBuffer.length)
@@ -688,5 +721,5 @@ module.exports = {
   getBaselineStatus,
   BASELINE_DIR,
   // Exported for the unit-style fixture test.
-  _internal: { extractZipBuffer, safeJoinUnderDest, looksLikeZip, maybeStripCommonRoot, validateSourceShape, findWinUnpacked, MAX_ENTRY_SIZE, MAX_TOTAL_SIZE, copyTreeForBaseline, snapshotBaseline, preparePatchWorkDir },
+  _internal: { extractZipBuffer, safeJoinUnderDest, looksLikeZip, maybeStripCommonRoot, validateSourceShape, findWinUnpacked, finalizeSourceBuildIntegrity, MAX_ENTRY_SIZE, MAX_TOTAL_SIZE, copyTreeForBaseline, snapshotBaseline, preparePatchWorkDir },
 }

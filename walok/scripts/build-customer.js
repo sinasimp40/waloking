@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 const { execSync, execFileSync, spawn } = require('child_process')
+const { finalizeIntegrityArtifact, verifyIntegrityArtifact } = require('./integrity-artifact')
 
 // As of May 2026 update-server/ lives at the REPO ROOT (sibling of walok/),
 // not inside walok/. We try the new path first, then fall back to the old
@@ -232,6 +233,22 @@ function substep(label, fn) {
   }
 }
 
+function finalizeOutputIntegrity(distDir, label) {
+  const unpackedDir = path.join(distDir, 'win-unpacked')
+  const result = finalizeIntegrityArtifact(unpackedDir)
+  log(label + ' final integrity manifest: ' + result.exeName +
+    ' (sha256=' + result.manifest.hash.slice(0, 12) + '...)')
+}
+
+function assertOutputIntegrity(unpackedDir, label) {
+  const result = verifyIntegrityArtifact(unpackedDir)
+  if (!result.ok) {
+    throw new Error(label + ' final integrity verification failed: ' + result.reason)
+  }
+  log(label + ' integrity verified before copy: ' + result.exeName +
+    ' (sha256=' + result.manifest.hash.slice(0, 12) + '...)')
+}
+
 function copyArtifacts(customer, version) {
   const channelDir = path.join(RELEASES_DIR, customer.channel, version)
   fs.mkdirSync(channelDir, { recursive: true })
@@ -259,6 +276,7 @@ function copyArtifacts(customer, version) {
     }
     const unpackedLauncher = path.join(launcherDist, 'win-unpacked')
     if (fs.existsSync(unpackedLauncher)) {
+      assertOutputIntegrity(unpackedLauncher, 'Launcher')
       copyDir(unpackedLauncher, path.join(channelDir, 'launcher-unpacked'))
       log('Copied launcher-unpacked/')
     }
@@ -274,6 +292,7 @@ function copyArtifacts(customer, version) {
     }
     const unpackedServer = path.join(serverDist, 'win-unpacked')
     if (fs.existsSync(unpackedServer)) {
+      assertOutputIntegrity(unpackedServer, 'Server')
       copyDir(unpackedServer, path.join(channelDir, 'server-unpacked'))
       log('Copied server-unpacked/')
     }
@@ -420,6 +439,11 @@ async function main() {
       run('npm run dist:server -- -c.directories.output=' + JSON.stringify(serverOutDir))
     })
   }
+
+  substep('finalize integrity (final build outputs)', () => {
+    if (buildLauncher) finalizeOutputIntegrity(launcherOutDir, 'Launcher')
+    if (buildServer) finalizeOutputIntegrity(serverOutDir, 'Server')
+  })
 
   substep('collect artifacts', () => {
     log('Step 5/5: Collecting artifacts to releases/' + customer.channel + '/' + version + '/')

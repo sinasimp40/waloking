@@ -62,10 +62,12 @@ const REAL_PROJECT = (() => {
   return path.resolve(__dirname, '..')
 })()
 const REAL_PUBLISH_SCRIPT = path.join(REAL_PROJECT, 'scripts', 'publish-update.js')
+const REAL_INTEGRITY_ARTIFACT_SCRIPT = path.join(REAL_PROJECT, 'scripts', 'integrity-artifact.js')
+const asar = require(path.join(REAL_PROJECT, 'node_modules', '@electron', 'asar'))
 
 // ---- helpers ----
 
-function buildWorkspace({ wsRoot, channel, version, brandName }) {
+async function buildWorkspace({ wsRoot, channel, version, brandName }) {
   // Mirror the subset of the project layout that publish-update.js touches:
   //   <ws>/scripts/publish-update.js   (copy of the real script under test)
   //   <ws>/package.json                 (readVersion fallback)
@@ -73,6 +75,7 @@ function buildWorkspace({ wsRoot, channel, version, brandName }) {
   //   <ws>/releases/<ch>/<v>/launcher-unpacked/dummy.txt  (publish input)
   fs.mkdirSync(path.join(wsRoot, 'scripts'), { recursive: true })
   fs.copyFileSync(REAL_PUBLISH_SCRIPT, path.join(wsRoot, 'scripts', 'publish-update.js'))
+  fs.copyFileSync(REAL_INTEGRITY_ARTIFACT_SCRIPT, path.join(wsRoot, 'scripts', 'integrity-artifact.js'))
   fs.writeFileSync(
     path.join(wsRoot, 'package.json'),
     JSON.stringify({ name: 'fake-walok', version: '0.0.1' }, null, 2),
@@ -83,9 +86,30 @@ function buildWorkspace({ wsRoot, channel, version, brandName }) {
     JSON.stringify({ channel, brandName }, null, 2),
   )
   const unpacked = path.join(wsRoot, 'releases', channel, version, 'launcher-unpacked')
-  fs.mkdirSync(unpacked, { recursive: true })
+  const sourceDir = path.join(wsRoot, '.fixture-asar-source')
+  const resourcesDir = path.join(unpacked, 'resources')
+  fs.mkdirSync(path.join(sourceDir, 'electron'), { recursive: true })
+  fs.mkdirSync(resourcesDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(sourceDir, 'electron', '_integrity_secret.json'),
+    JSON.stringify({ k: '0123456789abcdef'.repeat(4) }),
+  )
+  await asar.createPackage(sourceDir, path.join(resourcesDir, 'app.asar'))
+  fs.rmSync(sourceDir, { recursive: true, force: true })
   fs.writeFileSync(path.join(unpacked, 'launcher.exe'), 'fake exe payload bytes')
   fs.writeFileSync(path.join(unpacked, 'README.txt'), 'fake launcher payload')
+
+  // Publish is deliberately a verifier, not a repair step. Use the same
+  // finalizer that production build paths run before copying their payload.
+  const finalizer = path.join(wsRoot, 'scripts', 'integrity-artifact.js')
+  const finalized = child_process.spawnSync(process.execPath, [finalizer, '--finalize', unpacked], {
+    cwd: wsRoot,
+    encoding: 'utf-8',
+    env: { ...process.env, NODE_PATH: path.join(REAL_PROJECT, 'node_modules') },
+  })
+  if (finalized.status !== 0) {
+    throw new Error('fixture integrity finalization failed: ' + finalized.stderr)
+  }
 }
 
 function writeFakeZipShim(binDir) {
@@ -117,6 +141,8 @@ function runPublish({ wsRoot, channel, version, env, binDir }) {
   const fullEnv = Object.assign({}, process.env, env || {}, {
     BUILD_VERSION: version,
     PATH: binDir + path.delimiter + (process.env.PATH || ''),
+    NODE_PATH: path.join(REAL_PROJECT, 'node_modules') +
+      (process.env.NODE_PATH ? path.delimiter + process.env.NODE_PATH : ''),
   })
   const r = child_process.spawnSync(
     process.execPath,
@@ -128,14 +154,14 @@ function runPublish({ wsRoot, channel, version, env, binDir }) {
 
 // ---- test 1: with OTA_UPDATES_DIR set, output goes to the real dir ----
 
-function testHonorsOtaUpdatesDir() {
+async function testHonorsOtaUpdatesDir() {
   const wsRoot = path.join(TMP_ROOT, 'ws-with-env')
   const realUpdates = path.join(TMP_ROOT, 'real-updates')
   const binDir = path.join(TMP_ROOT, 'bin-with-env')
   const channel = 'demo'
   const version = '1.2.3'
 
-  buildWorkspace({ wsRoot, channel, version, brandName: 'DEMO BRAND' })
+  await buildWorkspace({ wsRoot, channel, version, brandName: 'DEMO BRAND' })
   writeFakeZipShim(binDir)
 
   const r = runPublish({
@@ -190,13 +216,13 @@ function testHonorsOtaUpdatesDir() {
 // the real project root). We don't want to break that workflow while
 // fixing the job-runner one.
 
-function testFallbackWhenEnvUnset() {
+async function testFallbackWhenEnvUnset() {
   const wsRoot = path.join(TMP_ROOT, 'ws-no-env')
   const binDir = path.join(TMP_ROOT, 'bin-no-env')
   const channel = 'fallback'
   const version = '0.9.0'
 
-  buildWorkspace({ wsRoot, channel, version, brandName: 'FALLBACK BRAND' })
+  await buildWorkspace({ wsRoot, channel, version, brandName: 'FALLBACK BRAND' })
   writeFakeZipShim(binDir)
 
   const r = runPublish({ wsRoot, channel, version, binDir, env: {} })
@@ -215,22 +241,57 @@ function testFallbackWhenEnvUnset() {
   } catch (e) { fail('fallback manifest', e) }
 }
 
+// ---- test 3: publishing refuses an artifact changed after finalization ----
+
+async function testRejectsStaleIntegrityArtifact() {
+  const wsRoot = path.join(TMP_ROOT, 'ws-stale-integrity')
+  const realUpdates = path.join(TMP_ROOT, 'stale-updates')
+  const binDir = path.join(TMP_ROOT, 'bin-stale-integrity')
+  const channel = 'stale'
+  const version = '3.0.0'
+
+  await buildWorkspace({ wsRoot, channel, version, brandName: 'STALE BRAND' })
+  const exePath = path.join(wsRoot, 'releases', channel, version, 'launcher-unpacked', 'launcher.exe')
+  fs.appendFileSync(exePath, ' changed after integrity finalization')
+  writeFakeZipShim(binDir)
+
+  const r = runPublish({
+    wsRoot, channel, version, binDir,
+    env: { OTA_UPDATES_DIR: realUpdates },
+  })
+  try {
+    assert.notStrictEqual(r.status, 0, 'publish must refuse a changed executable')
+    assert.match(r.stderr, /Launcher payload integrity verification failed: executable hash mismatch/)
+    assert.ok(!fs.existsSync(path.join(realUpdates, channel, 'latest.json')),
+      'a rejected payload must not write a latest manifest')
+    ok('publish-update refuses a payload whose executable changed after finalization')
+  } catch (e) { fail('stale artifact publish guard', e) }
+}
+
 // ---- run ----
 
-console.log('=== test-publish-paths.js: publish-update.js OTA_UPDATES_DIR contract ===')
-console.log('  tmp dir: ' + TMP_ROOT)
+async function main() {
+  console.log('=== test-publish-paths.js: publish-update.js OTA_UPDATES_DIR contract ===')
+  console.log('  tmp dir: ' + TMP_ROOT)
 
-try { testHonorsOtaUpdatesDir() } catch (e) { fail('testHonorsOtaUpdatesDir threw', e) }
-try { testFallbackWhenEnvUnset() } catch (e) { fail('testFallbackWhenEnvUnset threw', e) }
+  try { await testHonorsOtaUpdatesDir() } catch (e) { fail('testHonorsOtaUpdatesDir threw', e) }
+  try { await testFallbackWhenEnvUnset() } catch (e) { fail('testFallbackWhenEnvUnset threw', e) }
+  try { await testRejectsStaleIntegrityArtifact() } catch (e) { fail('testRejectsStaleIntegrityArtifact threw', e) }
 
-try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch (_) {}
+  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch (_) {}
 
-console.log('')
-if (failed === 0) {
-  console.log('=== ALL TESTS PASSED (' + passed + ') ===')
-  process.exit(0)
-} else {
-  console.log('=== ' + failed + ' TEST(S) FAILED ===')
-  console.log('=== ' + passed + ' passed ===')
-  process.exit(1)
+  console.log('')
+  if (failed === 0) {
+    console.log('=== ALL TESTS PASSED (' + passed + ') ===')
+  } else {
+    console.log('=== ' + failed + ' TEST(S) FAILED ===')
+    console.log('=== ' + passed + ' passed ===')
+    process.exitCode = 1
+  }
 }
+
+main().catch(error => {
+  fail('test runner threw', error)
+  try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }) } catch (_) {}
+  process.exit(1)
+})
