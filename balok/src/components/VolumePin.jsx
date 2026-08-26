@@ -77,7 +77,7 @@ export default function VolumePin({ accent = '#7c5cff', compact = false }) {
   return (
     <div className={compact ? 'flex-shrink-0' : 'px-4 pt-3 pb-1 flex-shrink-0'}>
       <div
-        className={`rounded-lg flex items-center ${compact ? 'w-[132px] px-1.5 py-1 gap-1.5' : 'px-2.5 py-1.5 gap-2.5'}`}
+        className={`rounded-lg flex items-center ${compact ? 'w-[116px] px-1.5 py-1 gap-1.5' : 'px-2.5 py-1.5 gap-2.5'}`}
         style={{
           background: 'rgba(24,24,27,0.8)',
           border: '1px solid rgba(255,255,255,0.05)',

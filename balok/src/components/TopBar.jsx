@@ -179,7 +179,7 @@ export default function TopBar({ onSaveLoad }) {
       >
         {/* Zoom out / level / zoom in — scales the game list cards only */}
         <div
-          className="flex items-center gap-0.5 mr-1 rounded-lg px-0.5"
+          className="flex flex-shrink-0 items-center gap-0.5 mr-1 rounded-lg px-0.5"
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
           <button
@@ -215,7 +215,7 @@ export default function TopBar({ onSaveLoad }) {
         {settings.saveLoadServerUrl && (
           <button
             onClick={onSaveLoad}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
+            className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
             title="Save & Load"
             style={{ WebkitAppRegion: 'no-drag' }}
           >
@@ -224,11 +224,12 @@ export default function TopBar({ onSaveLoad }) {
         )}
         <button
           onClick={openAdmin}
-          className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
+          className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
           title="Admin Panel"
-          style={{ WebkitAppRegion: 'no-drag' }}
+          aria-label="Open Admin Panel"
+          style={{ WebkitAppRegion: 'no-drag', color: accent }}
         >
-          <Settings size={12} style={{ color: 'rgba(255,255,255,0.4)' }} />
+          <Settings size={13} style={{ color: accent }} />
         </button>
 
         {/* Divider */}
@@ -238,21 +239,21 @@ export default function TopBar({ onSaveLoad }) {
         {/* Window controls */}
         <button
           onClick={minimize}
-          className="w-7 h-7 rounded-md flex items-center justify-center transition-all hover:bg-white/10"
+          className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center transition-all hover:bg-white/10"
           style={{ WebkitAppRegion: 'no-drag' }}
         >
           <Minus size={10} style={{ color: 'rgba(255,255,255,0.45)' }} />
         </button>
         <button
           onClick={maximize}
-          className="w-7 h-7 rounded-md flex items-center justify-center transition-all hover:bg-white/10"
+          className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center transition-all hover:bg-white/10"
           style={{ WebkitAppRegion: 'no-drag' }}
         >
           <Square size={9} style={{ color: 'rgba(255,255,255,0.45)' }} />
         </button>
         <button
           onClick={close}
-          className="w-7 h-7 rounded-md flex items-center justify-center transition-all hover:bg-red-500/75 group"
+          className="w-7 h-7 flex-shrink-0 rounded-md flex items-center justify-center transition-all hover:bg-red-500/75 group"
           style={{ WebkitAppRegion: 'no-drag' }}
         >
           <X size={11} style={{ color: 'rgba(255,255,255,0.45)' }} className="group-hover:text-white" />
