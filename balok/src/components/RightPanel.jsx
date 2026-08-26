@@ -4,6 +4,7 @@ import { Megaphone, Trophy, Calendar, ChevronRight, Tv, Plus, ChevronDown, Chevr
 import toast from 'react-hot-toast'
 import LiveTVCard from './LiveTVCard'
 import EventDetailModal from './EventDetailModal'
+import AnnouncementDetailModal from './AnnouncementDetailModal'
 
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
@@ -212,6 +213,8 @@ export default function RightPanel() {
   const [showAllAnnouncements, setShowAllAnnouncements] = useState(false)
   const [showAllEvents, setShowAllEvents] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState(null)
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null)
+  const [selectedAnnouncementImage, setSelectedAnnouncementImage] = useState(null)
 
   // Dynamic limits computed from measured container height
   const containerRef = useRef(null)
@@ -294,6 +297,11 @@ export default function RightPanel() {
     await launchGame(game)
   }
 
+  const openAnnouncementDetails = (announcementItem, index) => {
+    setSelectedAnnouncement(announcementItem)
+    setSelectedAnnouncementImage(announceImgs[index] || announcementItem.image || null)
+  }
+
   return (
     <div className="flex flex-col flex-shrink-0 overflow-hidden"
       style={{ width: 'var(--rightpanel-w)', background: 'var(--bg-panel)', borderLeft: '1px solid var(--border)' }}>
@@ -371,10 +379,14 @@ export default function RightPanel() {
             )}
           </div>
           <div className="pb-1">
-            {(showAllAnnouncements ? announcements : announcements.slice(0, dynAnnounce)).map(a => (
+            {(showAllAnnouncements ? announcements : announcements.slice(0, dynAnnounce)).map((a, index) => (
               <div key={a.id}
                 className="flex gap-2.5 px-4 py-2 hover:bg-white/[0.025] transition-all cursor-pointer border-b"
-                style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                style={{ borderColor: 'rgba(255,255,255,0.04)' }}
+                onClick={() => openAnnouncementDetails(a, index)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAnnouncementDetails(a, index) } }}
+                role="button"
+                tabIndex={0}>
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
                   style={{ background: `${a.color}18`, border: `1px solid ${a.color}25` }}>
                   <Megaphone size={11} style={{ color: a.color }} />
@@ -483,6 +495,16 @@ export default function RightPanel() {
         accent={accent}
         onClose={() => setSelectedEvent(null)}
         onLaunch={launchSelectedEventGame}
+      />
+
+      <AnnouncementDetailModal
+        announcement={selectedAnnouncement}
+        image={selectedAnnouncementImage}
+        accent={accent}
+        onClose={() => {
+          setSelectedAnnouncement(null)
+          setSelectedAnnouncementImage(null)
+        }}
       />
 
       {/* ── IPTV — pinned footer, always fully visible ── */}
