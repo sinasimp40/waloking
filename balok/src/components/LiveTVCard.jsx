@@ -103,41 +103,96 @@ export default function LiveTVCard() {
 
   return (
     <motion.div
-      whileHover={{ scale: 1.015 }}
+      whileHover={{ scale: 1.015, y: -1 }}
       onClick={openIPTV}
-      className="w-full rounded-xl overflow-hidden cursor-pointer relative"
-      style={{ background: '#000', border: `1px solid ${accent}25` }}
+      className="group w-full rounded-xl overflow-hidden cursor-pointer relative"
+      style={{
+        background: '#080808',
+        border: `1px solid ${accent}35`,
+        boxShadow: `0 8px 24px rgba(0,0,0,0.24), inset 0 1px 0 ${accent}18`,
+      }}
+      aria-label="Open Live TV"
     >
-      <div className="relative w-full" style={{ height: 92, background: '#0a0a0b' }}>
+      <div
+        className="relative w-full overflow-hidden"
+        style={{
+          height: 104,
+          background: `radial-gradient(ellipse at 50% 110%, ${accent}18 0%, transparent 58%), linear-gradient(145deg, #151515, #070707 72%)`,
+        }}
+      >
         <video ref={videoRef} muted playsInline className="w-full h-full object-cover" style={{ opacity: live ? 1 : 0, transition: 'opacity .3s' }} />
         {!live && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Tv size={20} style={{ color: `${accent}45` }} />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{
+                background: `${accent}12`,
+                border: `1px solid ${accent}35`,
+                boxShadow: `0 0 18px ${accent}18`,
+              }}
+            >
+              <Tv size={18} style={{ color: `${accent}9a` }} />
+            </div>
+            <span className="text-[7px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              Preview
+            </span>
           </div>
         )}
-        <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full"
-          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(239,68,68,0.3)' }}>
-          <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-          <span className="text-[7.5px] font-bold uppercase tracking-widest text-red-300">Live</span>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.58), transparent 55%)' }} />
+        <div
+          className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-1 rounded-full"
+          style={{
+            background: 'rgba(0,0,0,0.62)',
+            border: `1px solid ${live ? 'rgba(239,68,68,0.42)' : `${accent}35`}`,
+            backdropFilter: 'blur(5px)',
+          }}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${live ? 'animate-pulse' : ''}`}
+            style={{ background: live ? '#f87171' : accent, boxShadow: `0 0 6px ${live ? '#f87171' : accent}` }}
+          />
+          <span className="text-[7.5px] font-bold uppercase tracking-[0.16em]" style={{ color: live ? '#fca5a5' : `${accent}cc` }}>
+            {live ? 'Live' : 'Preview'}
+          </span>
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); shuffle() }}
           title="Shuffle channel"
-          className="absolute top-1.5 right-1.5 w-5 h-5 rounded-md flex items-center justify-center transition-colors"
-          style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}
+          className="absolute top-2 right-2 w-6 h-6 rounded-lg flex items-center justify-center transition-all group-hover:bg-white/10"
+          style={{ background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(255,255,255,0.16)', color: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(5px)' }}
         >
-          <Shuffle size={9} />
+          <Shuffle size={10} />
         </button>
       </div>
-      <div className="flex items-center gap-2 px-2.5 py-2" style={{ background: `${accent}10` }}>
-        <Tv size={13} style={{ color: accent }} />
+      <div
+        className="flex items-center gap-2.5 px-3 py-2.5"
+        style={{
+          background: `linear-gradient(90deg, ${accent}14, ${accent}08 58%, rgba(0,0,0,0.18))`,
+          borderTop: `1px solid ${accent}20`,
+        }}
+      >
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ background: `${accent}18`, border: `1px solid ${accent}35` }}
+        >
+          <Tv size={13} style={{ color: accent }} />
+        </div>
         <div className="min-w-0 flex-1 text-left">
-          <div className="text-[10px] font-bold uppercase tracking-wider truncate" style={{ color: accent }}>LIVE TV</div>
-          <div className="text-[8px] uppercase tracking-widest truncate" style={{ color: 'rgba(255,255,255,0.4)' }}>
+          <div className="text-[9px] font-bold uppercase tracking-[0.16em]" style={{ color: accent }}>Live TV</div>
+          <div
+            className="mt-0.5 text-[8px] leading-[1.2] uppercase tracking-[0.08em] line-clamp-2"
+            title={channel?.name || 'Connecting…'}
+            style={{ color: 'rgba(255,255,255,0.48)' }}
+          >
             {channel ? channel.name : 'Connecting…'}
           </div>
         </div>
-        <ChevronRight size={12} style={{ color: `${accent}60` }} />
+        <div
+          className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-transform group-hover:translate-x-0.5"
+          style={{ background: `${accent}14`, border: `1px solid ${accent}25` }}
+        >
+          <ChevronRight size={12} style={{ color: `${accent}b0` }} />
+        </div>
       </div>
     </motion.div>
   )
