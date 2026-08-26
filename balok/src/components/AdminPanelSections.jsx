@@ -1268,7 +1268,8 @@ export function FeaturedSection() {
 }
 
 export function EventsSection() {
-  const { settings, updateSettings } = useStore()
+  const { settings, updateSettings, games } = useStore()
+  const [eventGameQueries, setEventGameQueries] = useState({})
 
   const getRandomColor = () => {
     const colors = ['#F97316', '#EF4444', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4']
@@ -1282,7 +1283,8 @@ export function EventsSection() {
       date: new Date().toISOString().split('T')[0], 
       dateLabel: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase(),
       description: '',
-      color: getRandomColor()
+      color: getRandomColor(),
+      gameId: null,
     }
     updateSettings({ upcomingEventsList: [...(settings.upcomingEventsList || []), newEvent] })
   }
@@ -1305,7 +1307,17 @@ export function EventsSection() {
               No events scheduled yet.
             </div>
           )}
-          {settings.upcomingEventsList?.map(event => (
+          {settings.upcomingEventsList?.map(event => {
+            const selectedGame = games.find(game => String(game.id) === String(event.gameId || '')) || null
+            const gameQuery = eventGameQueries[event.id] || ''
+            const normalizedQuery = gameQuery.trim().toLowerCase()
+            const matchingGames = games.filter(game =>
+              String(game.id) === String(event.gameId || '') ||
+              !normalizedQuery ||
+              String(game.name || '').toLowerCase().includes(normalizedQuery)
+            )
+
+            return (
             <div key={event.id} className="p-6 rounded-2xl border border-zinc-800/50 bg-black space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <Field label="Event Title">
@@ -1348,8 +1360,70 @@ export function EventsSection() {
                   <Input value={event.description} onChange={e => updateEvent(event.id, { description: e.target.value })} placeholder="Details about the event..." />
                 </Field>
               </div>
+
+              <Field label="Linked Game" hint="Optional. The event popup uses this game's current icon and wallpaper.">
+                <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-4">
+                  <div
+                    className="relative min-h-24 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950"
+                    style={{
+                      backgroundImage: selectedGame?.wallpaper
+                        ? `linear-gradient(90deg, rgba(9,9,9,0.92), rgba(9,9,9,0.34)), url("${selectedGame.wallpaper}")`
+                        : undefined,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  >
+                    <div className="relative h-full min-h-24 flex items-center gap-3 px-3">
+                      <div className="w-12 h-12 rounded-lg flex-shrink-0 overflow-hidden bg-black border border-zinc-800 flex items-center justify-center">
+                        {selectedGame?.icon
+                          ? <img src={selectedGame.icon} alt="" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none' }} />
+                          : <ImageIcon size={18} className="text-zinc-700" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[8px] font-bold uppercase tracking-[0.16em] text-zinc-600">Popup artwork</div>
+                        <div className="mt-1 text-[10px] font-bold uppercase tracking-wide text-zinc-300 break-words">
+                          {selectedGame?.name || 'No game selected'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Input
+                      value={gameQuery}
+                      onChange={e => setEventGameQueries(current => ({ ...current, [event.id]: e.target.value }))}
+                      placeholder="Filter games by name..."
+                    />
+                    <div className="flex gap-2">
+                      <select
+                        value={event.gameId || ''}
+                        onChange={e => updateEvent(event.id, { gameId: e.target.value || null })}
+                        className="flex-1 min-w-0 h-10 px-3 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 text-xs outline-none focus:border-zinc-600"
+                      >
+                        <option value="">No linked game</option>
+                        {matchingGames.map(game => (
+                          <option key={game.id} value={game.id}>{game.name}</option>
+                        ))}
+                      </select>
+                      {event.gameId && (
+                        <button
+                          type="button"
+                          onClick={() => updateEvent(event.id, { gameId: null })}
+                          className="px-3 rounded-lg border border-zinc-800 bg-zinc-950 text-[9px] font-bold uppercase tracking-wider text-zinc-500 hover:border-red-400/30 hover:text-red-400 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    {normalizedQuery && matchingGames.length === 0 && (
+                      <p className="text-[10px] text-zinc-600">No games match this filter.</p>
+                    )}
+                  </div>
+                </div>
+              </Field>
             </div>
-          ))}
+            )
+          })}
         </div>
       </Panel>
     </div>

@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Megaphone, Trophy, Calendar, ChevronRight, Tv, Plus, ChevronDown, ChevronUp, Zap, Coins, Gem, Crown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import VolumePin from './VolumePin'
 import LiveTVCard from './LiveTVCard'
+import EventDetailModal from './EventDetailModal'
 
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
@@ -20,6 +21,15 @@ function gameGradient(name = '') {
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff
   const g = GRADIENTS[Math.abs(h) % GRADIENTS.length]
   return `linear-gradient(145deg, ${g[0]}, ${g[1]})`
+}
+
+function resolveEventGame(event, games) {
+  if (!event) return null
+  if (event.gameId != null && event.gameId !== '') {
+    return games.find(game => String(game.id) === String(event.gameId)) || null
+  }
+  // Keep older imported events working if they stored a game object directly.
+  return event.game || null
 }
 
 const MAX_ANNOUNCE = 3   // announcements visible before "+N more"
@@ -70,7 +80,7 @@ function CountUnit({ value, label }) {
   )
 }
 
-function NextEventCard({ ev, onClick, accent }) {
+function NextEventCard({ ev, game, onClick, accent }) {
   const color = ev.color || accent
   const countdown = useCountdown(ev.date)
   const eventName = ev.title || ev.name || 'Untitled Event'
@@ -79,11 +89,25 @@ function NextEventCard({ ev, onClick, accent }) {
   return (
     <motion.div
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       whileHover={{ scale: 1.01 }}
       whileTap={{ scale: 0.98 }}
+      role="button"
+      tabIndex={0}
+      aria-label={`View details for ${eventName}`}
       className="relative mx-3 mb-2 rounded-xl overflow-hidden cursor-pointer"
       style={{ border: `1px solid ${color}35` }}
     >
+      {game?.wallpaper && (
+        <div
+          className="absolute inset-0 pointer-events-none opacity-20"
+          style={{
+            backgroundImage: `linear-gradient(90deg, ${color}28, transparent 75%), url("${game.wallpaper}")`,
+            backgroundPosition: 'center',
+            backgroundSize: 'cover',
+          }}
+        />
+      )}
       {/* Pulsing ambient glow behind the card */}
       <motion.div
         className="absolute inset-0 rounded-xl pointer-events-none"
@@ -188,6 +212,7 @@ export default function RightPanel() {
 
   const [showAllAnnouncements, setShowAllAnnouncements] = useState(false)
   const [showAllEvents, setShowAllEvents] = useState(false)
+  const [selectedEvent, setSelectedEvent] = useState(null)
 
   // Dynamic limits computed from measured container height
   const containerRef = useRef(null)
@@ -261,6 +286,13 @@ export default function RightPanel() {
         toast.success(`Launching ${game.name}…`); incrementLaunchCount(game.id)
       } else toast.error(r.error || 'Failed')
     } else { toast.success(`Launching ${game.name}… (preview)`); incrementLaunchCount(game.id) }
+  }
+
+  const openEventDetails = (event) => setSelectedEvent(event)
+  const selectedEventGame = selectedEvent ? resolveEventGame(selectedEvent, games) : null
+  const launchSelectedEventGame = async (game) => {
+    setSelectedEvent(null)
+    await launchGame(game)
   }
 
   return (
@@ -390,25 +422,33 @@ export default function RightPanel() {
           </div>
           <div className="pb-1">
             {(showAllEvents ? upcomingEvents : upcomingEvents.slice(0, dynEvents)).map((ev, idx) => {
+              const eventGame = resolveEventGame(ev, games)
               if (idx === 0) {
                 return (
-                  <NextEventCard key={ev.id} ev={ev} accent={accent}
-                    onClick={() => ev.game && launchGame(ev.game)} />
+                  <NextEventCard key={ev.id} ev={ev} game={eventGame} accent={accent}
+                    onClick={() => openEventDetails(ev)} />
                 )
               }
-              const hasGame = ev.game
-              const thumbBg = hasGame ? gameGradient(ev.name) : (ev.color ? `linear-gradient(135deg, ${ev.color}33, ${ev.color}11)` : 'rgba(255,255,255,0.05)')
+              const hasGame = !!eventGame
+              const thumbBg = hasGame
+                ? (eventGame.wallpaper ? `url("${eventGame.wallpaper}") center/cover, ${gameGradient(eventGame.name)}` : gameGradient(eventGame.name))
+                : (ev.color ? `linear-gradient(135deg, ${ev.color}33, ${ev.color}11)` : 'rgba(255,255,255,0.05)')
               const eventName = ev.title || ev.name || 'Untitled Event'
               const eventDateLabel = ev.dateLabel || ev.date || ''
               return (
                 <motion.div key={ev.id} whileHover={{ x: 2 }}
+                  role="button"
+                  tabIndex={0}
                   className="flex gap-2.5 px-3 py-2.5 cursor-pointer border-b transition-all"
                   style={{ borderColor: 'rgba(255,255,255,0.04)' }}
-                  onClick={() => hasGame && launchGame(ev.game)}>
+                  onClick={() => openEventDetails(ev)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEventDetails(ev) } }}
+                  aria-label={`View details for ${eventName}`}
+                >
                   <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
                     style={{ background: thumbBg, border: '1px solid rgba(255,255,255,0.07)' }}>
-                    {hasGame && ev.game.icon
-                      ? <img src={ev.game.icon} alt="" className="w-full h-full object-cover" onError={e => e.target.style.display = 'none'} />
+                    {hasGame && eventGame.icon
+                      ? <img src={eventGame.icon} alt="" className="w-full h-full object-cover" onError={e => e.currentTarget.style.display = 'none'} />
                       : <span style={{ fontSize: 14 }}>🎮</span>}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -437,6 +477,14 @@ export default function RightPanel() {
         </div>
 
       </div>
+
+      <EventDetailModal
+        event={selectedEvent}
+        game={selectedEventGame}
+        accent={accent}
+        onClose={() => setSelectedEvent(null)}
+        onLaunch={launchSelectedEventGame}
+      />
 
       {/* ── Volume — pinned above Live TV ── */}
       <VolumePin accent={accent} />
