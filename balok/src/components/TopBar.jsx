@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { Search, Settings, Save, Minus, Square, X, ZoomIn, ZoomOut } from 'lucide-react'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
+import VolumePin from './VolumePin'
 
 function useClock() {
   const [now, setNow] = useState(new Date())
@@ -208,6 +209,8 @@ export default function TopBar({ onSaveLoad }) {
             <ZoomIn size={11} style={{ color: 'rgba(255,255,255,0.55)' }} />
           </button>
         </div>
+
+        <VolumePin accent={accent} compact />
 
         {settings.saveLoadServerUrl && (
           <button

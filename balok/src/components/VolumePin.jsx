@@ -7,7 +7,7 @@ import { Volume2, Volume1, VolumeX } from 'lucide-react'
    actual Windows master volume through the sysVolume bridge (applied on every
    drag tick, no debounce → instant). In the browser it falls back to setting
    the volume of every <video>/<audio> element on the page.                   */
-export default function VolumePin({ accent = '#7c5cff' }) {
+export default function VolumePin({ accent = '#7c5cff', compact = false }) {
   const [volume, setVolume] = useState(() => {
     const v = parseInt(localStorage.getItem('balok-sys-volume') || '', 10)
     return isNaN(v) ? 60 : Math.max(0, Math.min(100, v))
@@ -75,9 +75,9 @@ export default function VolumePin({ accent = '#7c5cff' }) {
   const Icon = muted || volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2
 
   return (
-    <div className="px-4 pt-3 pb-1 flex-shrink-0">
+    <div className={compact ? 'flex-shrink-0' : 'px-4 pt-3 pb-1 flex-shrink-0'}>
       <div
-        className="rounded-lg px-2.5 py-1.5 flex items-center gap-2.5"
+        className={`rounded-lg flex items-center ${compact ? 'w-[132px] px-1.5 py-1 gap-1.5' : 'px-2.5 py-1.5 gap-2.5'}`}
         style={{
           background: 'rgba(24,24,27,0.8)',
           border: '1px solid rgba(255,255,255,0.05)',

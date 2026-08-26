@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Megaphone, Trophy, Calendar, ChevronRight, Tv, Plus, ChevronDown, ChevronUp, Zap, Coins, Gem, Crown } from 'lucide-react'
 import toast from 'react-hot-toast'
-import VolumePin from './VolumePin'
 import LiveTVCard from './LiveTVCard'
 import EventDetailModal from './EventDetailModal'
 
@@ -485,9 +484,6 @@ export default function RightPanel() {
         onClose={() => setSelectedEvent(null)}
         onLaunch={launchSelectedEventGame}
       />
-
-      {/* ── Volume — pinned above Live TV ── */}
-      <VolumePin accent={accent} />
 
       {/* ── IPTV — pinned footer, always fully visible ── */}
       {settings.showIPTV && (
