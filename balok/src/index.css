@@ -158,6 +158,50 @@
   from { width: 0; }
 }
 
+/* ── Brand mark glitch ── */
+.balok-glitch-mark {
+  isolation: isolate;
+}
+.balok-glitch-mark::before,
+.balok-glitch-mark::after {
+  content: attr(data-glitch);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+  font: inherit;
+}
+.balok-glitch-mark::before {
+  color: #00e5ff;
+  animation: balokGlitchCyan 5s steps(1, end) infinite;
+}
+.balok-glitch-mark::after {
+  color: #ff2d55;
+  animation: balokGlitchMagenta 5s steps(1, end) infinite;
+}
+@keyframes balokGlitchCyan {
+  0%, 88%, 94%, 100% { opacity: 0; transform: none; clip-path: inset(0); }
+  89% { opacity: 0.8; transform: translate(-2px, 1px); clip-path: inset(18% 0 58% 0); }
+  90% { opacity: 0.45; transform: translate(2px, -1px); clip-path: inset(62% 0 16% 0); }
+  91% { opacity: 0; }
+}
+@keyframes balokGlitchMagenta {
+  0%, 88%, 94%, 100% { opacity: 0; transform: none; clip-path: inset(0); }
+  89% { opacity: 0.5; transform: translate(2px, -1px); clip-path: inset(58% 0 20% 0); }
+  90% { opacity: 0.75; transform: translate(-2px, 1px); clip-path: inset(12% 0 68% 0); }
+  91% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .balok-glitch-mark::before,
+  .balok-glitch-mark::after {
+    animation: none;
+  }
+}
+
 /* ── Accent glow ── */
 .accent-glow { box-shadow: 0 0 16px rgba(255,106,0,0.35); }
 

@@ -338,11 +338,12 @@ export default function LeftSidebar() {
           </div>
         ) : (
           <div
-            className="relative w-24 h-24 flex items-center justify-center flex-shrink-0 text-black text-3xl font-black"
+            className="balok-glitch-mark relative w-24 h-24 flex items-center justify-center flex-shrink-0 text-black text-3xl font-black"
+            data-glitch="B"
             style={{ background: `linear-gradient(145deg, ${accent}, ${accent}bb)`, clipPath: CLIP_SM, boxShadow: `0 0 28px ${accent}55` }}
           >
             <span className="absolute inset-x-0 top-0 h-px" style={{ background: 'rgba(255,255,255,0.6)' }} />
-            B
+            <span className="relative z-[1]">B</span>
           </div>
         )}
 
