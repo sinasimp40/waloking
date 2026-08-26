@@ -221,6 +221,8 @@ export default function LeftSidebar() {
   const brandLogo = settings.logo || ota?.logoFile || null
   const brandName = settings.launcherName || ota?.brandName || 'BALOK LOUNGE'
   const brandTagline = settings.launcherTagline || ota?.subtitle || 'COMPUTER SHOP'
+  const poweredByText = String(settings.poweredBy || 'BALOK').trim() || 'BALOK'
+  const poweredByIsLong = poweredByText.length > 14
   const accent = settings.accentColor || getDefaultAccent()
   const socials = settings.socialLinks || []
   const apps = settings.officeApps || []
@@ -505,12 +507,16 @@ export default function LeftSidebar() {
             <Zap size={13} fill={accent} style={{ color: accent, filter: `drop-shadow(0 0 4px ${accent}90)` }} />
           </div>
 
-          <div className="min-w-0 leading-none">
+          <div className="min-w-0 flex-1 leading-none">
             <div className="text-[7px] font-bold uppercase tracking-[0.22em]" style={{ color: 'rgba(255,255,255,0.36)' }}>
               Powered by
             </div>
-            <div className="mt-1 text-[13px] font-black uppercase tracking-[0.12em] truncate" style={{ color: accent, textShadow: `0 0 10px ${accent}50` }}>
-              {settings.poweredBy || 'BALOK'}
+            <div
+              className={`mt-1 font-black uppercase leading-[1.15] break-words ${poweredByIsLong ? 'text-[10px] tracking-[0.08em]' : 'text-[13px] tracking-[0.12em]'}`}
+              title={poweredByText}
+              style={{ color: accent, textShadow: `0 0 10px ${accent}50`, overflowWrap: 'anywhere' }}
+            >
+              {poweredByText}
             </div>
           </div>
 
