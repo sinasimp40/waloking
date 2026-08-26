@@ -202,14 +202,6 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
                     Launch game
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.14em] transition-colors hover:bg-white/10 flex-shrink-0"
-                  style={{ color: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.13)' }}
-                >
-                  Close
-                </button>
               </div>
             </div>
           </motion.div>
