@@ -183,6 +183,24 @@
   color: #ff2d55;
   animation: balokGlitchMagenta 5s steps(1, end) infinite;
 }
+.balok-glitch-logo-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+}
+.balok-glitch-logo-cyan {
+  filter: sepia(1) saturate(8) hue-rotate(145deg) brightness(1.3);
+  animation: balokLogoGlitchCyan 5s steps(1, end) infinite;
+}
+.balok-glitch-logo-magenta {
+  filter: sepia(1) saturate(8) hue-rotate(290deg) brightness(1.2);
+  animation: balokLogoGlitchMagenta 5s steps(1, end) infinite;
+}
 @keyframes balokGlitchCyan {
   0%, 88%, 94%, 100% { opacity: 0; transform: none; clip-path: inset(0); }
   89% { opacity: 0.8; transform: translate(-2px, 1px); clip-path: inset(18% 0 58% 0); }
@@ -195,9 +213,27 @@
   90% { opacity: 0.75; transform: translate(-2px, 1px); clip-path: inset(12% 0 68% 0); }
   91% { opacity: 0; }
 }
+@keyframes balokLogoGlitchCyan {
+  0%, 78%, 86%, 100% { opacity: 0; transform: none; clip-path: inset(0); }
+  79% { opacity: 0.75; transform: translate(-3px, 1px) skewX(-2deg); clip-path: inset(14% 0 62% 0); }
+  80% { opacity: 0.45; transform: translate(3px, -1px); clip-path: inset(64% 0 12% 0); }
+  81% { opacity: 0; }
+  83% { opacity: 0.6; transform: translate(-2px, 0); clip-path: inset(42% 0 36% 0); }
+  84% { opacity: 0; }
+}
+@keyframes balokLogoGlitchMagenta {
+  0%, 78%, 86%, 100% { opacity: 0; transform: none; clip-path: inset(0); }
+  79% { opacity: 0.55; transform: translate(3px, -1px) skewX(2deg); clip-path: inset(58% 0 18% 0); }
+  80% { opacity: 0.8; transform: translate(-3px, 1px); clip-path: inset(10% 0 70% 0); }
+  81% { opacity: 0; }
+  83% { opacity: 0.45; transform: translate(2px, 0); clip-path: inset(32% 0 44% 0); }
+  84% { opacity: 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   .balok-glitch-mark::before,
-  .balok-glitch-mark::after {
+  .balok-glitch-mark::after,
+  .balok-glitch-logo-cyan,
+  .balok-glitch-logo-magenta {
     animation: none;
   }
 }

@@ -330,10 +330,22 @@ export default function LeftSidebar() {
             <motion.img
               src={brandLogo}
               alt="Logo"
-              className="w-full h-full object-contain"
-              style={{ transformStyle: 'preserve-3d' }}
+              className="balok-glitch-logo-base w-full h-full object-contain"
+              style={{ transformStyle: 'preserve-3d', position: 'relative', zIndex: 1 }}
               animate={{ rotateY: [20, -20] }}
               transition={{ duration: 2, ease: 'easeInOut', repeat: Infinity, repeatType: 'mirror' }}
+            />
+            <img
+              src={brandLogo}
+              alt=""
+              aria-hidden="true"
+              className="balok-glitch-logo-layer balok-glitch-logo-cyan"
+            />
+            <img
+              src={brandLogo}
+              alt=""
+              aria-hidden="true"
+              className="balok-glitch-logo-layer balok-glitch-logo-magenta"
             />
           </div>
         ) : (
