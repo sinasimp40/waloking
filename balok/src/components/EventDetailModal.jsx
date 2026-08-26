@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Calendar, Clock3, Gamepad2, Play, Sparkles, X } from 'lucide-react'
+import { Calendar, Clock3, Gamepad2, Play, Sparkles } from 'lucide-react'
 
 function parseEventDate(value = '') {
   const cleaned = String(value).replace(/\s*•\s*/, ' ')
@@ -82,7 +82,7 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
   const closeModal = (e) => {
     e?.preventDefault()
     e?.stopPropagation()
-    onClose()
+    onClose?.()
   }
 
   return (
@@ -111,10 +111,29 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
               background: '#0d0d0e',
               border: `1px solid ${color}50`,
               boxShadow: `0 24px 80px rgba(0,0,0,0.65), 0 0 38px ${color}18`,
+              WebkitAppRegion: 'no-drag',
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
+            <button
+              type="button"
+              aria-label="Close event details"
+              onPointerDownCapture={closeModal}
+              onMouseDownCapture={closeModal}
+              onClickCapture={closeModal}
+              className="absolute top-3 right-3 z-[50] min-w-[58px] rounded-lg px-3 py-2 text-[9px] font-black uppercase tracking-[0.14em] transition-colors hover:bg-white/10"
+              style={{
+                background: 'rgba(0,0,0,0.72)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                color: '#ffffff',
+                pointerEvents: 'auto',
+                WebkitAppRegion: 'no-drag',
+              }}
+            >
+              Close
+            </button>
+
             <div
               className="relative min-h-[190px] overflow-hidden"
               style={{
@@ -126,23 +145,6 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
               }}
             >
               <div className="absolute inset-0 pointer-events-none" style={{ background: `linear-gradient(135deg, ${color}18, transparent 45%)` }} />
-              <button
-                type="button"
-                onPointerDown={closeModal}
-                onClick={closeModal}
-                aria-label="Close event details"
-                className="absolute top-3 right-3 z-10 w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-                style={{
-                  background: 'rgba(0,0,0,0.42)',
-                  border: '1px solid rgba(255,255,255,0.16)',
-                  color: 'rgba(255,255,255,0.75)',
-                  pointerEvents: 'auto',
-                  WebkitAppRegion: 'no-drag',
-                }}
-              >
-                <X size={15} />
-              </button>
-
               <div className="relative z-10 flex items-end gap-4 p-5 pt-12">
                 <div
                   className="w-20 h-20 rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0"
