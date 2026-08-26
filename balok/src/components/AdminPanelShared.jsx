@@ -109,12 +109,7 @@ export function Input({ value, onChange, placeholder, type = 'text', className =
   const handleUpload = async () => {
     if (!window.electronAPI) return toast.error('Desktop integration not available');
     try {
-      // In the electron app, we want to open a file selector and then 
-      // handle the path relative to the assets directory if possible,
-      // or just return the selected path.
-      const result = await window.electronAPI.selectFile([
-        { name: 'All Files', extensions: ['*'] }
-      ]);
+      const result = await window.electronAPI.selectImage()
       if (result) onChange({ target: { value: result } });
     } catch (e) {
       toast.error('Upload failed');

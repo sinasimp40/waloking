@@ -982,6 +982,10 @@ export function BackupSection() {
     const hasElectronImport = typeof window !== 'undefined' && Boolean(window.electronAPI?.backupImport)
     const file = !hasElectronImport ? e?.target?.files?.[0] : null
     if (!hasElectronImport && !file) return
+
+    if (hasElectronImport && !window.confirm(
+      'Restore this backup?\n\nThis replaces all current games, settings, and locally stored images with the backup. This cannot be undone.'
+    )) return
     
     setIsImporting(true)
     const toastId = toast.loading('Processing backup...')
@@ -992,7 +996,13 @@ export function BackupSection() {
         const result = await window.electronAPI.backupImport()
         if (result.success) {
           importState(result.games, result.settings)
-          toast.success(`System restored: ${result.gameCount} games and ${result.assetCount} assets imported`, { id: toastId })
+          const savedState = localStorage.getItem('balok-storage')
+          if (savedState && window.electronAPI?.saveSettings) {
+            const saveResult = await window.electronAPI.saveSettings(JSON.parse(savedState))
+            if (!saveResult?.success) throw new Error(saveResult?.error || 'Could not save restored settings')
+          }
+          toast.success(`System restored: ${result.gameCount} games and ${result.assetCount} assets imported. Reloading…`, { id: toastId })
+          window.setTimeout(() => window.location.reload(), 900)
         } else if (!result.canceled) {
           throw new Error(result.error || 'Import failed')
         } else {
@@ -1102,7 +1112,7 @@ export function BackupSection() {
         
         <Panel 
           title="Restore System" 
-          subtitle="Restore your launcher from a .zip package or legacy .json file"
+          subtitle="Replace all launcher games, settings, and local artwork from a .zip package or legacy .json file"
         >
           <PrimaryBtn 
             onClick={() => {

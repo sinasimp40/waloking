@@ -79,6 +79,12 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [event, onClose])
 
+  const closeModal = (e) => {
+    e?.preventDefault()
+    e?.stopPropagation()
+    onClose()
+  }
+
   return (
     <AnimatePresence>
       {event && (
@@ -88,7 +94,8 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[200] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(10px)' }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) closeModal(e) }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeModal(e) }}
         >
           <motion.div
             initial={{ opacity: 0, y: 18, scale: 0.97 }}
@@ -119,7 +126,7 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
               <div className="absolute inset-0 pointer-events-none" style={{ background: `linear-gradient(135deg, ${color}18, transparent 45%)` }} />
               <button
                 type="button"
-                onClick={onClose}
+                onClick={closeModal}
                 aria-label="Close event details"
                 className="absolute top-3 right-3 z-10 w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
                 style={{ background: 'rgba(0,0,0,0.42)', border: '1px solid rgba(255,255,255,0.16)', color: 'rgba(255,255,255,0.75)' }}
@@ -195,6 +202,14 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
                     Launch game
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.14em] transition-colors hover:bg-white/10 flex-shrink-0"
+                  style={{ color: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.13)' }}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </motion.div>

@@ -637,9 +637,9 @@ ipcMain.handle('select-image', async () => {
     const ext = path.extname(srcPath) || '.png'
     const dest = path.join(assetsDir, `${path.basename(srcPath, ext)}_${Date.now()}${ext}`)
     fs.copyFileSync(srcPath, dest)
-    return dest.replace(/\\/g, '/')
+    return 'file:///' + dest.replace(/\\/g, '/')
   } catch (e) {
-    return srcPath.replace(/\\/g, '/')
+    return 'file:///' + srcPath.replace(/\\/g, '/')
   }
 })
 
@@ -1047,36 +1047,66 @@ ipcMain.handle('backup:export', async () => {
 
     const absAssets = path.resolve(assetsDir)
     const assetMap = new Map() // absPath -> 'assets/<basename>'
+    const archivePaths = new Set()
+    const imageFields = new Set([
+      'background', 'logo', 'bannerImage', 'panelBanner', 'wallpaper',
+      'icon', 'iconUrl', 'image', 'thumbnail', 'cover', 'poster',
+      'announcementImages',
+    ])
 
-    function fileUrlToAbs(v) {
+    function localAssetToAbs(v) {
       if (typeof v !== 'string') return null
-      if (!v.startsWith('file://')) return null
-      const clean = v.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '')
-      return path.resolve(decodeURI(clean).replace(/\//g, path.sep))
-    }
-    function registerAbs(abs) {
-      if (abs && abs.startsWith(absAssets) && fs.existsSync(abs) && !assetMap.has(abs)) {
-        assetMap.set(abs, 'assets/' + path.basename(abs))
+      if (v.startsWith('file://')) {
+        const clean = v.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '')
+        return path.resolve(decodeURI(clean).replace(/\//g, path.sep))
       }
+
+      // Older image controls saved direct Windows paths (C:/.../assets/foo)
+      // instead of file URLs. They are still first-class local assets and
+      // must travel inside the backup.
+      const isDrivePath = /^[a-zA-Z]:[\\/]/.test(v)
+      if (!isDrivePath && !path.isAbsolute(v)) return null
+      return path.resolve(v.replace(/\//g, path.sep))
     }
-    function gather(val) {
+    function registerAbs(abs, allowExternalImage = false) {
+      const isInternalAsset = abs === absAssets || abs.startsWith(absAssets + path.sep)
+      const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(abs)
+      if (!abs || !fs.existsSync(abs) || assetMap.has(abs) || (!isInternalAsset && !(allowExternalImage && isImage))) return
+
+      const ext = path.extname(abs)
+      const base = path.basename(abs, ext).replace(/[^a-zA-Z0-9._-]/g, '_') || 'image'
+      let name = `${base}${ext}`
+      let counter = 2
+      while (archivePaths.has(`assets/${name}`)) {
+        name = `${base}_${counter}${ext}`
+        counter += 1
+      }
+      const relativePath = `assets/${name}`
+      archivePaths.add(relativePath)
+      assetMap.set(abs, relativePath)
+    }
+    function gather(val, fieldName = '') {
       if (val === null || val === undefined) return
       if (typeof val === 'string') {
-        const direct = fileUrlToAbs(val)
-        if (direct) registerAbs(direct)
-        else for (const m of val.matchAll(/file:\/\/\/?([^"'\s\[\]<>]+)/g)) registerAbs(path.resolve(decodeURI(m[1]).replace(/\//g, path.sep)))
+        const direct = localAssetToAbs(val)
+        if (direct) registerAbs(direct, imageFields.has(fieldName))
+        else {
+          for (const m of val.matchAll(/file:\/\/\/?([^"'\s\[\]<>]+)/g)) {
+            registerAbs(path.resolve(decodeURI(m[1]).replace(/\//g, path.sep)), imageFields.has(fieldName))
+          }
+        }
         return
       }
       if (typeof val !== 'object') return
-      if (Array.isArray(val)) { val.forEach(gather); return }
-      for (const v of Object.values(val)) gather(v)
+      if (Array.isArray(val)) { val.forEach(item => gather(item, fieldName)); return }
+      for (const [key, value] of Object.entries(val)) gather(value, key)
     }
     gather({ games, settings })
 
     function portable(val) {
       if (val === null || val === undefined) return val
       if (typeof val === 'string') {
-        const direct = fileUrlToAbs(val)
+        const direct = localAssetToAbs(val)
         if (direct) return assetMap.get(direct) || val
         return val.replace(/file:\/\/\/?([^"'\s\[\]<>]+)/g, (match, rawPath) =>
           assetMap.get(path.resolve(decodeURI(rawPath).replace(/\//g, path.sep))) || match)
@@ -1142,16 +1172,45 @@ ipcMain.handle('backup:import', async () => {
       if (payload && payload.state && typeof payload.state === 'object') payload = payload.state
       if (!payload.games && !payload.settings) return { success: false, error: 'Invalid backup — missing games or settings.' }
 
-      const assetMap = new Map()
+      const incomingAssets = new Map()
       for (const ent of ents) {
         if (!ent.name.startsWith('assets/')) continue
         const safeName = path.basename(ent.name).replace(/[^a-zA-Z0-9._\-]/g, '_')
         if (!safeName) continue
-        const dest = path.join(assetsDir, safeName)
-        fs.writeFileSync(dest, ent.data)
-        assetMap.set(ent.name, 'file:///' + dest.replace(/\\/g, '/'))
-        assetCount++
+        incomingAssets.set(safeName, { relativePath: ent.name, data: ent.data })
       }
+
+      // A restore is a replacement, not a merge: stage all assets first, then
+      // swap the folder so stale local artwork cannot win over the backup.
+      const restoreId = `${process.pid}-${Date.now()}`
+      const stagedAssetsDir = path.join(userDataDir, `.assets-restore-${restoreId}`)
+      const previousAssetsDir = path.join(userDataDir, `.assets-previous-${restoreId}`)
+      try {
+        fs.mkdirSync(stagedAssetsDir, { recursive: true })
+        for (const [safeName, asset] of incomingAssets) {
+          fs.writeFileSync(path.join(stagedAssetsDir, safeName), asset.data)
+        }
+
+        if (fs.existsSync(assetsDir)) fs.renameSync(assetsDir, previousAssetsDir)
+        try {
+          fs.renameSync(stagedAssetsDir, assetsDir)
+        } catch (err) {
+          if (fs.existsSync(previousAssetsDir) && !fs.existsSync(assetsDir)) {
+            fs.renameSync(previousAssetsDir, assetsDir)
+          }
+          throw err
+        }
+        try { fs.rmSync(previousAssetsDir, { recursive: true, force: true }) } catch (_) {}
+      } catch (err) {
+        try { fs.rmSync(stagedAssetsDir, { recursive: true, force: true }) } catch (_) {}
+        throw err
+      }
+
+      const assetMap = new Map()
+      for (const [safeName, asset] of incomingAssets) {
+        assetMap.set(asset.relativePath, 'file:///' + path.join(assetsDir, safeName).replace(/\\/g, '/'))
+      }
+      assetCount = incomingAssets.size
 
       const extractedAssets = Array.from(assetMap.entries()).map(([relativePath, fileUrl]) => ({
         relativePath,

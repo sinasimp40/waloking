@@ -191,7 +191,8 @@ const useStore = create(
       })),
 
       importState: (newGames, newSettings, assetMap = {}) => set((state) => {
-        // Sanitize paths in games (e.g. converting absolute disk paths from other computers to relative or IGDB fallbacks)
+        // Restore image paths from a backup without carrying paths from the
+        // source computer into this launcher.
         const sanitizePath = (path) => {
           if (!path) return path
           
@@ -237,25 +238,52 @@ const useStore = create(
           return pathStr
         }
 
-        const sanitizedGames = Array.isArray(newGames) 
-          ? newGames.map(g => ({
-              ...g,
-              icon: sanitizePath(g.icon),
-              bannerImage: sanitizePath(g.bannerImage)
-            }))
-          : state.games
+        const assetFields = new Set([
+          'background', 'logo', 'bannerImage', 'panelBanner', 'wallpaper',
+          'icon', 'iconUrl', 'image', 'thumbnail', 'cover', 'poster',
+          'announcementImages',
+        ])
+        const resolveImportedAssets = (value, fieldName = '') => {
+          if (value === null || value === undefined) return value
+          if (typeof value === 'string') {
+            const normalized = value.replace(/\\/g, '/')
+            const fileName = normalized.split('/').pop()
+            const mappedAsset =
+              assetMap[value] ||
+              assetMap[normalized] ||
+              (fileName ? assetMap[fileName] : null)
+            if (mappedAsset) return mappedAsset
 
-        const sanitizedSettings = { ...(newSettings || {}) }
-        if (sanitizedSettings.background) sanitizedSettings.background = sanitizePath(sanitizedSettings.background)
-        if (sanitizedSettings.logo) sanitizedSettings.logo = sanitizePath(sanitizedSettings.logo)
-        if (sanitizedSettings.bannerImage) sanitizedSettings.bannerImage = sanitizePath(sanitizedSettings.bannerImage)
-        if (sanitizedSettings.panelBanner) sanitizedSettings.panelBanner = sanitizePath(sanitizedSettings.panelBanner)
+            // Image references in rich announcement text can contain a
+            // portable assets/<name> path rather than being a whole field.
+            if (normalized.includes('assets/')) {
+              return value.replace(/assets\/([^"'\s\[\]<>]+)/g, (match, name) => {
+                const mapped = assetMap[name] || assetMap[name.split('/').pop()]
+                return mapped || match
+              })
+            }
 
-        // Ensure we don't overwrite the brand name with null if it's missing in the import
-        const mergedSettings = { ...state.settings, ...sanitizedSettings }
-        if (!sanitizedSettings.launcherName) {
-          mergedSettings.launcherName = state.settings.launcherName || 'Balok'
+            return assetFields.has(fieldName) ? sanitizePath(value) : value
+          }
+          if (Array.isArray(value)) return value.map(item => resolveImportedAssets(item, fieldName))
+          if (typeof value !== 'object') return value
+
+          return Object.fromEntries(
+            Object.entries(value).map(([key, item]) => [key, resolveImportedAssets(item, key)])
+          )
         }
+
+        const sanitizedGames = Array.isArray(newGames)
+          ? resolveImportedAssets(newGames)
+          : state.games
+        const sanitizedSettings = newSettings && typeof newSettings === 'object'
+          ? resolveImportedAssets(newSettings)
+          : {}
+
+        // Imported keys intentionally overwrite the current launcher,
+        // including explicit nulls. Missing fields retain newer defaults so
+        // legacy backups continue to load safely.
+        const mergedSettings = { ...state.settings, ...sanitizedSettings }
 
         return {
           games: sanitizedGames,
