@@ -112,6 +112,8 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
               border: `1px solid ${color}50`,
               boxShadow: `0 24px 80px rgba(0,0,0,0.65), 0 0 38px ${color}18`,
             }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div
               className="relative min-h-[190px] overflow-hidden"
@@ -126,10 +128,17 @@ export default function EventDetailModal({ event, game, accent, onClose, onLaunc
               <div className="absolute inset-0 pointer-events-none" style={{ background: `linear-gradient(135deg, ${color}18, transparent 45%)` }} />
               <button
                 type="button"
+                onPointerDown={closeModal}
                 onClick={closeModal}
                 aria-label="Close event details"
                 className="absolute top-3 right-3 z-10 w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-                style={{ background: 'rgba(0,0,0,0.42)', border: '1px solid rgba(255,255,255,0.16)', color: 'rgba(255,255,255,0.75)' }}
+                style={{
+                  background: 'rgba(0,0,0,0.42)',
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  color: 'rgba(255,255,255,0.75)',
+                  pointerEvents: 'auto',
+                  WebkitAppRegion: 'no-drag',
+                }}
               >
                 <X size={15} />
               </button>
