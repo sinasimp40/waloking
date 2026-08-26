@@ -91,7 +91,7 @@ export default function FeaturedBanner() {
     return (
       <div
         className="mx-4 mb-4 rounded-2xl overflow-hidden flex-shrink-0 relative"
-        style={{ height: '220px', border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.015)' }}
+        style={{ height: '260px', border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.015)' }}
       >
         {/* soft accent wash from one corner only — avoids the flat AI gradient look */}
         <div className="absolute inset-0" style={{
@@ -151,7 +151,7 @@ export default function FeaturedBanner() {
   if (!slide) return null
 
   return (
-    <div className="mx-4 mb-4 rounded-2xl overflow-hidden relative flex-shrink-0" style={{ height: '220px', border: '1px solid rgba(255,255,255,0.06)' }}>
+    <div className="mx-4 mb-4 rounded-2xl overflow-hidden relative flex-shrink-0" style={{ height: '260px', border: '1px solid rgba(255,255,255,0.06)' }}>
 
       {/* Ken Burns CSS injection — slow zoom on the bg art */}
       <style>{`
