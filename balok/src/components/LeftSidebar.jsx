@@ -470,17 +470,54 @@ export default function LeftSidebar() {
 
       {/* ── Powered by footer ── */}
       <div
-        className="py-3 flex-shrink-0 border-t flex flex-col items-center justify-center gap-1"
-        style={{ borderColor: 'var(--border)', background: 'rgba(0,0,0,0.25)' }}
+        className="relative px-3 py-2.5 flex-shrink-0 border-t overflow-hidden"
+        style={{
+          borderColor: 'var(--border)',
+          background: `linear-gradient(180deg, ${accent}08 0%, rgba(0,0,0,0.34) 72%)`,
+        }}
       >
-        <span className="text-[8px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-          Powered by
-        </span>
-        <div className="flex items-center gap-1.5">
-          <Zap size={11} fill={accent} style={{ color: accent, filter: `drop-shadow(0 0 4px ${accent}80)` }} />
-          <span className="text-[13px] font-black uppercase tracking-wider" style={{ color: accent, textShadow: `0 0 10px ${accent}50` }}>
-            {settings.poweredBy || 'BALOK'}
-          </span>
+        <div
+          className="absolute inset-x-0 top-0 h-px"
+          style={{ background: `linear-gradient(90deg, transparent, ${accent}aa 35%, ${accent}aa 65%, transparent)` }}
+        />
+        <div
+          className="absolute -top-8 left-1/2 w-32 h-16 -translate-x-1/2 rounded-full pointer-events-none"
+          style={{ background: `radial-gradient(ellipse, ${accent}18 0%, transparent 70%)` }}
+        />
+
+        <div
+          className="relative flex items-center gap-2.5 rounded-xl px-2.5 py-2"
+          style={{
+            background: 'rgba(255,255,255,0.035)',
+            border: `1px solid ${accent}22`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 16px rgba(0,0,0,0.18)`,
+          }}
+        >
+          <div
+            className="w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0"
+            style={{
+              background: `${accent}18`,
+              border: `1px solid ${accent}45`,
+              boxShadow: `0 0 12px ${accent}20`,
+              clipPath: CLIP_SM,
+            }}
+          >
+            <Zap size={13} fill={accent} style={{ color: accent, filter: `drop-shadow(0 0 4px ${accent}90)` }} />
+          </div>
+
+          <div className="min-w-0 leading-none">
+            <div className="text-[7px] font-bold uppercase tracking-[0.22em]" style={{ color: 'rgba(255,255,255,0.36)' }}>
+              Powered by
+            </div>
+            <div className="mt-1 text-[13px] font-black uppercase tracking-[0.12em] truncate" style={{ color: accent, textShadow: `0 0 10px ${accent}50` }}>
+              {settings.poweredBy || 'BALOK'}
+            </div>
+          </div>
+
+          <div className="ml-auto flex flex-col items-end gap-1.5 flex-shrink-0" aria-hidden="true">
+            <span className="w-5 h-px" style={{ background: `${accent}80` }} />
+            <span className="w-3 h-px" style={{ background: `${accent}45` }} />
+          </div>
         </div>
       </div>
     </div>
