@@ -1704,6 +1704,7 @@ function createWindow(splash) {
 app.whenReady().then(() => {
   const splash = createSplashWindow()
   createWindow(splash)
+  otaUpdater.acknowledgeSuccessfulStartup()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const s = createSplashWindow()

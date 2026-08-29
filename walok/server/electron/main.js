@@ -25,6 +25,7 @@ const { startBeacon, stopBeacon } = require('./discovery')
 
 const { initDatabase } = require('./db')
 const { createApi } = require('./api')
+const { migrateServerData } = require('./data-migration')
 const {
   BRAND_SLUG,
   LEGACY_BRAND_SLUGS,
@@ -56,9 +57,16 @@ const appRoot = getAppRoot()
 // current BRAND_SLUG. Skips current-slug self-rename and won't clobber
 // an existing target — safe on every startup.
 function migrateLegacyPaths() {
+  migrateServerData({
+    appRoot,
+    currentSlug: BRAND_SLUG,
+    legacySlugs: LEGACY_BRAND_SLUGS,
+    log: message => console.error('[migration] ' + message),
+  })
   // Loop by SUFFIX (outer) so we only adopt ONE legacy per suffix —
   // newest-first wins.
   for (const sfx of BRAND_SUFFIXES) {
+    if (sfx === '-server-data') continue
     const newPath = path.join(appRoot, BRAND_SLUG + sfx)
     for (const oldSlug of LEGACY_BRAND_SLUGS) {
       if (oldSlug === BRAND_SLUG) continue
@@ -77,7 +85,9 @@ function migrateLegacyPaths() {
           fs.renameSync(oldPath, newPath)
           break
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('[migration] Failed to migrate ' + oldPath + ' to ' + newPath + ':', e.message)
+      }
     }
   }
   migrateJsonContents()
@@ -93,7 +103,9 @@ function newPathLooksEmpty(newPath, oldPath) {
     if (newStat.isFile() && oldStat.isFile()) {
       return oldStat.size > newStat.size && (oldStat.size - newStat.size) > 100
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('[migration] Failed to compare ' + newPath + ' and ' + oldPath + ':', e.message)
+  }
   return false
 }
 
@@ -139,7 +151,9 @@ function migrateJsonContents() {
       fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8')
       fs.renameSync(tmp, configPath)
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('[migration] Failed to migrate config contents:', e.message)
+  }
 }
 
 migrateLegacyPaths()
@@ -180,12 +194,25 @@ async function startServer() {
       dbInitialized = true
     }
     const apiApp = createApi(appRoot)
-    serverInstance = apiApp.listen(config.port, config.host, () => {
-      console.log(`${SERVER_DISPLAY_NAME} running on ${config.host}:${config.port}`)
-      startBeacon(config.port, config.host)
+    const listeningServer = apiApp.listen(config.port, config.host)
+    await new Promise((resolve, reject) => {
+      const onListening = () => {
+        listeningServer.removeListener('error', onError)
+        resolve()
+      }
+      const onError = error => {
+        listeningServer.removeListener('listening', onListening)
+        reject(error)
+      }
+      listeningServer.once('listening', onListening)
+      listeningServer.once('error', onError)
     })
+    serverInstance = listeningServer
+    console.log(`${SERVER_DISPLAY_NAME} running on ${config.host}:${config.port}`)
+    startBeacon(config.port, config.host)
     return { success: true, message: `Server started on ${config.host}:${config.port}` }
   } catch (err) {
+    serverInstance = null
     return { success: false, error: err.message }
   }
 }
@@ -398,7 +425,9 @@ app.whenReady().then(async () => {
   createWindow()
 
   try {
-    await startServer()
+    const started = await startServer()
+    if (!started || !started.success) throw new Error(started && started.error ? started.error : 'server startup failed')
+    otaUpdater.acknowledgeSuccessfulStartup()
     console.log(`${SERVER_DISPLAY_NAME} auto-started`)
   } catch (err) {
     console.error('Auto-start failed:', err.message)

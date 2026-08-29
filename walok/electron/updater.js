@@ -630,6 +630,128 @@ function listTopLevelExesInZip(zipBuffer) {
   return out
 }
 
+// Verify the executable covered by resources/integrity.dat directly in the
+// staged ZIP. This intentionally does not attempt HMAC verification: the
+// build secret remains sealed in app.asar and the normal runtime verifier
+// still performs that check. Here we prevent a mixed old-exe/new-resources
+// payload from ever reaching the destructive phase-2 applier.
+function verifyStagedPayloadIntegrity(zipBuffer, exeName) {
+  if (!Buffer.isBuffer(zipBuffer)) throw new Error('payload is not a ZIP buffer')
+  if (!isSafeExeBasename(exeName)) throw new Error('unsafe manifest exeName')
+
+  const entries = new Map()
+  const canonicalize = (rawName) => {
+    if (!rawName || /^[\\/]/.test(rawName) || /^[A-Za-z]:/.test(rawName)) throw new Error('unsafe ZIP entry: ' + rawName)
+    let normalized = rawName.replace(/\\/g, '/')
+    while (normalized.startsWith('./')) normalized = normalized.slice(2)
+    normalized = normalized.replace(/\/$/, '')
+    if (!normalized || normalized === '.') throw new Error('dot-only ZIP entry: ' + rawName)
+    if (/^[A-Za-z]:/.test(normalized) || normalized.startsWith('/')) throw new Error('drive-qualified or absolute ZIP entry: ' + rawName)
+    if (normalized.includes('//')) throw new Error('empty ZIP path component: ' + rawName)
+    const parts = normalized.split('/')
+    // Win32 strips trailing dots/spaces from every path component. Refuse
+    // those aliases before checking protected names so `brand-data.` cannot
+    // extract over the retained `brand-data` directory.
+    if (parts.some(part => !part || part === '.' || part === '..' ||
+        /[. ]$/.test(part) || part.includes(':'))) {
+      throw new Error('unsafe Win32 ZIP entry: ' + rawName)
+    }
+    return normalized
+  }
+  const minEocd = Math.max(0, zipBuffer.length - 0xFFFF - 22)
+  let eocd = -1
+  for (let i = zipBuffer.length - 22; i >= minEocd; i--) {
+    if (zipBuffer.readUInt32LE(i) === 0x06054b50) { eocd = i; break }
+  }
+  if (eocd < 0) throw new Error('ZIP central directory not found')
+  const count = zipBuffer.readUInt16LE(eocd + 10)
+  let pos = zipBuffer.readUInt32LE(eocd + 16)
+  for (let i = 0; i < count; i++) {
+    if (pos + 46 > zipBuffer.length || zipBuffer.readUInt32LE(pos) !== 0x02014b50) {
+      throw new Error('ZIP central directory is corrupt')
+    }
+    const method = zipBuffer.readUInt16LE(pos + 10)
+    const compSize = zipBuffer.readUInt32LE(pos + 20)
+    const nameLen = zipBuffer.readUInt16LE(pos + 28)
+    const extraLen = zipBuffer.readUInt16LE(pos + 30)
+    const commentLen = zipBuffer.readUInt16LE(pos + 32)
+    const localOffset = zipBuffer.readUInt32LE(pos + 42)
+    const name = zipBuffer.slice(pos + 46, pos + 46 + nameLen).toString('utf8')
+    const canonicalName = canonicalize(name)
+    const parts = canonicalName.split('/')
+    const top = parts[0].toLowerCase()
+    if (top === '.ota-pending' || top === '.ota-instance-id' ||
+        top.endsWith('-data') || top.endsWith('-assets') ||
+        (parts.length === 1 && (top.endsWith('-settings.json') || top.endsWith('-config.json')))) {
+      throw new Error('payload attempts to replace persisted state: ' + name)
+    }
+    if (entries.has(canonicalName)) throw new Error('duplicate canonical ZIP entry: ' + canonicalName)
+    entries.set(canonicalName, { method, compSize, localOffset, rawName: name })
+    pos += 46 + nameLen + extraLen + commentLen
+  }
+
+  const readEntry = (name) => {
+    const entry = entries.get(name)
+    if (!entry) throw new Error('payload missing exact ZIP entry "' + name + '"')
+    const p = entry.localOffset
+    if (p + 30 > zipBuffer.length || zipBuffer.readUInt32LE(p) !== 0x04034b50) {
+      throw new Error('invalid local header for "' + name + '"')
+    }
+    const nameLen = zipBuffer.readUInt16LE(p + 26)
+    const extraLen = zipBuffer.readUInt16LE(p + 28)
+    const localName = zipBuffer.slice(p + 30, p + 30 + nameLen).toString('utf8')
+    if (localName !== entry.rawName) throw new Error('central/local ZIP name mismatch for "' + name + '"')
+    const dataStart = p + 30 + nameLen + extraLen
+    const dataEnd = dataStart + entry.compSize
+    if (dataEnd > zipBuffer.length) throw new Error('truncated ZIP entry "' + name + '"')
+    const compressed = zipBuffer.subarray(dataStart, dataEnd)
+    if (entry.method === 0) return compressed
+    if (entry.method === 8) return zlib.inflateRawSync(compressed)
+    throw new Error('unsupported ZIP method ' + entry.method + ' for "' + name + '"')
+  }
+
+  let integrity
+  try {
+    integrity = JSON.parse(readEntry('resources/integrity.dat').toString('utf8'))
+  } catch (e) {
+    throw new Error('integrity.dat invalid: ' + e.message)
+  }
+  if (!integrity || integrity.v !== 1 || integrity.alg !== 'sha256-hmac' ||
+      typeof integrity.hash !== 'string' || !/^[0-9a-f]{64}$/i.test(integrity.hash) ||
+      typeof integrity.sig !== 'string' || !/^[0-9a-f]{64}$/i.test(integrity.sig)) {
+    throw new Error('integrity.dat has an invalid hash/signature format')
+  }
+  const actualHash = crypto.createHash('sha256').update(readEntry(exeName)).digest('hex')
+  if (actualHash.toLowerCase() !== integrity.hash.toLowerCase()) {
+    throw new Error('staged executable hash mismatch: expected=' + integrity.hash + ' got=' + actualHash)
+  }
+  return { ok: true, exeName, hash: actualHash }
+}
+
+function acknowledgeSuccessfulStartup(env) {
+  env = env || process.env
+  const ackFile = env.WALOK_OTA_ACK_FILE
+  const token = env.WALOK_OTA_ACK_TOKEN
+  if (!ackFile || typeof token !== 'string' || !/^[0-9a-f]{64}$/i.test(token)) {
+    delete env.WALOK_OTA_ACK_FILE
+    delete env.WALOK_OTA_ACK_TOKEN
+    return false
+  }
+  const tmp = ackFile + '.tmp-' + process.pid + '-' + crypto.randomBytes(8).toString('hex')
+  try {
+    fs.mkdirSync(path.dirname(ackFile), { recursive: true })
+    fs.writeFileSync(tmp, token, { encoding: 'utf8', flag: 'wx' })
+    fs.renameSync(tmp, ackFile)
+    const actual = fs.readFileSync(ackFile)
+    const expected = Buffer.from(token, 'utf8')
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected)
+  } finally {
+    try { fs.rmSync(tmp, { force: true }) } catch (_) {}
+    delete env.WALOK_OTA_ACK_FILE
+    delete env.WALOK_OTA_ACK_TOKEN
+  }
+}
+
 // Read the user/operator's persistent allowlist of exe basenames that the
 // orphan-exe sweep must never delete. Lives at <appRoot>/.ota-keep-exes.json
 // with shape { "keepExes": ["ffmpeg.exe", "diagnostics.exe"] }. Lets ops
@@ -1027,6 +1149,9 @@ function buildPhase2ApplierBat() {
     'set "NEW_EXE=%~3"',
     'set "PENDING_DIR=%INSTALL_DIR%\\.ota-pending"',
     'set "APPLY_LOG=%PENDING_DIR%\\apply.log"',
+    'set "BACKUP_DIR=%PENDING_DIR%\\app-backup"',
+    'set "ACK_TOKEN_FILE=%PENDING_DIR%\\startup-ack-token.txt"',
+    'set "ACK_FILE=%PENDING_DIR%\\startup-ack.txt"',
     '',
     'rem -- Header so the user can confirm the bat is running even if a step fails',
     'echo [%date% %time%] phase2 start pid=%PARENT_PID% install="%INSTALL_DIR%" newExe=%NEW_EXE% > "%APPLY_LOG%"',
@@ -1036,7 +1161,15 @@ function buildPhase2ApplierBat() {
     'rem -- process.exit(0) right before this bat starts, so 4s is plenty for',
     'rem -- Windows to release the asar / dll / pak handles.',
     'timeout /t 4 /nobreak >NUL 2>&1',
-    'echo [%date% %time%] post-wait, beginning wipe >> "%APPLY_LOG%"',
+    'set "ACK_TOKEN="',
+    'if exist "%ACK_TOKEN_FILE%" set /P ACK_TOKEN=<"%ACK_TOKEN_FILE%"',
+    'for %%A in ("%ACK_TOKEN_FILE%") do if not "%%~zA"=="64" set "ACK_TOKEN="',
+    'if not defined ACK_TOKEN (',
+    '  echo startup-ack-token > "%PENDING_DIR%\\FAILED"',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'del /F /Q "%ACK_FILE%" >NUL 2>&1',
+    'echo [%date% %time%] post-wait, creating application backup >> "%APPLY_LOG%"',
     '',
     'rem -- Wipe every file at the install-dir root EXCEPT user-specific',
     'rem -- state. KEEP these files:',
@@ -1053,7 +1186,37 @@ function buildPhase2ApplierBat() {
     '  echo pushd > "%PENDING_DIR%\\FAILED"',
     '  goto schedule_cleanup_fail',
     ')',
-    'for %%F in (*) do (',
+    'rmdir /S /Q "%BACKUP_DIR%" >NUL 2>&1',
+    'mkdir "%BACKUP_DIR%" >NUL 2>&1',
+    'if errorlevel 1 (',
+    '  echo backup-create > "%PENDING_DIR%\\FAILED"',
+    '  popd >NUL 2>&1',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'set "BACKUP_FAILED="',
+    "for /F \"delims=\" %%F in ('dir /B /A-D 2^>NUL') do (",
+    '  set "_FN=%%~nxF"',
+    '  set "_FKEEP="',
+    '  if /I "!_FN!"==".ota-instance-id" set "_FKEEP=1"',
+    '  if /I "!_FN:~-14!"=="-settings.json" set "_FKEEP=1"',
+    '  if /I "!_FN:~-12!"=="-config.json" set "_FKEEP=1"',
+    '  if not defined _FKEEP (copy /Y "%%F" "%BACKUP_DIR%\\%%~nxF" >NUL 2>&1 || set "BACKUP_FAILED=1")',
+    ')',
+    'for /D %%D in (*) do (',
+    '  set "_DN=%%~nxD"',
+    '  set "_DKEEP="',
+    '  if /I "!_DN!"==".ota-pending" set "_DKEEP=1"',
+    '  if /I "!_DN:~-5!"=="-data" set "_DKEEP=1"',
+    '  if /I "!_DN:~-7!"=="-assets" set "_DKEEP=1"',
+    '  if not defined _DKEEP (xcopy "%%D" "%BACKUP_DIR%\\%%~nxD\\" /E /I /H /K /Y >NUL 2>&1 || set "BACKUP_FAILED=1")',
+    ')',
+    'if defined BACKUP_FAILED (',
+    '  echo backup-copy > "%PENDING_DIR%\\FAILED"',
+    '  popd >NUL 2>&1',
+    '  goto schedule_cleanup_fail',
+    ')',
+    'echo [%date% %time%] backup complete, beginning wipe >> "%APPLY_LOG%"',
+    "for /F \"delims=\" %%F in ('dir /B /A-D 2^>NUL') do (",
     '  set "_FN=%%~nxF"',
     '  set "_FKEEP="',
     '  if /I "!_FN!"==".ota-instance-id" set "_FKEEP=1"',
@@ -1118,7 +1281,7 @@ function buildPhase2ApplierBat() {
     ')',
     'if not defined EXTRACTED (',
     '  echo extract > "%PENDING_DIR%\\FAILED"',
-    '  goto schedule_cleanup_fail',
+    '  goto restore_failed',
     ')',
     '',
     'rem -- Apply overlay files. Node pre-wrote these as plain JSON in the',
@@ -1145,10 +1308,45 @@ function buildPhase2ApplierBat() {
     'if not exist "%INSTALL_DIR%\\%NEW_EXE%" (',
     '  echo [%date% %time%] FAIL new exe missing: %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
     '  echo missing-exe > "%PENDING_DIR%\\FAILED"',
-    '  goto schedule_cleanup_fail',
+    '  goto restore_failed',
+    ')',
+    'rem -- Fail closed unless PowerShell can validate the installed EXE hash.',
+    'if not exist "%PS_EXE%" (',
+    '  echo integrity-no-powershell > "%PENDING_DIR%\\FAILED"',
+    '  goto restore_failed',
+    ')',
+    '"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference=\'Stop\'; $m=Get-Content -Raw -LiteralPath \'%INSTALL_DIR%\\resources\\integrity.dat\'|ConvertFrom-Json; if ($m.hash -notmatch \'^[0-9a-fA-F]{64}$\') { exit 2 }; $h=(Get-FileHash -Algorithm SHA256 -LiteralPath \'%INSTALL_DIR%\\%NEW_EXE%\').Hash; if ($h -ine $m.hash) { exit 3 }" >> "%APPLY_LOG%" 2>&1',
+    'if errorlevel 1 (',
+    '  echo integrity > "%PENDING_DIR%\\FAILED"',
+    '  goto restore_failed',
     ')',
     'echo [%date% %time%] launching %INSTALL_DIR%\\%NEW_EXE% >> "%APPLY_LOG%"',
+    'set "WALOK_OTA_ACK_FILE=%ACK_FILE%"',
+    'set "WALOK_OTA_ACK_TOKEN=%ACK_TOKEN%"',
     'start "" "%INSTALL_DIR%\\%NEW_EXE%"',
+    'if errorlevel 1 (',
+    '  echo launch > "%PENDING_DIR%\\FAILED"',
+    '  goto startup_ack_failed',
+    ')',
+    'set /A ACK_WAIT=0',
+    ':wait_for_startup_ack',
+    'if exist "%ACK_FILE%" (',
+    '  set "ACK_GOT="',
+    '  set /P ACK_GOT=<"%ACK_FILE%"',
+    '  for %%A in ("%ACK_FILE%") do if "%%~zA"=="64" if "!ACK_GOT!"=="!ACK_TOKEN!" goto startup_ack_ok',
+    ')',
+    'set /A ACK_WAIT+=1',
+    'if !ACK_WAIT! GEQ 30 goto startup_ack_failed',
+    'timeout /t 1 /nobreak >NUL 2>&1',
+    'goto wait_for_startup_ack',
+    ':startup_ack_failed',
+    'echo [%date% %time%] FAIL startup acknowledgement timeout >> "%APPLY_LOG%"',
+    'taskkill /F /IM "%NEW_EXE%" >NUL 2>&1',
+    'timeout /t 2 /nobreak >NUL 2>&1',
+    'echo startup-ack > "%PENDING_DIR%\\FAILED"',
+    'goto restore_failed',
+    ':startup_ack_ok',
+    'echo [%date% %time%] startup acknowledgement received >> "%APPLY_LOG%"',
     'echo done > "%PENDING_DIR%\\SUCCESS"',
     'echo [%date% %time%] SUCCESS >> "%APPLY_LOG%"',
     '',
@@ -1156,6 +1354,28 @@ function buildPhase2ApplierBat() {
     'rem -- a 5s sleep so this bat can exit before its file is deleted.',
     'start "" /B cmd /c "timeout /t 5 /nobreak >NUL & rmdir /S /Q ""%PENDING_DIR%"" & del /F /Q ""%~f0"" & del /F /Q ""%~dpn0.vbs"""',
     'exit /b 0',
+    '',
+    ':restore_failed',
+    'echo [%date% %time%] restoring pre-update application tree >> "%APPLY_LOG%"',
+    'pushd "%INSTALL_DIR%" >NUL 2>&1',
+    "for /F \"delims=\" %%F in ('dir /B /A-D 2^>NUL') do (",
+    '  set "_FN=%%~nxF" & set "_FKEEP="',
+    '  if /I "!_FN!"==".ota-instance-id" set "_FKEEP=1"',
+    '  if /I "!_FN:~-14!"=="-settings.json" set "_FKEEP=1"',
+    '  if /I "!_FN:~-12!"=="-config.json" set "_FKEEP=1"',
+    '  if not defined _FKEEP del /F /Q "%%F" >NUL 2>&1',
+    ')',
+    'for /D %%D in (*) do (',
+    '  set "_DN=%%~nxD" & set "_DKEEP="',
+    '  if /I "!_DN!"==".ota-pending" set "_DKEEP=1"',
+    '  if /I "!_DN:~-5!"=="-data" set "_DKEEP=1"',
+    '  if /I "!_DN:~-7!"=="-assets" set "_DKEEP=1"',
+    '  if not defined _DKEEP rmdir /S /Q "%%D" >NUL 2>&1',
+    ')',
+    'xcopy "%BACKUP_DIR%\\*" "%INSTALL_DIR%\\" /E /I /H /K /Y >NUL 2>&1',
+    'popd >NUL 2>&1',
+    'echo [%date% %time%] restore complete >> "%APPLY_LOG%"',
+    'goto schedule_cleanup_fail',
     '',
     ':schedule_cleanup_fail',
     'rem -- On failure leave .ota-pending in place (so the user can see',
@@ -1290,13 +1510,18 @@ function stageOutOfProcessApply(appRoot, pendingDir, opts) {
   let payloadBuf = null
   try {
     payloadBuf = fs.readFileSync(zipPath)
-    const want = String(manifest.exeName).trim().toLowerCase()
-    for (const entry of listTopLevelExesInZip(payloadBuf)) {
-      if (String(entry).toLowerCase() === want) { resolvedExeName = entry; break }
-    }
+    verifyStagedPayloadIntegrity(payloadBuf, manifest.exeName)
+    resolvedExeName = manifest.exeName
   } catch (e) {
     releaseLock()
-    return { kind: 'error', error: 'payload zip scan failed: ' + e.message, diagnostics: { stage: 'payload' } }
+    return { kind: 'error', error: 'staged payload integrity failed: ' + e.message, diagnostics: { stage: 'integrity' } }
+  }
+
+  try {
+    fs.writeFileSync(path.join(pendingDir, 'startup-ack-token.txt'), crypto.randomBytes(32).toString('hex'), { encoding: 'utf8', flag: 'w' })
+  } catch (e) {
+    releaseLock()
+    return { kind: 'error', error: 'startup acknowledgement token write failed: ' + e.message, diagnostics: { stage: 'integrity' } }
   }
   if (!resolvedExeName) {
     releaseLock()
@@ -2024,4 +2249,5 @@ module.exports = {
   readPriorFailureCount, MAX_CONSECUTIVE_APPLY_FAILURES,
   // out-of-process Windows applier (Task #18 — phase-2 .bat + .vbs swap)
   stageOutOfProcessApply, buildPhase2ApplierBat, buildPhase2ApplierVbs,
+  verifyStagedPayloadIntegrity, acknowledgeSuccessfulStartup,
 }
