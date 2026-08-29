@@ -374,8 +374,10 @@ function OfficeApps() {
       const launchRequest = window.electronAPI.launchGame({
         exePath: app.exePath,
         gameName: app.name,
-        iconPath: app.image || app.icon || null,
-        iconText: app.image ? null : (app.icon || null),
+        // WALOK normally stores this as image; iconUrl keeps imported BALOK
+        // and older configurations compatible.
+        iconPath: app.image || app.iconUrl || null,
+        iconText: (app.image || app.iconUrl) ? null : (app.icon || null),
         alertType: 'Top App',
         notificationSettings: {
           notificationEnabled: settings.notificationEnabled,
@@ -415,7 +417,7 @@ function OfficeApps() {
             title={app.name}
             className={`w-8 h-8 rounded-full bg-gradient-to-br ${app.color || 'from-gray-500 to-gray-600'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
           >
-            {app.image ? <img src={app.image} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
+            {(app.image || app.iconUrl) ? <img src={app.image || app.iconUrl} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
           </motion.button>
         ))}
       </div>

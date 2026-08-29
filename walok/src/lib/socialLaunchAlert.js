@@ -28,7 +28,7 @@ export function createSocialLaunchAlertPayload(item, settings) {
     // Never send a one-character launcher glyph to the image loader as if it
     // were a file path. A configured image wins; otherwise the URL determines
     // the brand vector rendered in the Telegram card.
-    iconPath: item?.iconUrl || item?.image || item?.wallpaper || null,
+    iconPath: item?.image || item?.iconUrl || item?.wallpaper || null,
     iconText: getSocialIconText(item),
     alertType: 'Social Link',
     notificationSettings: {

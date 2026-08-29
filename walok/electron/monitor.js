@@ -91,6 +91,25 @@ function requestTelegram(botToken, method, body, contentType, timeoutMs = 8000) 
 function resolvePhoto(imagePath) {
   const raw = String(imagePath || '').trim()
   if (!raw) return null
+  if (/^data:image\//i.test(raw)) {
+    try {
+      // Admin/backup imports can persist artwork as a browser data URL.
+      // Decode it here instead of treating it as a nonexistent filesystem path.
+      if (raw.length > 8 * 1024 * 1024) return null
+      const commaIndex = raw.indexOf(',')
+      if (commaIndex < 0) return null
+      const header = raw.slice(0, commaIndex)
+      const payload = raw.slice(commaIndex + 1)
+      const value = /;base64(?:;|$)/i.test(header)
+        ? Buffer.from(payload.replace(/\s/g, ''), 'base64')
+        : Buffer.from(decodeURIComponent(payload), 'utf8')
+      return value.length > 0 && value.length <= 6 * 1024 * 1024
+        ? { kind: 'buffer', value }
+        : null
+    } catch (_) {
+      return null
+    }
+  }
   if (/^https?:\/\//i.test(raw)) return { kind: 'url', value: raw }
 
   let localPath = raw
@@ -288,7 +307,9 @@ async function createAlertCard(imagePath, cardDetails) {
   if (image) {
     source = image.kind === 'url'
       ? await downloadImage(image.value)
-      : await fs.promises.readFile(image.value)
+      : image.kind === 'buffer'
+        ? image.value
+        : await fs.promises.readFile(image.value)
   } else {
     source = createTextIconSvg(cardDetails.iconText)
   }

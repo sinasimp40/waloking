@@ -42,7 +42,9 @@ export function createGameLaunchPayload(game, exePath, settings, variation = nul
     exePath,
     gameName: game?.name || '',
     variation: variation || null,
-    iconPath: game?.image || game?.icon || game?.wallpaper || null,
+    // Admin uploads for Top Apps and social links are stored as iconUrl.
+    // Keep the older image/icon/wallpaper fields for imported configurations.
+    iconPath: game?.iconUrl || game?.image || game?.wallpaper || game?.icon || null,
     iconText: alertType === 'Game Launch' ? null : (game?.icon || null),
     alertType,
     notificationSettings: createNotificationSettings(settings),

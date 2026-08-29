@@ -102,7 +102,7 @@ export default function BottomBar() {
               className={`w-8 h-8 rounded-xl bg-gradient-to-br ${s.color || 'from-fuchsia-500 to-purple-700'} flex items-center justify-center text-white text-xs shadow-lg cursor-pointer overflow-hidden`}
               style={{ boxShadow: `0 4px 12px rgba(0,0,0,0.4)` }}
             >
-              {s.image ? <img src={s.image} alt={s.name} className="w-full h-full object-cover" /> : s.icon}
+              {(s.iconUrl || s.image) ? <img src={s.iconUrl || s.image} alt={s.name} className="w-full h-full object-cover" /> : s.icon}
             </motion.button>
           ))}
         </div>
@@ -121,7 +121,7 @@ export default function BottomBar() {
               title={app.name}
               className={`w-8 h-8 rounded-xl bg-gradient-to-br ${app.color || 'from-fuchsia-500 to-purple-700'} flex items-center justify-center text-white text-[10px] font-bold shadow-lg cursor-pointer overflow-hidden`}
             >
-              {app.image ? <img src={app.image} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
+              {(app.iconUrl || app.image) ? <img src={app.iconUrl || app.image} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
             </motion.button>
           ))}
         </div>

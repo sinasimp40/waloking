@@ -1212,7 +1212,7 @@ function OfficeSection() {
         {apps.map((app) => (
           <div key={app.id} className="flex items-center gap-3 p-3 rounded-xl border transition-all" style={{ background: 'rgba(255,255,255,0.015)', borderColor: 'rgba(255,255,255,0.04)' }}>
             <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${app.color} flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden`}>
-              {app.image ? <img src={app.image} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
+              {(app.image || app.iconUrl) ? <img src={app.image || app.iconUrl} alt={app.name} className="w-full h-full object-cover" /> : app.icon}
             </div>
             <div className="flex-1 space-y-2">
               <div className="grid grid-cols-3 gap-2">
@@ -1225,7 +1225,7 @@ function OfficeSection() {
               </div>
               <div className="flex gap-2">
                 <div className="flex-1 flex gap-1">
-                  <InputField value={app.image || ''} onChange={e => handleUpdate(app.id, 'image', e.target.value)} placeholder="Image path — overrides icon letter" className="flex-1" />
+                  <InputField value={app.image || app.iconUrl || ''} onChange={e => handleUpdate(app.id, 'image', e.target.value)} placeholder="Image path — overrides icon letter" className="flex-1" />
                   <button onClick={async () => { if (window.electronAPI?.selectImage) { const path = await window.electronAPI.selectImage(); if (path) handleUpdate(app.id, 'image', `file:///${path}`) } else { const path = prompt('Enter image path:'); if (path) handleUpdate(app.id, 'image', path) } }} className="px-2 py-2 border border-white/[0.06] rounded-lg text-white/20 hover:text-white/50 transition-all" title="Browse image"><Image size={12} /></button>
                 </div>
                 <select value={app.color} onChange={e => handleUpdate(app.id, 'color', e.target.value)} className="px-2 py-2 bg-black/30 border border-white/[0.06] rounded-lg text-white/40 text-[10px] font-rajdhani focus:outline-none w-20">

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 5174 --host 0.0.0.0",
     "build": "vite build",
+    "test:telegram-card": "node --experimental-default-type=module scripts/telegram-payload.test.mjs && node scripts/telegram-card.test.js",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5174 && electron .\"",
