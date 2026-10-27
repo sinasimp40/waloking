@@ -1,5 +1,29 @@
 # Build Balok on Windows
 
+## Customer-branded launcher
+
+For a launcher with a customer's software name and icon, use the OTA update
+server's admin panel running on **Windows**:
+
+1. Open `/admin/` and select the **Balok** tab.
+2. Add or edit the customer and check its brand name and logo.
+3. Use that customer's **Build** action, not **Build Balok (dev)**.
+
+The customer build generates `icon.ico` from the logo and sets Electron's
+product name. It also publishes the customer's OTA manifest, so it can make
+the update available to installed launchers. Only build a live customer when
+ready to release that version.
+
+The current customer build targets the host operating system. Running it on
+Replit's Linux host does not produce the Windows customer launcher.
+
+There is no `npm run build:balok` command in this repository's available scripts.
+
+## Generic development launcher
+
+The following command does **not** apply customer branding. Its default software
+name is `Launcher`; do not use it expecting a customer-named executable and logo.
+
 Install Node.js 22, then open Command Prompt in the latest project folder:
 
 ```bat

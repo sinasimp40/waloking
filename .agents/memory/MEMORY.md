@@ -2,3 +2,4 @@
 - [Windows OTA safety](windows-ota-safety.md) — Treat executable/resources replacement as transactional; Win32 ZIP aliases and startup survival require explicit gates.
 - [Dependency firewall](dependency-firewall.md) — Target locked transitive dependencies explicitly if a parent-only update retains a blocked release.
 - [Variation naming](variation-naming.md) — The picker’s overall game title is distinct from its individual edition names.
+- [Branded build intent](branded-build-intent.md) — Balok builds should preserve the customer’s software name and icon, not use generic packaging.
