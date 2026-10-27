@@ -235,7 +235,7 @@ export default function FeaturedBanner() {
                   className="font-syne font-bold text-2xl leading-tight text-white mb-1 truncate"
                   style={{ textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}
                 >
-                  {slide.game.name}
+                  {getGameVariations(slide.game).length > 0 ? (slide.game.variationTitle?.trim() || slide.game.name) : slide.game.name}
                 </motion.h2>
                 {slide.game.description && (
                   <motion.p

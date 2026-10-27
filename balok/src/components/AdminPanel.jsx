@@ -323,11 +323,22 @@ function GamesSection({ gameId }) {
                                     <Input value={v.savePath || ''} onChange={e => {
                                         const next = [...form.variations]; next[i].savePath = e.target.value; setForm(f => ({ ...f, variations: next }))
                                     }} placeholder="Save and Load Folder Path for this variation" browse="folder" />
+                                    <Field label={`Icon for ${v.label || v.name || `variation ${i + 1}`}`}>
+                                        <Input
+                                            value={v.icon || ''}
+                                            onChange={e => setForm(f => ({
+                                                ...f,
+                                                variations: f.variations.map((item, idx) => idx === i ? { ...item, icon: e.target.value } : item),
+                                            }))}
+                                            placeholder="Image URL or select an image in the desktop app"
+                                            upload
+                                        />
+                                    </Field>
                                 </div>
                             ))}
                             <button 
                                 type="button"
-                                onClick={() => setForm(f => ({ ...f, variations: [...(f.variations || []), { label: '', path: '', args: '' }] }))}
+                                onClick={() => setForm(f => ({ ...f, variations: [...(f.variations || []), { label: '', path: '', icon: '', args: '' }] }))}
                                 className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
                             >
                                 <Plus size={14} /> Add Variation

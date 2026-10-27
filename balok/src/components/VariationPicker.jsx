@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, ChevronRight, Gamepad2, X } from 'lucide-react'
+import { ChevronRight, X } from 'lucide-react'
 
 
-function VariationRow({ accent, label, kind, detail, variation, onClick }) {
+function VariationRow({ accent, label, icon, onClick }) {
   const [hover, setHover] = useState(false)
+  const [iconError, setIconError] = useState(false)
+  useEffect(() => setIconError(false), [icon])
   return (
     <button
       onClick={onClick}
@@ -19,22 +21,15 @@ function VariationRow({ accent, label, kind, detail, variation, onClick }) {
       }}
     >
       <span
-        className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0"
+        className="w-10 h-10 rounded-[10px] flex items-center justify-center flex-shrink-0 overflow-hidden text-sm font-bold"
         style={{ background: `${accent}1f`, color: accent }}
       >
-        <Play size={13} fill="currentColor" className="ml-0.5" />
+        {icon && !iconError
+          ? <img src={icon} alt="" className="w-full h-full object-cover" onError={() => setIconError(true)} />
+          : <span aria-hidden="true">{label?.trim()?.[0]?.toUpperCase() || 'G'}</span>}
       </span>
       <span className="min-w-0 flex-1">
-        <span
-          className="inline-flex mb-1 px-1.5 py-0.5 rounded-[5px] border font-jakarta text-[8px] font-bold tracking-[0.12em] uppercase"
-          style={variation
-            ? { color: '#a5b8ff', borderColor: 'rgba(132,151,255,0.25)', background: 'rgba(103,123,255,0.1)' }
-            : { color: accent, borderColor: `${accent}45`, background: `${accent}14` }}
-        >
-          {kind}
-        </span>
-        <span className="block font-jakarta text-[15px] font-semibold leading-none text-white/85 truncate">{label}</span>
-        <span className="block mt-1 font-jakarta text-[11px] tracking-wide text-white/35 truncate">{detail}</span>
+        <span className="block font-jakarta text-[15px] font-semibold text-white/85 truncate">{label}</span>
       </span>
       <ChevronRight size={17} className="text-white/25 flex-shrink-0" />
     </button>
@@ -112,9 +107,8 @@ export default function VariationPicker({ open, game, accent, variations, onLaun
               {game.exePath && (
                 <VariationRow
                   accent={accent}
-                  kind="Base game"
                   label={game.name}
-                  detail="Default installation"
+                  icon={game.iconUrl || game.icon}
                   onClick={() => onLaunch(game.exePath, game.name, null)}
                 />
               )}
@@ -122,10 +116,8 @@ export default function VariationPicker({ open, game, accent, variations, onLaun
                 <VariationRow
                   key={i}
                   accent={accent}
-                  kind="Variation"
                   label={v.label || v.name}
-                  detail="Custom launch setup"
-                  variation
+                  icon={v.icon || v.iconUrl}
                   onClick={() => onLaunch(v.path || v.exePath, v.label || v.name, v.label || v.name)}
                 />
               ))}
