@@ -14,12 +14,19 @@ Two workflows run this project on Replit:
 
 ### Runtime
 - **Node.js 22** is required — uses the built-in `node:sqlite` module (Node 20 lacks it)
+- The Replit environment is configured with the `nodejs-22` module.
 
 ### First-time setup
 ```bash
-cd balok && npm install        # launcher preview dependencies
-cd update-server && npm install  # OTA server dependencies (auto-installed on first run)
+(cd balok && npm ci)        # launcher preview dependencies
+(cd update-server && npm ci --omit=optional)  # Node 22 uses built-in SQLite
 ```
+
+Set `OTA_ADMIN_PASSWORD` in Replit Secrets, then press **Run** to start both
+workflows. The OTA server serves `/`, `/health`, and `/admin/` on port 5000.
+The default preview opens the launcher (port 5173); the update server is exposed
+on external port 5000, with its admin panel at `/admin/`. An empty game library is expected
+until titles are configured.
 
 The `scripts/post-merge.sh` script runs `npm install` for all three package roots (`update-server/`, `balok/`, `walok/`, `walok/server/`) automatically after any task merge.
 

@@ -1,2 +1,3 @@
 - [Launch card imagery](launch-card-imagery.md) — Preserve opaque icon backgrounds; only transparent artwork renders without the added card panel.
 - [Windows OTA safety](windows-ota-safety.md) — Treat executable/resources replacement as transactional; Win32 ZIP aliases and startup survival require explicit gates.
+- [Dependency firewall](dependency-firewall.md) — Target locked transitive dependencies explicitly if a parent-only update retains a blocked release.
