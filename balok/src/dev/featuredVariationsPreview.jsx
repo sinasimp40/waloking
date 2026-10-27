@@ -16,15 +16,15 @@ useStore.setState({
   games: [
     {
       id: 'preview-featured-variations',
-      name: 'Featured Variation Test',
-      description: 'Click Play Now to choose the base game, Standard Edition, or Legacy Edition. Browser launches are simulated.',
+      name: 'Rules of Survival : Legacy',
+      variationTitle: 'Rules of Survival',
+      description: 'Click Play Now: the heading is Rules of Survival, with Legacy and ros reborn as separate choices. Browser launches are simulated.',
       category: 'offline',
       isFeatured: true,
       topPickRank: 1,
       exePath: 'C:\\Preview\\base.exe',
       variations: [
-        { label: 'Standard Edition', path: 'C:\\Preview\\standard.exe' },
-        { name: 'Legacy Edition', exePath: 'C:\\Preview\\legacy.exe' },
+        { label: 'ros reborn', path: 'C:\\Preview\\reborn.exe' },
         { label: 'Incomplete entry (hidden)', path: '' },
       ],
     },

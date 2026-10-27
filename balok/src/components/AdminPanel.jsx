@@ -151,7 +151,7 @@ function GamesSection({ gameId }) {
   const [editGame, setEditGame] = useState(null)
   const [filter, setFilter] = useState('')
   const [isIgdbModalOpen, setIsIgdbModalOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', category: 'offline', icon: '', wallpaper: '', exePath: '', savePath: '', description: '', tags: '', pcGroups: [], variations: [] })
+  const [form, setForm] = useState({ name: '', variationTitle: '', category: 'offline', icon: '', wallpaper: '', exePath: '', savePath: '', description: '', tags: '', pcGroups: [], variations: [] })
   
   useEffect(() => {
     if (gameId) {
@@ -162,7 +162,7 @@ function GamesSection({ gameId }) {
   }, [gameId, games])
 
   const handleEdit = (game) => {
-    setForm({ ...game, tags: game.tags?.join(', ') || '', pcGroups: game.pcGroups || [], savePath: game.savePath || '', wallpaper: game.wallpaper || '', variations: game.variations || [] })
+    setForm({ ...game, variationTitle: game.variationTitle || '', tags: game.tags?.join(', ') || '', pcGroups: game.pcGroups || [], savePath: game.savePath || '', wallpaper: game.wallpaper || '', variations: game.variations || [] })
     setEditGame(game); setShowForm(true)
     setTimeout(() => {
       const formEl = document.getElementById('game-edit-form');
@@ -176,14 +176,14 @@ function GamesSection({ gameId }) {
   }
 
   const resetForm = () => {
-    setForm({ name: '', category: 'offline', icon: '', wallpaper: '', exePath: '', savePath: '', description: '', tags: '', pcGroups: [], variations: [] })
+    setForm({ name: '', variationTitle: '', category: 'offline', icon: '', wallpaper: '', exePath: '', savePath: '', description: '', tags: '', pcGroups: [], variations: [] })
     setEditGame(null); setShowForm(false)
   }
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!form.name.trim()) return toast.error('Name required')
-    const gameData = { ...form, tags: form.tags.split(',').map(t => t.trim()).filter(Boolean) }
+    const gameData = { ...form, variationTitle: form.variationTitle.trim(), tags: form.tags.split(',').map(t => t.trim()).filter(Boolean) }
     if (editGame) { updateGame(editGame.id, gameData); toast.success('Updated successfully') }
     else { addGame(gameData); toast.success('Game added') }
     resetForm()
@@ -294,6 +294,19 @@ function GamesSection({ gameId }) {
                     </Field>
                     <Field label="Game Variations">
                         <div className="space-y-4 p-4 bg-zinc-950/30 border border-zinc-900">
+                            {form.variations?.length > 0 && (
+                                <Field label="Main title (optional)">
+                                    <Input
+                                        value={form.variationTitle}
+                                        onChange={e => setForm(f => ({ ...f, variationTitle: e.target.value }))}
+                                        placeholder="e.g. Rules of Survival"
+                                    />
+                                    <p className="text-xs text-zinc-500 mt-2">
+                                        Shown at the top of the version picker. Game Designation stays the base-game choice.
+                                        Leave blank to use Game Designation as the heading.
+                                    </p>
+                                </Field>
+                            )}
                             {form.variations?.map((v, i) => (
                                 <div key={i} className="flex flex-col gap-4 p-4 bg-zinc-900/40 border border-zinc-800 relative group">
                                     <div className="flex gap-4">

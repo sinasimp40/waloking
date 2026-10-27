@@ -94,7 +94,7 @@ export default function VariationPicker({ open, game, accent, variations, onLaun
               />
               <div className="absolute left-[18px] right-14 bottom-4">
                 <p className="font-jakarta text-[10px] font-bold uppercase tracking-[0.15em]" style={{ color: accent }}>Choose a version</p>
-                <p className="font-syne font-bold text-[15px] leading-tight text-white truncate mt-1" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>{game.name}</p>
+                <p className="font-syne font-bold text-[15px] leading-tight text-white truncate mt-1" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>{game.variationTitle?.trim() || game.name}</p>
               </div>
               <button
                 type="button"
