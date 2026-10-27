@@ -22,6 +22,9 @@ Two workflows run this project on Replit:
 (cd update-server && npm ci --omit=optional)  # Node 22 uses built-in SQLite
 ```
 
+For a Windows `.exe` build, see `balok/BUILD-WINDOWS.md`. Balok's lockfile uses
+public npm package URLs so downloaded copies do not depend on Lovable's cache.
+
 Set `OTA_ADMIN_PASSWORD` in Replit Secrets, then press **Run** to start both
 workflows. The OTA server serves `/`, `/health`, and `/admin/` on port 5000.
 The default preview opens the launcher (port 5173); the update server is exposed
