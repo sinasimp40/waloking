@@ -115,7 +115,7 @@ export default function VariationPicker({ open, game, accent, variations, onLaun
                   kind="Base game"
                   label={game.name}
                   detail="Default installation"
-                  onClick={() => onLaunch(game.exePath, game.name)}
+                  onClick={() => onLaunch(game.exePath, game.name, null)}
                 />
               )}
               {(variations || []).map((v, i) => (
@@ -126,7 +126,7 @@ export default function VariationPicker({ open, game, accent, variations, onLaun
                   label={v.label || v.name}
                   detail="Custom launch setup"
                   variation
-                  onClick={() => onLaunch(v.path || v.exePath, v.label || v.name)}
+                  onClick={() => onLaunch(v.path || v.exePath, v.label || v.name, v.label || v.name)}
                 />
               ))}
             </div>

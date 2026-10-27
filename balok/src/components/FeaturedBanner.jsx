@@ -6,6 +6,8 @@ import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
 import { afterGameLaunch } from '../lib/afterLaunch'
 import { createGameLaunchPayload } from '../lib/gameLaunchPayload'
+import { getGameVariations } from '../lib/gameVariations'
+import VariationPicker from './VariationPicker'
 
 export default function FeaturedBanner() {
   const { games, settings, incrementLaunchCount } = useStore()
@@ -36,6 +38,8 @@ export default function FeaturedBanner() {
   const [current, setCurrent] = useState(0)
   const [direction, setDirection] = useState(1) // 1=forward, -1=backward
   const [imgError, setImgError] = useState(false)
+  const [pickerGame, setPickerGame] = useState(null)
+  const launchingRef = useRef(false)
 
   const go = (next) => {
     setDirection(next > current || (next === 0 && current === slides.length - 1) ? 1 : -1)
@@ -52,7 +56,7 @@ export default function FeaturedBanner() {
   // including the first — gets the full interval set in the control deck,
   // instead of sharing a single interval that keeps running across renders.
   useEffect(() => {
-    if (slides.length <= 1) return
+    if (slides.length <= 1 || pickerGame) return
     const seconds = Math.max(1, Number(settings.featuredRotationInterval) || 3)
     const t = setTimeout(() => {
       setDirection(1)
@@ -60,31 +64,42 @@ export default function FeaturedBanner() {
       setImgError(false)
     }, seconds * 1000)
     return () => clearTimeout(t)
-  }, [current, slides.length, settings.featuredRotationInterval])
+  }, [current, slides.length, settings.featuredRotationInterval, pickerGame])
 
   useEffect(() => { setImgError(false) }, [current])
 
 
-  const handleLaunch = async (game) => {
-    if (!game) return
-    const exePath = game.exePath || (game.variations?.length > 0 ? game.variations[0].exePath : '')
-    const label = game.exePath ? game.name : (game.variations?.length > 0 ? game.variations[0].name : game.name)
-    if (window.electronAPI) {
-      if (!exePath) { toast.error(`No executable for ${game.name}`); return }
-      const variation = game.exePath ? null : (game.variations?.[0]?.name || null)
-      const launchRequest = window.electronAPI.launchGame(
-        createGameLaunchPayload(game, exePath, settings, variation)
-      )
-      afterGameLaunch(settings)
-      const result = await launchRequest
-      if (result.success) {
-        toast.success(`Launching ${label}…`)
+  const launchExe = async (game, exePath, label, variation = null) => {
+    if (!exePath) { toast.error(`No executable for ${game.name}`); return }
+    if (launchingRef.current) return
+    launchingRef.current = true
+    try {
+      if (window.electronAPI) {
+        const launchRequest = window.electronAPI.launchGame(
+          createGameLaunchPayload(game, exePath, settings, variation)
+        )
+        afterGameLaunch(settings)
+        const result = await launchRequest
+        if (result.success) {
+          toast.success(`Launching ${label}…`)
+          incrementLaunchCount(game.id)
+        } else { toast.error(result.error || 'Failed to launch') }
+      } else {
+        toast.success(`Launching ${label}… (preview mode)`)
         incrementLaunchCount(game.id)
-      } else { toast.error(result.error || 'Failed to launch') }
-    } else {
-      toast.success(`Launching ${label}… (preview mode)`)
-      incrementLaunchCount(game.id)
+      }
+    } catch (error) {
+      toast.error(error?.message || 'Failed to launch')
+    } finally {
+      launchingRef.current = false
+      setPickerGame(null)
     }
+  }
+
+  const handleLaunch = (game) => {
+    if (!game || launchingRef.current) return
+    if (getGameVariations(game).length > 0) setPickerGame(game)
+    else launchExe(game, game.exePath, game.name)
   }
 
   if (slides.length === 0) {
@@ -151,6 +166,7 @@ export default function FeaturedBanner() {
   if (!slide) return null
 
   return (
+    <>
     <div className="mx-4 mb-4 rounded-2xl overflow-hidden relative flex-shrink-0" style={{ height: '260px', border: '1px solid rgba(255,255,255,0.06)' }}>
 
       {/* Ken Burns CSS injection — slow zoom on the bg art */}
@@ -317,5 +333,16 @@ export default function FeaturedBanner() {
         </div>
       )}
     </div>
+    {pickerGame && (
+      <VariationPicker
+        open
+        game={pickerGame}
+        accent={accent}
+        variations={getGameVariations(pickerGame)}
+        onLaunch={(exePath, label, variation) => launchExe(pickerGame, exePath, label, variation)}
+        onClose={() => setPickerGame(null)}
+      />
+    )}
+    </>
   )
 }
