@@ -1018,7 +1018,7 @@
             break
           case 'error':
             title = 'Update failed'
-            subtitle = 'Will retry automatically'
+            subtitle = 'The update could not be completed'
             statusText = errorMsg
             break
         }
@@ -1037,6 +1037,7 @@
         // Action-row visibility:
         //   stage='available'  -> Later + Proceed Update (notes panel above)
         //   stage='ready'      -> Restart now (with countdown)
+        //   stage='error'      -> Close (keep the server usable)
         //   everything else    -> no buttons
         const notesEl = $('otaNotes')
         const notesBody = $('otaNotesBody')
@@ -1048,6 +1049,14 @@
           notesBody.textContent = (info && (info.notes || (info.manifest && info.manifest.notes))) || ('Update v' + versionLabel)
           proceedBtn.style.display = ''
           laterBtn.style.display = ''
+          laterBtn.textContent = 'Later'
+          restartBtn.style.display = 'none'
+        } else if (stage === 'error') {
+          actionsEl.classList.add('visible')
+          notesEl.style.display = 'none'
+          proceedBtn.style.display = 'none'
+          laterBtn.style.display = ''
+          laterBtn.textContent = 'Close'
           restartBtn.style.display = 'none'
         } else if (stage === 'ready') {
           actionsEl.classList.add('visible')
@@ -1066,7 +1075,7 @@
         }
 
         footerEl.textContent = isError
-          ? 'Will retry on the next check cycle'
+          ? 'Close to continue using the server'
           : 'Installation is required \u2014 please wait'
       }
 
@@ -1154,7 +1163,13 @@
           startCountdown(5)
         })
         api.on('ota:error', (e) => {
-          errorMsg = (e && e.error) || 'Unknown error'
+          // A failed background manifest check is not a failed installation.
+          // Leave the dashboard (and any real update progress) untouched.
+          if (e && e.stage === 'check') {
+            console.warn('[OTA] Update check failed:', e.error || e.message || 'No details provided')
+            return
+          }
+          errorMsg = (e && (e.error || e.message)) || (typeof e === 'string' && e) || 'The update could not be completed. Check the server OTA log for details.'
           stage = 'error'
           if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
           countdown = null
