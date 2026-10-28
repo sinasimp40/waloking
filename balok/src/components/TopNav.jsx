@@ -171,7 +171,6 @@ export default function TopNav({ onSaveLoad }) {
         </div>
 
         {/* Save/Load */}
-        {settings.saveLoadServerUrl && (
           <button
             onClick={onSaveLoad}
             className="w-7 h-7 rounded-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
@@ -180,7 +179,6 @@ export default function TopNav({ onSaveLoad }) {
           >
             <Save size={12} style={{ color: accent }} />
           </button>
-        )}
 
         {/* Admin */}
         <button

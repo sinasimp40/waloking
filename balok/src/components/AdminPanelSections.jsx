@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 import useStore from '../store/useStore'
 import { getDefaultAccent } from '../lib/accent'
+import { connectSaveServer } from '../lib/saveServerDiscovery'
 import { SectionTitle, Card, Panel, PrimaryBtn, GhostBtn, Field, Input, Toggle } from './AdminPanelShared'
 
 export function RatesSection() {
@@ -364,6 +365,21 @@ export function PCGroupsSection() {
 
 export function SettingsSection() {
   const { settings, updateSettings } = useStore()
+  const [discoveryStatus, setDiscoveryStatus] = useState('idle')
+  const [discoveryMessage, setDiscoveryMessage] = useState('')
+  const scanServer = async () => {
+    setDiscoveryStatus('searching')
+    setDiscoveryMessage('')
+    const result = await connectSaveServer({
+      discover: window.electronAPI?.discoverServer,
+      getState: useStore.getState,
+      replaceExisting: true,
+    })
+    setDiscoveryStatus(result.success ? 'found' : 'not-found')
+    setDiscoveryMessage(result.success ? `Connected to ${result.url}` : result.cancelled
+      ? 'Server address changed; scan result was not applied.'
+      : result.error || 'Automatic discovery is available in the desktop app.')
+  }
 
   return (
     <div className="space-y-8">
@@ -402,8 +418,21 @@ export function SettingsSection() {
             <Input 
               value={settings.saveLoadServerUrl || ''} 
               onChange={e => updateSettings({ saveLoadServerUrl: e.target.value })} 
-              placeholder="Auto-detecting..." 
+              placeholder="http://192.168.1.100:3456" 
             />
+            <div className="mt-2 space-y-2">
+              <button type="button" onClick={scanServer}
+                disabled={discoveryStatus === 'searching' || !window.electronAPI?.discoverServer}
+                className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs text-white/70 hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/70 disabled:opacity-40 disabled:cursor-not-allowed">
+                <Search size={13} className={discoveryStatus === 'searching' ? 'animate-pulse' : ''} />
+                {discoveryStatus === 'searching' ? 'Scanning…' : 'Auto-detect server'}
+              </button>
+              <p role="status" className="text-xs text-white/50">
+                {discoveryMessage || (window.electronAPI?.discoverServer
+                  ? 'Scans automatically on startup when no address is configured. The server must be running on the same network.'
+                  : 'LAN scanning requires the desktop app. You can enter a server address manually.')}
+              </p>
+            </div>
           </Field>
         </div>
       </Panel>

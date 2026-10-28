@@ -212,16 +212,15 @@ export default function TopBar({ onSaveLoad }) {
 
         <VolumePin accent={accent} compact />
 
-        {settings.saveLoadServerUrl && (
           <button
             onClick={onSaveLoad}
             className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"
             title="Save & Load"
+            aria-label="Save & Load"
             style={{ WebkitAppRegion: 'no-drag' }}
           >
             <Save size={12} style={{ color: 'rgba(255,255,255,0.4)' }} />
           </button>
-        )}
         <button
           onClick={openAdmin}
           className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center transition-all hover:bg-white/10"

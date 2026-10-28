@@ -8,6 +8,7 @@ import RightPanel from './components/RightPanel'
 import AdminPanel from './components/AdminPanel'
 import AdminLogin from './components/AdminLogin'
 import SaveLoadModal from './components/SaveLoadModal'
+import { connectSaveServer } from './lib/saveServerDiscovery'
 import UpdateModal from './components/UpdateModal'
 import IPTVPlayer from './components/IPTVPlayer'
 
@@ -95,6 +96,28 @@ export default function App() {
   useEffect(() => {
     const t = setTimeout(() => document.body.classList.add('app-ready'), 100)
     return () => clearTimeout(t)
+  }, [])
+
+  // Discover the companion Save & Load server without changing manual settings.
+  useEffect(() => {
+    if (!window.electronAPI?.discoverServer) return
+    let active = true
+    let scanning = false
+    const scan = async () => {
+      if (!active || scanning || useStore.getState().settings.saveLoadServerUrl) return
+      scanning = true
+      try {
+        await connectSaveServer({
+          discover: window.electronAPI.discoverServer,
+          getState: useStore.getState,
+          isActive: () => active,
+        })
+      } finally { scanning = false }
+    }
+    scan()
+    // The companion server may start after the launcher.
+    const timer = setInterval(scan, 30000)
+    return () => { active = false; clearInterval(timer) }
   }, [])
 
   // Local IP detection
