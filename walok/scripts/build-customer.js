@@ -436,7 +436,9 @@ async function main() {
     rmrfWithRetrySync(serverOutDir)
     substep('electron-builder (server)', () => {
       log('Step 4/5: electron-builder (server) -> ' + path.relative(ROOT, serverOutDir))
-      run('npm run dist:server -- -c.directories.output=' + JSON.stringify(serverOutDir))
+      // Call the packager in the server project directly: nested npm scripts
+      // consume the output flag as npm config instead of forwarding it.
+      run('npx electron-builder -c.directories.output=' + JSON.stringify(serverOutDir), path.join(ROOT, 'server'))
     })
   }
 
